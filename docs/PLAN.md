@@ -1,535 +1,229 @@
-<!--
-juncture-tier: opus
--->
-
-# rDLP — Current Plan: D. REFACTOR (arc-2 layout + code-depth de-provenancing)
-
-The rolling, current-sub-track view of the work, in `/plan-run`-executable form (session list +
-contracts + ledger + digest). Rewritten at sub-track boundaries. For the project-lifetime view, see
-`docs/ROADMAP.md`. For the planning philosophy, see
-`~/.config/opencode/multisession/multi-session-planning.md`. The completed A. SURVEY plan this
-replaces is preserved in git history (PLAN.md at `89dcc8a`).
-
-`juncture-tier: opus` (header above) — **held at the default; the lever-5 opt-down was available but
-not taken.** REFACTOR is the first arc-2 *campaign* (SURVEY was the substrate). It does two things:
-(1) **collapse the `rho` re-export wrappers** and freeze the final crate layout (C-Layout, the one
-compiler-enforced contract that binds CONSOLIDATE and EXTEND), and (2) **execute the code-depth
-de-provenancing** SURVEY cataloged — re-anchoring ~524 planning-frame tokens in `//!`/`///`/`//`
-doc-comments onto topic-native names, plus the single identifier rename SURVEY found. The five levers:
-
-1. **Ambient complexity — MODERATE (a garden).** The arc-1 codebase is coherent and KAT-disciplined —
-   the manual's "garden" case, not spaghetti. The de-provenancing surface is wide (9 crates, ~524
-   tokens) but shallow per file. Pushes mildly smaller; does not force fine grain.
-2. **Irreducible complexity (the FLOOR) — LOW for de-provenancing, MODERATE for the wrapper collapse.**
-   De-provenancing is mechanical re-anchoring against an *already-frozen* classification (SURVEY's
-   residue/grouping split, C-Coherence code-half, is done; REFACTOR executes it). The conceptual unit
-   per file is tiny. The one real floor is **D.1's wrapper collapse** — it carries compiler blast
-   radius across `rho/src/` and freezes C-Layout, so it is a genuine structural conceptual unit that
-   must not be fractured.
-3. **Cost of a design error — SPLIT.** For de-provenancing: **LOW** — a comment scrub that picks a
-   weak topic-native phrase is trivially reversible; no downstream chain consumes the exact wording.
-   For the D.1 collapse + C-Layout freeze: **HIGH** — the ROADMAP names REFACTOR "the arc's
-   rigidity/blast-radius node"; C-Layout is compiler-enforced and a wrong freeze propagates into
-   CONSOLIDATE and EXTEND. Open-Q 1 (keep Track-E with the rho baseline — no crate split) removed the
-   *largest* layout decision, but the wrapper-collapse is a real structural change, so the
-   blast-radius concern is live, not discharged.
-4. **Correctness-criticality — LOW.** This is what distinguishes REFACTOR from SURVEY: **REFACTOR has
-   a real inner loop.** Every change is caught by `cargo check --workspace` (the collapse + the one
-   identifier rename are compiler-checked) and `cargo test --workspace` (the dedup is KAT-checked;
-   doc-comment scrubs are behaviourally inert). A wrong scrub cannot ship a behavioural regression.
-5. **Inner-loop bandwidth — STRONG (the opposite of SURVEY's weak-lever-5).** The ROADMAP states it:
-   "arc-1's codebase is a *garden* … lever 5 is strong, which licenses smaller, denser commits and
-   opting juncture-tier down to sonnet where correctness-criticality is also low." For REFACTOR,
-   lever 5 is strong **and** lever 4 is low — the exact coincidence the manual names for the
-   juncture-tier opt-down to Sonnet.
-
-On the levers: **4 (low criticality) and 5 (strong loop) made the `sonnet` juncture-tier opt-down
-genuinely available** — this is the first arc-2 sub-track where it is. The human elected to **hold
-`opus`** anyway, honoring the ROADMAP's explicit pre-commitment of REFACTOR as the blast-radius node:
-C-Layout is compiler-enforced and binds two downstream campaigns, and the D.1 wrapper-collapse turned
-out to be a real structural change (not the 2-file test-deletion first imagined), so the
-rigidity-node framing holds and the stronger adjudicator earns its (cheap, one-shot) differential at
-the single ◆ freeze. **One ◆ boundary — D.6 ◆** (freeze C-Coherence code-half + ratify C-Layout +
-fold discoveries up), an `@architect` inflection point.
-
-**The decomposition is by crate-weight, larger-grained than SURVEY (lever-5 strong).** Six sessions:
-one structural substrate (D.1, the collapse + C-Layout freeze, goes first so later sessions
-de-provenance final paths), four de-provenance sessions split by crate weight (`rho` is 55% of the
-work and splits at a contract-sharp token-class seam; `gnfs`, then `shor`+`shared/*`), and one
-integrative ◆ freeze. The **one-line-commit-title corollary** holds for every row.
-
----
+# ALIGN — workspace development policy
 
 ## Purpose (design intent)
 
-Re-read at every ◆ boundary (anti-defocus anchor). From the arc-2 ROADMAP design intent:
+Reconcile rDLP's development formalities with rust-template without changing mathematical behavior.
+Implement SURVEY findings F-D1-01 through F-D1-09 here; prepare a separate rust-template handoff for
+F-D1-10 through F-D1-12 and the approved root-toolchain policy. Do not mix repositories in one run.
 
-> **The artifact must stand on its own terms, not as the realization of an executed plan.** A reader
-> who never saw the roadmap should encounter a library organized by *topic* — the mathematics of
-> discrete logarithms — not by *track* and *phase*, the order in which the work was built. The git
-> history is where the construction narrative belongs; the code, docs, and names should cohere on the
-> subject's own principles.
+This supersedes the completed REFACTOR ledger, preserved in git history. Its layout/coherence
+contracts remain binding. Completing this graph closes the rDLP portion, not all bidirectional ALIGN.
 
-REFACTOR is the **code-half** of that principle made concrete (CONSOLIDATE owns the prose-half).
-Its charge is narrow and bounded by the SURVEY findings (C-Findings): collapse the contrived `rho`
-re-export wrappers into the genuinely-generic `shared/*` substrate they shadow, and re-anchor every
-**code-adjacent** planning-frame token (`//!`/`///`/`//` doc-comments, the one identifier) onto
-topic-native names — exactly the residue SURVEY cataloged, nothing more. The anti-defocus question at
-the ◆: *does the refactored code read as a topic-organized library without inventing structure SURVEY
-did not find (defocus) or leaving a cataloged token un-scrubbed (rigidity)?* The single most
-important property: **REFACTOR touches code-adjacent artifacts only — human prose is CONSOLIDATE's,
-config is ALIGN's, the CADO sidecar is ORACLE's** (the scope-routing invariant; misrouting is the
-primary cross-campaign defocus mode).
-
-The user's stated standard for the layout work: **code simplicity at the expense of plan-execution
-complexity — non-contrived elegance, transparency, durability, symmetry.** The wrapper collapse (D.1)
-is the load-bearing application of this: the `rho::field`/`rho::util` wrappers add a third naming
-layer over an upstream alias (`shared_field::FpMonty4`) that already exists, preserving no
-parameterization the trait's genericity does not already give. Collapsing them removes contrivance,
-not capability.
-
----
+Use this graph as the session-economics step-3 pilot described in
+/home/justin/Source/opencode-config/PLAN.md. Pilot evidence establishes compatibility, not savings.
 
 ## Verify gate
 
-`VERIFY_TEST = cargo test --workspace`. `VERIFY_TYPES = cargo check --workspace`. Discovered, not
-assumed: no Makefile / justfile / xtask wrapper (the workspace `Cargo.toml` carries only
-`[workspace]` with 9 members + `resolver = "2"` + a `[profile.bench]`); raw `cargo` is the only CI
-surface (unchanged since the arc-1 terminus and confirmed at this shard's preflight survey).
-`/plan-run` re-discovers at preflight. Unlike SURVEY, **REFACTOR's VERIFY gate is a real correctness
-gate, not a pure regression guard** — this is the lever-5-strong reality:
+VERIFY_TYPES: `cargo check --workspace`
+VERIFY_TEST: `cargo test --workspace`
 
-- **`cargo check --workspace` is the primary gate for the collapse + the identifier rename.** D.1
-  rewrites `rho` call-sites from `crate::field::{FpMonty, FpNaive}` to `shared_field::{FpMonty4,
-  FpNaive4}` (or equivalent); the compiler finds every missed site. D.3's rename of the one test
-  identifier is likewise compiler-checked. A green `cargo check` is the proof the structural change
-  is complete.
-- **`cargo test --workspace` is the gate for the dedup + a behavioural-inertness check.** D.1 removes
-  the three duplicated `batch_invert` tests; `shared/bigint` must still cover them (it does — same
-  three cases). The doc-comment de-provenance (D.2–D.5) is behaviourally inert: the full KAT suite
-  must stay **identically green** before and after each scrub. A test delta in a de-provenance session
-  means a scrub touched code, not a comment — a defocus red flag to HALT.
-- **No `cargo bench` involvement on the green path.** D.2 re-anchors bench *doc-comments and labels*
-  (`rho/benches/ecdlp.rs` Phase-N, `rho/benches/attacks.rs` `E.W.1`); it does not run or alter bench
-  *logic*. `VERIFY_BENCH` is N/A to the gate, but benches must still compile (`cargo check` covers
-  `--benches` where the workspace builds them).
-- **The de-provenance correctness gate is review + behavioural-inertness, not a new test.** A scrub's
-  correctness = *completeness* (every cataloged token re-anchored) + *fidelity* (topic-native name is
-  accurate) + *inertness* (no behavioural change). The compiler+KAT loop catches inertness violations;
-  completeness/fidelity is the ◆ review's job.
+Both must pass at every session boundary. Preserve existing mathematical KATs and ignored-oracle
+behavior. Do not add `--include-ignored` or silently substitute benchmark execution for tests.
 
----
+User-approved ALIGN-only acceptance rule: configuration/documentation rows use the explicit native
+assertions below instead of /plan-run's requirement for a new or changed test file. The driver must
+bind this interpretation before dispatch. No compiler, regression, scope, or commit gate is waived.
+
+New gates become mandatory after their introducing row succeeds:
+- B.3: `cargo deny check`.
+- B.4: `cargo fmt --all -- --check`.
+- B.5: `cargo clippy --workspace --all-targets -- -D warnings`.
+- B.6: `cargo llvm-cov --workspace --fail-under-lines <approved-floor>`.
+
+Prospective gate failures are baseline evidence before adoption, not successful gate results.
+A missing required tool blocks adoption. Tool installation requires separate approval.
 
 ## Session list
 
-One commit-shaped session per row. `Cat`: **A** substrate (D.1, the structural collapse + C-Layout
-freeze) / **I** integrative (D.6 ◆); the de-provenance sessions D.2–D.5 are **A**-flavoured
-(code-adjacent substrate cleanup, not new algorithm). `Tier`: D.2–D.5 are **Sonnet** `@build`
-(mechanical re-anchoring against the frozen C-Coherence code-half catalog — the classification is
-done, the executor applies it under the compiler+KAT loop); **D.1 and the D.6 ◆ are Opus** (D.1 is
-the compiler-blast structural change that freezes C-Layout; D.6 is the inflection freeze).
-`Consumes`: the frozen SURVEY contracts (C-Coherence code-half, C-Findings REFACTOR ledger row,
-C-Layout sketch). `◆` marks the sub-track-final freeze; `@architect` marks the inflection point.
+| # | Session | Cat | Tier | Consumes | Expected files |
+|---|---------|-----|------|----------|----------------|
+| B.1 | Record workspace quality-gate readiness | A | T1 | C-Scope | docs/NOTES.md; AGENTS.md |
+| B.2 | Declare inherited workspace licensing | A | T1 | C-Scope; C-Baseline | Manifests M; LICENSE |
+| B.3 | Add workspace dependency audit policy | A | T1 | C-Baseline; C-License | deny.toml; .cargo/config.toml |
+| B.4 | Normalize workspace formatting and toolchain scope | A | T1 | C-Baseline | rust-toolchain.toml; rho/rust-toolchain.toml; rustfmt.toml; .cargo/config.toml |
+| B.5 | Enforce inherited workspace lint policy | A | T1 | C-Baseline; C-Toolchain | Manifests M; .cargo/config.toml |
+| B.6 | Add the measured workspace coverage gate | A | T1 | C-Baseline; C-Toolchain | .cargo/config.toml; docs/NOTES.md |
+| B.7 | ◆ Publish the contributor guide and template-seeding handoff | I | T1 | All contracts above | docs/development.md; AGENTS.md; docs/NOTES.md |
 
-| #   | Session                                                              | Cat | Tier   | Consumes                       | Expected files |
-|-----|---------------------------------------------------------------------|-----|--------|--------------------------------|----------------|
-| D.1 | Collapse `rho` re-export wrappers + freeze final crate layout       | A   | **Opus** | C-Layout sketch, F-D5-02/03  | `rho/src/field/` (remove), `rho/src/util/batch_inv.rs` + `mp.rs` (remove), `rho/src/util/mod.rs`, `rho/src/lib.rs`, and `rho/src/**` call-sites importing `crate::field`/`crate::util` (compiler-driven) |
-| D.2 | Re-anchor `rho` baseline doc-comment provenance (`Phase N` → topic) | A   | Sonnet | C-Coherence code-half, F-D9-01 | `rho/src/ecdlp/{mod,cli,walk}.rs`, `rho/src/curve/*.rs`, `rho/src/factor/*.rs`, `rho/src/field/monty.rs`, `rho/benches/{ecdlp,field,factor}.rs`, `rho/tests/ecdlp_kat.rs` |
-| D.3 | Re-anchor `rho` attack-module provenance + rename the one test id   | A   | Sonnet | C-Coherence code-half, F-D9-03…06 | `rho/src/{pairing,ghs,semaev,index_calculus,ssa,binary_curve,binary_ecdlp,hyperelliptic}/**`, `rho/tests/*_kat.rs`, `rho/benches/attacks.rs`, `rho/src/lib.rs` |
-| D.4 | Re-anchor `gnfs` doc-comment provenance (`Track D` + sub-track IDs) | A   | Sonnet | C-Coherence code-half, F-D9-02/03 | `gnfs/src/{dl,linalg,polyselect,sieve,filter,sqrt}/**`, `gnfs/src/lib.rs`, `gnfs/tests/*_kat.rs` |
-| D.5 | Re-anchor `shor` + `shared/*` doc-comment provenance                | A   | Sonnet | C-Coherence code-half, F-D9-03/05 | `shor/src/**`, `shor/tests/*_kat.rs`, `shared/{padic,gf2m,numth,numfield}/src/**` + `tests/**` |
-| D.6 | **◆ @architect** Freeze C-Layout + C-Coherence code-half; fold up   | I   | **Opus** | D.1–D.5, C-Coherence sketch  | `docs/PLAN.md` (contracts + ledger), `docs/ROADMAP.md` (status + discoveries), `docs/NOTES.md` |
+Manifests M means exactly these paths; expand them in dispatch and commit filesets:
+`Cargo.toml`, `gnfs/Cargo.toml`, `rho/Cargo.toml`, `shor/Cargo.toml`,
+`shared/field/Cargo.toml`, `shared/bigint/Cargo.toml`, `shared/numth/Cargo.toml`,
+`shared/numfield/Cargo.toml`, `shared/padic/Cargo.toml`, `shared/gf2m/Cargo.toml`.
 
----
+All implementation workers are T1. The configured T0 @plan-juncture handles discovery adjudication
+and the final boundary review. No speculative @architect inflection marker is needed.
 
 ## Session detail
 
-Per-row deliverable, ≥1 KAT (or, for behaviourally-inert de-provenance rows, the **inertness KAT
-invariant** — the full suite stays identically green; a row that *changes* a KAT result has broken
-scope and is flagged), subtleties, deferrals. D.1 is crisply specified (the collapse direction is
-decided below); D.2–D.5 apply the frozen C-Coherence code-half catalog; D.6's shape is correctly
-lower-fidelity until D.1–D.5 land.
+### B.1 — Verification readiness
+Deliver an appended baseline in NOTES and a minimal AGENTS guide naming working workspace commands,
+oracle policy, and register discipline. Do not copy unrelated template application conventions.
+Inventory installed toolchains/components and developer tools; select an exact stable release for
+the root pin. Measure prospective format/lint/coverage/audit readiness where tools are available.
+Probe the intended workspace-wide lint policy, not merely the three existing opted-in manifests.
+Record missing tools and prospective failures honestly; group remediation by real file/contract seams.
+Acceptance/KAT: both VERIFY commands pass; Cargo metadata resolves the nine declared workspace
+members; recorded commands/results correspond to this tree and selected toolchain.
+Missing optional tools may remain explicit blockers for later rows; B.1 does not certify those gates.
 
-**Every REFACTOR session shares one hard invariant: code-adjacent only, behaviourally inert (except
-D.1's structural collapse, which is compiler+KAT-verified equivalent).** A session that edits human
-prose (`PEDAGOGY.md`/`MATHEMATICS.md`/`README.md` — CONSOLIDATE's), a config/manifest (ALIGN's), the
-CADO sidecar (ORACLE's), or that *changes a KAT result* in a de-provenance row has broken scope — a
-HALT-and-surface defocus signal, the scope-routing invariant enforced.
+### B.2 — Licensing
+Add the template's GPL license text and GPL-3.0-or-later workspace package metadata, inherited by every
+member. Preserve package identities, dependencies, editions, and layout.
+Acceptance/KAT: `cargo metadata --no-deps --format-version 1` resolves GPL-3.0-or-later for every
+workspace package; LICENSE matches the intended GPL text; VERIFY passes.
+The broad manifest fileset is one atomic inheritance change, not unrelated per-crate cleanup.
 
-### D.1 — Collapse `rho` re-export wrappers + freeze final crate layout — **Opus**
+### B.3 — Dependency audit
+Adapt the template's advisory/license/source policy to the installed cargo-deny schema and actual
+dependency graph. Add the `audit` alias. Do not copy comments pointing to template-local NOTES.
+Acceptance/KAT: `cargo deny check` and `cargo audit` pass under the same policy.
+Do not suppress advisories, widen trusted sources, or update dependencies silently to get green.
+Necessary dependency remediation is a discovery requiring a separately scoped decision.
 
-- **Deliverable.** Remove the contrived `rho`-local re-export wrappers and rewrite call-sites to use
-  the `shared/*` substrate directly, then freeze C-Layout. Specifically: (a) delete `rho/src/field/`
-  (the 25-line `mod.rs` aliasing `shared_field::Fp`/`FpNaive<4>`/`FpMonty<4>`) and have `rho` import
-  `shared_field::{Fp, FpNaive4, FpMonty4}` (the aliases `shared_field` *already exports*, lib.rs:40-43)
-  at call-sites; (b) delete the duplicated `batch_invert` tests and the `pub use` shim in
-  `rho/src/util/batch_inv.rs`, having `rho` import `shared_bigint::batch_invert` directly; (c) remove
-  the empty `rho/src/util/mp.rs` stub; (d) collapse or remove `rho/src/util/mod.rs` accordingly. The
-  `F: Fp<4>` *trait bounds* stay as-is (the trait is genuinely generic — only the local *aliases* and
-  the duplicated *tests* are contrivance). Green `cargo check --workspace` + `cargo test --workspace`
-  is the proof of equivalence.
-- **KAT (≥1).** No *new* KAT — the contract here is **behavioural equivalence under the existing
-  suite**: every `rho` KAT (ecdlp, factor, curve, all attack-module KATs) stays identically green,
-  and `shared/bigint`'s `batch_invert` tests (the three the wrapper duplicated) remain the sole
-  coverage. *Freezes C-Layout (compiler-enforced).*
-- **Subtleties — why Opus, and the design rationale.** SURVEY (F-D5-02) found these wrappers are thin
-  re-exports existing "for backward compatibility with the rest of `rho`" — i.e. construction-history
-  convenience. The load-bearing finding (this shard's preflight read): `shared_field` is *correctly*
-  generic over the limb count `L`, and **already exports `FpMonty4`/`FpNaive4` aliases** (`shared/
-  field/src/lib.rs:40-43). The `rho` wrappers therefore add a *third* naming layer over an existing
-  upstream alias and preserve **no** parameterization the trait does not already give — the collapse
-  loses nothing. This is the user's "non-contrived elegance" standard applied: remove the indirection.
-  Opus because this is the campaign's compiler-blast-radius node — the call-site rewrite spans
-  `rho/src/{curve,ssa,ecdlp,pairing,binary_ecdlp,factor,...}` and a wrong layout freeze invalidates
-  CONSOLIDATE + EXTEND.
-- **Ordering (load-bearing).** D.1 goes **first** so D.2–D.5 de-provenance *final* file paths. D.1 is
-  structural (compiler change); D.2+ are comment-only on the result — a clean contract seam, no
-  overlapping-edit fracture even though D.1 and D.2 both touch `rho/src/field/monty.rs` (D.1 rewrites
-  its imports; D.2 scrubs its `Phase 1` doc-comment, on the post-collapse file).
-- **Deferral.** No de-provenancing here (that is D.2–D.5) beyond what the file deletions incidentally
-  remove. No human-prose, no config.
+### B.4 — Root toolchain and formatting
+Replace rho's floating-stable file with one root rust-toolchain.toml pinning the verified stable
+release. Declare rustfmt, clippy, and llvm-tools-preview; do not trigger unapproved installations.
+Add rustfmt.toml with max_width = 100 and the `format` / `fmt-check` aliases.
+Acceptance/KAT: root and member-directory toolchain discovery resolve the intended release absent
+external overrides; no member toolchain files remain; `cargo fmt-check` and VERIFY pass.
+Repeat relevant baselines if the selected release differs from the one initially measured.
+Broad formatting changes are not authorized by this config fileset; surface and shard them separately.
 
-### D.2 — Re-anchor `rho` baseline doc-comment provenance — Sonnet
+### B.5 — Workspace lints
+Define workspace Rust lints (unsafe_code forbid; missing_docs warn) and Clippy groups (all deny;
+pedantic warn, explicit group priorities). Replace existing member duplicates with inheritance and
+opt every member in. Add the workspace-wide strict `lint` alias.
+Acceptance/KAT: all members inherit the policy; `cargo lint` passes with warnings denied; VERIFY passes.
+If baseline findings require source/test remediation, stop for measured remediation shards before
+adopting the gate. No broad lint suppressions, hidden behavioral changes, or catch-all cleanup.
 
-- **Deliverable.** Re-anchor the **`Phase N` pure-residue tokens** (F-D9-01) in the Pollard-rho
-  baseline + optimization stack onto optimization-layer names: `Phase 4`→r-adding walk, `Phase 5`→
-  distinguished-point search, `Phase 6`→negation map, `Phase 7`→batched inversion, `Phase 8`→GLV
-  endomorphism; remove "Phase 1/2 deliverable" framing from bench doc-comments. Files: `rho/src/ecdlp/
-  {mod,cli,walk}.rs`, `rho/src/curve/{mod,secp_k1_toy,generic,test_curves}.rs`, `rho/src/field/
-  monty.rs`, `rho/benches/{ecdlp,field,factor}.rs`, `rho/tests/ecdlp_kat.rs` (the `Phase 3,4` +
-  `Phase E.A.2` section headers). ~60 tokens.
-- **KAT (inertness invariant).** No KAT result changes — comment-only. The full `rho` suite stays
-  identically green. *Applies C-Coherence code-half; freezes nothing (D.6 ratifies).*
-- **Subtleties — the algorithmic-phase exclusion (load-bearing).** SURVEY explicitly carved out
-  **algorithmic** `Phase 1/2/3` labels that are *step indices inside a single function* — in
-  `rho/src/ecdlp/walk.rs` (batched-inversion loop steps) and `rho/src/index_calculus/solve.rs`
-  (Gaussian-elim steps). **These are NOT residue and must NOT be scrubbed.** The executor distinguishes
-  planning-frame `Phase N` (session-phase labels in module/bench doc-comments) from algorithmic
-  `Phase N` (numbered steps of one algorithm). Misclassifying either way is a fidelity error caught at
-  D.6 review.
-- **Deferral.** `rho/benches/attacks.rs` (`E.W.1`) and the attack modules belong to D.3 (distinct
-  token class). Human-prose PEDAGOGY `Phase N` is CONSOLIDATE's (F-D9-10).
+### B.6 — Coverage
+Measure workspace coverage under the pinned toolchain and record command, denominator, and result.
+The ratified starting floor is 80%; any recalibration needs an explicit evidence-backed decision,
+not automatic lowering to the observed result. Add the resulting `coverage` alias.
+Acceptance/KAT: `cargo coverage` enforces the recorded floor and passes; VERIFY passes.
+Do not execute ignored oracle tests or exclude arbitrary source files to raise the score.
+Not running ignored tests does not automatically remove their otherwise-uncovered code from the
+coverage denominator. Record the actual semantics.
 
-### D.3 — Re-anchor `rho` attack-module provenance + rename the one test id — Sonnet
-
-- **Deliverable.** Two coupled re-anchors over the 8 Track-E attack modules + their tests (the bulk of
-  `rho`'s residue, ~sub-track-ID-class): (a) replace **sub-track IDs** (`E.B`, `E.C`, `E.E`, `E.H.n`,
-  `E.J.n`, `E.K.n`, `E.G.n`) and **contract-label tokens** (`C-AnomalousLift`, `C-IndexCalc`,
-  `C-Pairing`, etc.) in `///`/`//!`/`//` comments across `rho/src/{pairing,ghs,semaev,index_calculus,
-  ssa,binary_curve,binary_ecdlp,hyperelliptic}/**` and `rho/tests/*_kat.rs` with topic-native
-  references (module paths, function names, or removal where the ID is the only content); replace the
-  `PLAN.md`/`session contract`/`◆ sub-track close` references (F-D9-05) and the `E.W.1` bench label
-  (F-D9-06); (b) **rename the single identifier** `sub_track_close_curve_axioms_intact` →
-  `binary_curve_axioms_intact` (or `curve_axioms_hold_after_full_suite`) in `rho/tests/
-  binary_curve_kat.rs:582` (F-D9-04). ~230 tokens + 1 rename.
-- **KAT (≥1 + inertness).** The renamed test still passes (compiler+test-checked — the one
-  non-inert change, verified by the suite staying green with the renamed test). All other changes
-  comment-only. *Applies C-Coherence code-half.*
-- **Subtleties.** `rho/tests/index_calculus_kat.rs` is the single densest file (~41 tokens, incl. the
-  `E.K.5 ◆` milestone labels and `principle-4 boundary` references). Re-anchor on the mathematics
-  ("principle-4 boundary: index calculus over `E(F_p)` at toy scale"). The `index_calculus/solve.rs`
-  `Phase 1/2` *algorithmic* labels are excluded here too (same carve-out as D.2). The contract-label
-  tokens (`C-IndexCalc` etc.) are pure residue — the mathematical content is the interface, not the
-  planning contract name.
-- **Deferral.** `gnfs`/`shor`/`shared` IDs are D.4/D.5. Human prose is CONSOLIDATE's.
-
-### D.4 — Re-anchor `gnfs` doc-comment provenance — Sonnet
-
-- **Deliverable.** Replace `Track D` (F-D9-02, `gnfs/src/dl/mod.rs` + descent sub-modules — "NFS-DL
-  bridge sub-track (Track D)" → "NFS-DL substrate"; "callers within Track D" → "callers within
-  `gnfs::dl`") and the sub-track IDs (`D.A.n`, `D.B.n`, `D.C.n`, `D.E.n`, `G.B.n`…`G.F.n`) +
-  `PLAN.md`/`session contract` references in `///`/`//!`/`//` comments across `gnfs/src/{dl,linalg,
-  polyselect,sieve,filter,sqrt}/**` and `gnfs/tests/*_kat.rs`. ~110 tokens.
-- **KAT (inertness invariant).** Comment-only; full `gnfs` suite stays identically green. *Applies
-  C-Coherence code-half.*
-- **Subtleties.** `gnfs/src/dl/` is already topic-named (`dl` is topic-native) — the `Track D` token
-  adds only provenance. Coarse pipeline-stage groupings (`G.B`–`G.W` = GNFS pipeline stages) map onto
-  real stages; per open-Q 4 (preserve-under-topic-label), keep the *grouping* where a comment
-  describes a real pipeline stage, drop only the *letter-id*. This is the borderline-default applied
-  at code depth.
-- **Deferral.** `gnfs/docs/PEDAGOGY.md` prose is CONSOLIDATE's (F-D9-13). No layout change in `gnfs`
-  (F-D5-03: no dedup needed).
-
-### D.5 — Re-anchor `shor` + `shared/*` doc-comment provenance — Sonnet
-
-- **Deliverable.** Replace sub-track IDs (`S.X.n`, `E.D`, `E.E`, `E.F.1`, `E.H.1`, `E.K`) + `◆`
-  marks + `PLAN.md`/`session contract` references in `///`/`//!`/`//` comments across `shor/src/**`,
-  `shor/tests/*_kat.rs`, and `shared/{padic,gf2m,numth,numfield}/src/**` + `tests/**`. Notable: the
-  `PLAN.md E.D.2` ref in `shared/padic/tests/hensel_kat.rs:6` → "Hand-computed Newton iteration for
-  `f(x)=x²−2`, `p=7`"; the `G.A.1a session contract` ref in `shared/numfield/tests/numfield_kat.rs:3`
-  → "KATs for number-field arithmetic over ℤ[α]". ~124 tokens (`shor` ~83 + `shared/*` ~41).
-- **KAT (inertness invariant).** Comment-only; full `shor` + `shared/*` suites stay identically green.
-  *Applies C-Coherence code-half.*
-- **Subtleties — two carve-outs (load-bearing).** (a) `shor/tests/factor_kat.rs` `Phase N/M` tokens
-  are **quantum phase estimation** (a mathematical term: "Phase 64/256 = 1/4"), NOT planning residue —
-  do NOT scrub. (b) The coarse `S.A/S.B/S.C` Shor sub-track groupings are the open-Q-4 borderline:
-  per preserve-under-topic-label, keep coarse groupings that name a real Shor stage, dissolve only
-  fine-grained `S.X.Y` IDs. `shared/field` and `shared/bigint` are already clean (0 tokens).
-- **Deferral.** `shor/docs/PEDAGOGY.md` prose + `◆` marks there are CONSOLIDATE's (F-D9-12/14).
-
-### D.6 — **◆ @architect** Freeze C-Layout + C-Coherence code-half; fold up — **Opus**
-
-- **Deliverable (lower-fidelity by design — consumes D.1–D.5).** Ratify the final crate layout into
-  **C-Layout (compiler-enforced, now FROZEN)** — the collapse landed, `rho` imports `shared/*`
-  directly, layout is final and binds CONSOLIDATE + EXTEND; **freeze the C-Coherence code-half** (the
-  cataloged code-depth residue is now scrubbed — record the completion against the SURVEY catalog);
-  verify every F-D9-01…06 token is re-anchored (completeness) and the renames/scrubs are
-  topic-faithful (fidelity); fold the durable discoveries up into the ROADMAP Discoveries log and mark
-  D. REFACTOR done; surface any residual decision (e.g. a token that resisted clean re-anchoring) to
-  the human.
-- **KAT (≥1).** The frozen C-Layout *is* the contract — proven by green `cargo check`/`cargo test`
-  `--workspace`. The C-Coherence code-half freeze is proven by the catalog being fully consumed (every
-  F-D9 code-row scrubbed) with the suite identically green.
-- **Subtleties — why ◆ + @architect + Opus.** The inflection: REFACTOR's static→action transform for
-  the *code* layer. C-Layout is compiler-enforced and binds two downstream campaigns; freezing it
-  wrong propagates. Unlike SURVEY, lever-5 is strong here, so the inner loop *already* proved
-  behavioural correctness session-by-session — the ◆'s job is **completeness/fidelity adjudication +
-  the contract freeze**, not catching behavioural drift. The juncture fork pages `@plan-juncture` at
-  **opus** (`juncture-tier: opus`, held despite the lever-5 opt-down being available, per the
-  ROADMAP's blast-radius pre-commitment).
-- **Deferral.** D.6 freezes C-Layout + C-Coherence-code-half only. It does **not** touch C-DocsLayer/
-  C-MathSpine (CONSOLIDATE), C-Oracle (ORACLE), or the prose-half of C-Coherence (CONSOLIDATE owns
-  F-D9-07…14). Those stay "to be frozen at <campaign>."
-
----
+### B.7 — Contributor guide and template handoff
+Create docs/development.md from the now-verified commands and policies; make AGENTS point to it.
+Explain setup, exact-toolchain upgrades, check commands, KAT-first coverage, and opt-in oracles.
+Record the rDLP-side C-TemplateSeed handoff in NOTES: findings consumed, adapted conventions, and
+concrete rust-template targets. Template execution remains separate.
+Acceptance/KAT: documented commands agree with aliases and run successfully; relative links resolve;
+the native assertions above and all adopted gates pass; planning-register anneal is clean.
+Do not sweep unrelated mathematical prose, fix earlier implementation loose ends, or claim the
+template repository has changed.
 
 ## Cross-session contracts
 
-One subsection per contract, tagged compiler-/test-/prose-enforced, with Defined-in and Consumed-by.
-REFACTOR freezes **C-Layout** (compiler) and the **code-half of C-Coherence** (prose) at the D.6 ◆.
-The SURVEY-frozen contracts (C-Findings, C-Testing-Philosophy, C-Coherence prose-half) are *consumed*
-here and restated only where REFACTOR binds them; the not-yet-frozen ones (C-DocsLayer, C-MathSpine,
-C-Oracle) are untouched and remain "to be frozen at <campaign>."
+### C-Scope — prose-enforced; frozen by approved shard
+Defined-in: SURVEY findings and this approval. Consumed-by: B.1–B.7.
+Preserve C-Layout, mathematical behavior, oracle isolation, and topic-native durable prose.
+Only enumerated configuration/manifest/contributor-guide work is authorized. Existing REFACTOR
+residue remains CONSOLIDATE's responsibility. rust-template changes require their own execution plan.
 
-### C-Layout *(compiler)* — **FROZEN at D.6 ◆ (ratified)**
+### C-Baseline — prose/native-check-enforced; to be frozen at B.1
+Defined-in: B.1. Consumed-by: B.2–B.7.
+Verified workspace identity, exact-toolchain candidate, existing green regression commands, and
+prospective-gate findings with missing data distinguished from success. This is readiness evidence,
+not permission to treat failed new gates as adopted.
 
-- **Ratification (D.6 ◆, 2026-06-21).** The collapse landed at D.1 (`42e2356`) and is verified
-  complete: `cargo check --workspace` and `cargo test --workspace` are both green at the D.5 terminus
-  (`3ef9aca`). `rho/src/field/{mod,monty,naive}.rs`, `rho/src/util/{batch_inv,mp,mod}.rs` are removed;
-  `rho` imports `shared_field::{Fp, FpNaive4, FpMonty4}` and `shared_bigint::batch_invert` directly
-  (confirmed at call-sites, e.g. `rho/benches/attacks.rs:30`); the `F: Fp<4>` trait bounds are
-  preserved; no crate split; no other `shared/*` dedup. The compiler-enforced contract is **the proof
-  is the green workspace** — this is the lever-5-strong reality the PLAN names. **The layout is final
-  and binds CONSOLIDATE + EXTEND.** Two collapse-forced extras (digest D.1) are ratified as mechanical
-  consequences, not scope violations: `shor/Cargo.toml` gained a `shared-field` dev-dep (the compiler
-  forced it once `rho::field::FpMonty` was no longer re-exported), and `monty.rs`/`naive.rs` under
-  `rho/src/field/` turned out to be dead code never declared in `mod.rs` (removed with the wrapper).
-- **Defined-in:** D.1 (the collapse) + D.6 ◆ (the ratified freeze). A.2 (SURVEY) produced the
-  layout-audit findings; open-Q 1 resolved the crate-split question.
-- **Consumed-by:** CONSOLIDATE (docs reference the final layout), EXTEND (new code sits in it).
-- **Governing statement (the resolved layout).**
-  - **No crate split (open-Q 1 = keep-with-baseline, human-ratified).** The 8 Track-E attack modules
-    stay co-located with the Pollard-rho baseline in the `rho` crate. Rationale: the E.W cross-attack
-    bench measures the attacks *against* the rho baseline and they share `rho::curve`/`rho::field`
-    types directly; the "attacks live with the baseline they're measured against" cohesion is
-    load-bearing pedagogy. *(Worse at: a reader still meets a larger surface than "Pollard rho"
-    advertises — accepted.)* The `rho` crate description should be updated to name the Track-E content
-    (a REFACTOR-internal doc-comment fix, folded into D.3).
-  - **Wrappers collapsed (D.1, human-ratified).** `rho/src/field/` and `rho/src/util/batch_inv.rs`'s
-    re-export shims + duplicated tests + the `mp.rs` stub are removed; `rho` imports `shared_field::
-    {Fp, FpNaive4, FpMonty4}` and `shared_bigint::batch_invert` directly. The `F: Fp<4>` trait bounds
-    remain (the trait is genuinely generic; only the local aliases were contrivance). This is the
-    "non-contrived elegance" standard: the wrappers shadowed an upstream alias (`shared_field::
-    FpMonty4`) that already existed and preserved no parameterization the trait did not already give.
-  - **No other `shared/*` dedup (F-D5-03).** The six `shared/*` crates have distinct, non-overlapping
-    concerns. REFACTOR inventing further dedup is defocus.
-- **Falsifiability self-test.** "REFACTOR peers Track-E into a new crate" → violates open-Q-1 ratify;
-  "REFACTOR keeps the duplicated `batch_invert` tests" → violates D.1; "REFACTOR dedups two `shared/*`
-  crates" → defocus (F-D5-03). The frozen layout is the boundary every later campaign is checked
-  against.
+### C-License — native-check-enforced; to be frozen at B.2
+Defined-in: B.2. Consumed-by: B.3, B.7.
+All workspace members resolve GPL-3.0-or-later and the root license text is present.
 
-### C-Coherence *(prose)* — code-half **FROZEN at D.6 ◆ (ratified, with a recorded residue)**; prose-half **to be frozen at CONSOLIDATE**
+### C-Audit — native-check-enforced; to be frozen at B.3
+Defined-in: B.3. Consumed-by: subsequent gates and B.7.
+The validated dependency policy and audit alias agree; exceptions require explicit justification.
 
-- **Ratification (D.6 ◆, 2026-06-21).** The cataloged code-depth residue (F-D9-01…06) is scrubbed
-  across D.2–D.5 (`89f1e22`, `84b993c`, `f2302a4`, `3ef9aca`) — the ~524-token catalog re-anchored
-  (the diffs touch more lines than that, since re-anchoring rewrites collateral surrounding text),
-  the full KAT suite identically green throughout (inertness invariant held). **Completeness ≈ 99%
-  against the catalog; fidelity confirmed.** The three load-bearing carve-outs all held (verified):
-  the algorithmic `Phase 1/2/3` step-indices in `rho/src/ecdlp/walk.rs` and `Phase 1/2` in
-  `rho/src/index_calculus/solve.rs` are preserved; the quantum-phase-estimation `Phase N/M` tokens
-  in `shor/tests/factor_kat.rs` are preserved. The named contract-label residue
-  (`C-AnomalousLift`/`C-IndexCalc`/`C-Pairing`) is removed. The codebase's own
-  **interface-contract vocabulary** (`C-StateVec`, `C-PointAdd`, `C-ModExp`, `C-QFT`, `C-Factor`,
-  `C-OrderFind`, `C-Sparse`, `C-Relation`, `C-Ideal`, `C-Res`, `C-NF`, `C-AlgSqrt`, `C-Padic`,
-  `C-Hensel`, `C-PadicLog`, `C-HyperCurve`, `C-MovBridge`) is **correctly preserved** — these are
-  arc-1 design vocabulary naming living interfaces, not planning-frame residue; scrubbing them would
-  be the defocus failure mode. Fidelity exemplar: `shor/src/lib.rs` had `(C-PointAdd, frozen S.C.1)`
-  — D.5 stripped the construction-history half and kept the interface name, exactly the intended
-  re-anchoring.
-- **Recorded residue (completeness gap, surfaced to the human — NOT a freeze blocker).** Five
-  pure-residue sub-track-ID tokens escaped the D.2–D.5 sweep, all behaviourally inert doc-comment
-  text in lower-density peripheral files: (1) `rho/src/curve/test_curves.rs:36` `Pohlig–Hellman
-  (E.A.2)`; (2) `rho/src/curve/test_curves.rs:139` `Pohlig–Hellman (E.A)`; (3–4)
-  `rho/benches/attacks.rs:20,26` `E.W table` / `E.W.2 chapter` (the line-1 `E.W.1` *was* scrubbed at
-  D.3; interior refs were missed); (5) `rho/tests/hyperelliptic_kat.rs:6` `## E.I.2` section header.
-  Per lever-3 (de-provenancing cost = LOW, trivially reversible, no downstream chain consumes the
-  wording) this is a rigidity-side miss, not a defocus or scope error, and is recorded for a fast
-  follow-up or fold into CONSOLIDATE (which owns the prose-half coherence sweep and will be in these
-  files' neighbourhood). The code-half freeze stands with this residue logged.
-- **Defined-in:** SURVEY A.7 (the catalog + classification, already frozen). REFACTOR D.6 freezes the
-  **code-half execution** (the cataloged code-depth tokens are scrubbed); CONSOLIDATE freezes the
-  prose-half.
-- **Consumed-by:** REFACTOR (code half — this sub-track), CONSOLIDATE (prose half), binding on EXTEND
-  naming.
-- **Code-half statement (what REFACTOR executes and D.6 freezes).** Every cataloged code-depth token
-  (F-D9-01…06) is re-anchored or removed: `Phase N` planning labels → optimization-layer names
-  (excluding algorithmic step-indices in `walk.rs`/`solve.rs`); `Track D` → topic-native language;
-  sub-track IDs + contract-label tokens (`C-*`) → topic-native references or removal; the single
-  identifier `sub_track_close_curve_axioms_intact` → topic-native test name. Coarse groupings that
-  coincide with a real topic (open-Q 4 = preserve-under-topic-label) keep the grouping, drop the
-  letter-id; pure-residue fine-grained IDs dissolve. Quantum-phase-estimation `Phase` in
-  `shor/tests/factor_kat.rs` is a math term, excluded.
-- **Falsifiability self-test.** "REFACTOR scrubs `walk.rs` algorithmic `Phase 1`" → fidelity error
-  (not residue); "REFACTOR edits `MATHEMATICS.md` `Track ρ`" → mis-routed (that is CONSOLIDATE,
-  F-D9-07); "REFACTOR leaves `E.K.5 ◆` in `index_calculus_kat.rs`" → incompleteness.
+### C-Toolchain — native-check/prose-enforced; to be frozen at B.4
+Defined-in: B.4. Consumed-by: B.5–B.7.
+One exact stable root toolchain, required development components, no member overrides, and
+100-column rustfmt policy. This selects development tools; it does not establish an untested MSRV.
 
-### C-Findings *(prose)* — **FROZEN at SURVEY A.7; consumed here**
+### C-Lints — compiler/native-check-enforced; to be frozen at B.5
+Defined-in: B.5. Consumed-by: B.6–B.7.
+Every member inherits the stated workspace policy and the strict workspace lint command is green.
 
-- **Consumed-by (REFACTOR row):** the authoritative scope source. REFACTOR's in-scope set is
-  F-D5-02/03 (layout/dedup) + F-D9-01…06 (code-depth de-provenancing). *Defocus boundary:* REFACTOR
-  touches code-adjacent artifacts only; human prose is CONSOLIDATE's, config ALIGN's, CADO sidecar
-  ORACLE's. The **scope-routing invariant** is the primary cross-campaign defocus mode and binds every
-  session here.
+### C-Coverage — native-check/prose-enforced; to be frozen at B.6
+Defined-in: B.6. Consumed-by: B.7 and future test work.
+Mathematical KATs remain primary; the measured, approved line floor is secondary. Command,
+denominator, oracle exclusions, and threshold rationale are explicit.
 
-### C-Testing-Philosophy *(prose)* — **FROZEN at SURVEY; consumed here**
-
-- **Consumed-by (REFACTOR):** REFACTOR adds no new tests; it *removes* the three duplicated
-  `batch_invert` tests (D.1) and *renames* one (D.3), honoring the two-tier norm and the
-  "one-file-per-algorithm-family" norm. The dedup removal is licensed because `shared/bigint` already
-  covers the cases (no coverage lost). No KAT result changes in any de-provenance session (inertness).
-
-### C-DocsLayer / C-MathSpine *(prose)* — **to be frozen at CONSOLIDATE** *(untouched here)*
-
-REFACTOR does not touch these. Recorded for completeness; CONSOLIDATE freezes them after consuming the
-final layout C-Layout freezes here.
-
-### C-Oracle *(test)* — **to be frozen at ORACLE** *(untouched here)*
-
-REFACTOR does not touch the CADO sidecar.
-
----
+### C-TemplateSeed — prose-enforced; rDLP side to be frozen at B.7
+Defined-in: B.7. Consumed-by: a separate rust-template plan.
+Seed root-toolchain policy, appropriately sized rolling-context conventions, opt-in oracle guidance,
+and docs-reference discipline into the template. Do not prematurely freeze CONSOLIDATE's C-DocsLayer.
+Expected template targets: rust-toolchain.toml, AGENTS.md, docs/development.md; confirm in that repo.
+The full bidirectional contract remains pending until the template changes are verified.
 
 ## Progress ledger
 
-All rows `pending` at shard time. `/plan-run` maintains this (Status pending→done, Commit hash, the
-contract(s) each session froze).
-
-| #   | Session                                                              | Status  | Commit | Froze |
-|-----|---------------------------------------------------------------------|---------|--------|-------|
-| D.1 | Collapse `rho` re-export wrappers + freeze final crate layout       | done    | 42e2356 | C-Layout (compiler, ratified at D.6); extras: `shor/Cargo.toml` (dev-dep forced by collapse), `shor/tests/ecdlp_kat.rs`, `Cargo.lock` |
-| D.2 | Re-anchor `rho` baseline doc-comment provenance                     | done    | 89f1e22 |       |
-| D.3 | Re-anchor `rho` attack-module provenance + rename the one test id   | done    | 84b993c |       |
-| D.4 | Re-anchor `gnfs` doc-comment provenance                             | done    | f2302a4 |       |
-| D.5 | Re-anchor `shor` + `shared/*` doc-comment provenance                | done    | 3ef9aca |       |
-| D.6 | ◆ Freeze C-Layout + C-Coherence code-half; fold up                  | done    | 9f01faa | C-Layout (compiler, FROZEN); C-Coherence code-half (prose, FROZEN, ~99% completeness, 5-token residue for CONSOLIDATE) |
-
----
+| # | Session | Status | Commit | Froze |
+|---|---------|--------|--------|-------|
+| B.1 | Record workspace quality-gate readiness | pending | — | — |
+| B.2 | Declare inherited workspace licensing | pending | — | — |
+| B.3 | Add workspace dependency audit policy | pending | — | — |
+| B.4 | Normalize workspace formatting and toolchain scope | pending | — | — |
+| B.5 | Enforce inherited workspace lint policy | pending | — | — |
+| B.6 | Add the measured workspace coverage gate | pending | — | — |
+| B.7 | ◆ Publish the contributor guide and template-seeding handoff | pending | — | — |
 
 ## Action-frame digest
 
-The externalized action frame `/plan-run` appends to on non-trivial iterations (a call-site the
-collapse missed that the compiler caught, a token that resists clean topic-native re-anchoring, a
-borderline grouping where open-Q-4's preserve-under-topic-label is ambiguous, an algorithmic-vs-
-planning `Phase N` judgment call) and that the D.6 ◆ juncture fork consumes.
-
-### D.1 — 2026-06-21
-Discovery/flex: `rho/src/field/` had 3 files (monty.rs, naive.rs were dead code never declared in mod.rs); `shor/tests/ecdlp_kat.rs` imported `rho::field::FpMonty` and required `shor/Cargo.toml` dev-dep addition.
-Affected: C-Layout (no change to layout premise; extras are mechanical consequences of the collapse)
-Deferred: no
-Texture: Both discoveries are internal-continue; the `shor` dev-dep addition is a structural necessity (compiler-forced), not a REFACTOR-scope violation. C-Layout is established; D.6 ratifies.
-
-### D.6 — 2026-06-21
-Discovery/flex: ~1% completeness gap — five pure-residue sub-track-ID tokens escaped the D.2–D.5 sweep (behaviourally inert, lower-density peripheral files).
-Affected: C-Coherence code-half (freeze stands; residue recorded in contract subsection)
-Deferred: yes — fold into CONSOLIDATE (which owns the prose-half coherence sweep and will be in these files' neighbourhood); not a blocker for any downstream campaign.
-Texture: C-Layout ratified clean (green workspace proof). C-Coherence code-half frozen at ~99% completeness; the 5-token residue is a rigidity-side miss per lever-3, not a defocus or scope error.
-
----
+*(none yet)*
 
 ## Discoveries & risks
 
-Carried *down* from the ROADMAP Discoveries log (D5, D9) and the SURVEY findings, phrased as
-`/plan-run` reads for discovery adjudication (internal-continue / additive-reshard / destructive-HALT).
-The reverse flow — discoveries accrued here folded back *up* into the ROADMAP — happens at the D.6 ◆.
-
-- **The code-adjacent-vs-prose line is the central REFACTOR defocus risk.** A session that edits
-  `PEDAGOGY.md`/`MATHEMATICS.md`/`README.md` content, a config/manifest, or the CADO sidecar has
-  broken scope (those are CONSOLIDATE/ALIGN/ORACLE). **Internal-continue → REFACTOR scrubs
-  code-adjacent `//!`/`///`/`//` doc-comments + identifiers only.** A prose/config edit is a
-  HALT-and-surface defocus signal — the scope-routing invariant enforced.
-- **The behavioural-inertness line (de-provenance sessions D.2–D.5).** A doc-comment scrub that
-  changes a KAT result means a scrub touched *code*, not a comment. **Internal-continue → comment-only
-  edits keep the suite identically green;** a test delta is a HALT-and-surface red flag, not an
-  accommodation.
-- **The algorithmic-vs-planning `Phase N` distinction (D.2, D.3, D.5) — known concrete carve-outs.**
-  `walk.rs`/`solve.rs` algorithmic step-indices and `shor/tests/factor_kat.rs` quantum-phase tokens
-  are NOT residue. **Internal-continue → the executor distinguishes by context (numbered step of one
-  algorithm vs session-phase label);** a misclassification is caught at the D.6 fidelity review, not a
-  reshard. If a *new* ambiguous case appears beyond the cataloged carve-outs, note it in the digest.
-- **D.1 collapse blast radius (confirmed bounded) — open-Q-1 keep-with-baseline ratified.** The
-  call-site rewrite spans `rho/src/{curve,ssa,ecdlp,pairing,binary_ecdlp,factor,...}` but every site
-  is compiler-checked. **Internal-continue → `cargo check --workspace` finds every missed site;** a
-  collapse that fails to compile is fixed in-session, not a HALT. The design rationale (wrappers
-  shadow an existing upstream alias, preserve no parameterization) is recorded in NOTES.
-- **C-Coherence borderline groupings (open-Q 4 = preserve-under-topic-label, ratified) — D.4/D.5.**
-  Coarse pipeline/Shor-stage groupings keep the grouping, drop the letter-id; fine-grained IDs
-  dissolve. **Internal-continue → apply the ratified default;** a genuinely-new borderline case the
-  catalog did not anticipate is a digest note for D.6, not a reshard.
-- **~5 residue tokens escaped the D.2–D.5 sweep (recorded at D.6 ◆, NOT a freeze blocker) —
-  flagged for CONSOLIDATE.** Five pure-residue sub-track-ID tokens in lower-density peripheral
-  files were not caught by the D.2–D.5 sessions: (1) `rho/src/curve/test_curves.rs:36`
-  `Pohlig–Hellman (E.A.2)`; (2) `rho/src/curve/test_curves.rs:139` `Pohlig–Hellman (E.A)`;
-  (3–4) `rho/benches/attacks.rs:20,26` `E.W table` / `E.W.2 chapter` (the line-1 `E.W.1` was
-  scrubbed at D.3; interior refs were missed); (5) `rho/tests/hyperelliptic_kat.rs:6` `## E.I.2`
-  section header. All are behaviourally inert doc-comment text. Per lever-3 (de-provenancing cost
-  = LOW, trivially reversible, no downstream chain consumes the wording) this is a rigidity-side
-  miss, not a defocus or scope error. The code-half freeze stands with this residue logged.
-  **Recommended disposition: fold into CONSOLIDATE** (which owns the prose-half coherence sweep
-  and will be in these files' neighbourhood); alternatively, a fast follow-up scrub before
-  CONSOLIDATE opens.
-- **Risk — additive reshard at D.6.** If D.1–D.5 surface a *layout* concern SURVEY missed (a real
-  dedup or peering need beyond F-D5-02/03), that is an **additive reshard** surfaced at D.6, never a
-  silent scope expansion. If a finding *invalidates C-Layout's premise* (e.g. the collapse breaks a
-  downstream consumer that cannot be fixed in-layout), that is a **destructive-HALT** to the human.
-
----
+- Confirmed: prior REFACTOR rows are done; durable discoveries are already in ROADMAP/NOTES.
+- Confirmed survey evidence: coverage is unmeasured; lint inheritance currently covers only three
+  members. cargo-deny and cargo-llvm-cov were not found in the surveyed environment; recheck at B.1.
+- Internal-continue: command/schema adaptation and documented missing optional tools at baseline.
+- Additive-reshard: measured formatting/lint/dependency remediation exceeds the config filesets.
+  With halt-at-boundaries, surface the proposed shards; do not insert and execute them silently.
+- Destructive-HALT: a proposed change invalidates frozen layout, behavior, oracle, or licensing
+  intent and cannot be reconciled. Do not weaken gates to close a row.
+- Runtime/plugin loading, live attribution, accounting, and output persistence remain unverified.
+  Deterministic tests recorded as passing in the config plan are not live integration evidence.
+- There is no estimate that this entire graph fits within $10. Unfinished rows remain pending.
 
 ## Notes for executors
 
-- **Read `docs/ROADMAP.md` first** (the arc-2 design intent — the artifact-stands-on-its-own-terms
-  principle — and the D. REFACTOR charge: "restructure crate peering/organisation and eliminate
-  duplicative code, strictly gated on the SURVEY layout audit; also owns the code-depth half of
-  de-provenancing") and the SURVEY findings in `docs/SURVEY.md` (F-D5-01…03, F-D9-01…06) before any
-  session.
-- **Tier routing.** **D.1 is Opus `@build`** (the compiler-blast structural collapse + C-Layout
-  freeze — the campaign's rigidity node). **D.2–D.5 are Sonnet `@build`** (mechanical re-anchoring
-  against the frozen C-Coherence code-half catalog, under the compiler+KAT inner loop). **D.6 ◆ is
-  Opus `@architect`** (the inflection freeze + static→action transform). The D.6 ◆ fork pages
-  `@plan-juncture` at **opus** — `juncture-tier: opus`. **Note: the lever-5 opt-down to
-  `@plan-juncture-sonnet` was *available* here** (strong test loop + low criticality, the first arc-2
-  sub-track where it is) **but was not taken**, honoring the ROADMAP's pre-commitment of REFACTOR as
-  the blast-radius node and the D.1 collapse being a genuine structural change.
-- **Register: Rust code + code-adjacent doc-comments** (`STYLE-CODE-RUST.md` + `STYLE-DOC.md`). D.1
-  edits real code (imports, call-sites, test deletion/rename) — full `STYLE-CODE-RUST.md` register
-  applies. D.2–D.5 edit `//!`/`///`/`//` doc-comments — the thin/mechanical docstring register; the
-  re-anchored text names the mathematics, not the construction history. **No human-prose register**
-  (PEDAGOGY/MATHEMATICS/README are CONSOLIDATE's).
-- **Invariants to preserve.** **Code-adjacent only** (no human prose, no config, no CADO — the
-  scope-routing invariant; a cross-boundary edit is a HALT-and-surface). **Behaviourally inert**
-  (D.2–D.5 change comments, not behaviour; a KAT-result delta is a red flag). **The `F: Fp<4>` bounds
-  stay** (the trait is genuinely generic; only the local aliases + duplicated tests were contrivance).
-  **The algorithmic-`Phase N` carve-outs hold** (`walk.rs`/`solve.rs`/`shor factor_kat.rs` are not
-  residue). **Open-Q-1 (no crate split) and open-Q-4 (preserve-under-topic-label) are ratified** — do
-  not re-open them mid-session.
-- **The VERIFY gate is a real correctness gate** (lever-5 strong). `cargo check --workspace` proves
-  the D.1 collapse + the D.3 rename are complete; `cargo test --workspace` proves the dedup keeps
-  coverage and the de-provenance is inert. Both must be green at every session boundary.
-- **Suggested first invocation:** **`/plan-run docs/PLAN.md halt-at-boundaries`** — REFACTOR is the
-  first arc-2 *campaign* (a new contract shape: executing the frozen SURVEY catalog rather than
-  producing findings) with **one load-bearing inflection** (D.6 freezes C-Layout, which binds
-  CONSOLIDATE + EXTEND). The conservative default halts at the D.6 ◆ for the layout/coherence freeze
-  review. *(Tradeoff vs `autonomous`: `halt-at-boundaries` costs little — there is one boundary, the
-  D.6 ◆ — and buys a guaranteed human check at the compiler-enforced contract that propagates into two
-  downstream campaigns. The strong inner loop (lever 5) means D.1–D.5 run autonomously with high
-  confidence up to the ◆; only the freeze pauses. Given C-Layout's blast radius (the reason the
-  juncture stays opus), the halt is clearly worth it.)*
+Five-input sizing: moderate ambient complexity; inheritance supplies the broad-row irreducible
+floor; gate design-error cost and correctness-criticality favor separate adoption rows; strong
+behavioral KATs but unknown lint/coverage readiness require baseline discovery first.
+Outlier check: no broad source/test row, no repeated per-file cleanup, no catch-all final fixer.
+
+REGISTER: state the property/reason/invariant, never the plan coordinate, in source/tests/human docs.
+B.1 seeds this rule in AGENTS; sharding does not write AGENTS in architect mode.
+Anneal only ALIGN-owned durable files, excluding rolling context and AGENTS. Denylist:
+`\bB\.[1-7]\b`, `sub-track`, `frozen contract`, `PLAN\.md`, `ROADMAP\.md`, `action-frame`,
+`◆`, `\bCat [ABC]\b`, `plan-(run|shard|juncture)`. Do not sweep pre-existing unrelated prose.
+
+Pilot authorization: user approved real rDLP execution instead of disposable copies and $10 TOTAL
+for the pilot, not per session. Start accounting at the fresh pilot-preflight session; include all
+enrolled parents, workers, fixes, committers, reviews, and restarts. This sharding session is excluded.
+There is no separate template budget. No pushes or automatic reversions.
+
+Before live execution, @build runs the config plan's deterministic gate and checks runtime/plugin
+loading. Establish a workable external spend-cap arrangement; the plugin cannot enforce the cap.
+If only best-effort monitoring is available, disclose that and obtain approval before live calls.
+Missing or zero-priced model accounting cannot certify remaining budget.
+
+Use fresh observe-only startup first. First /plan-run dispatch authorization is B.1 ONLY: run its
+normal verification, session commit, and ledger commit, then stop before B.2. This explicit pilot
+stop is not a CLI flag and does not falsely mark B.1 as a sub-track-final row.
+Review observe evidence; restart a fresh advisory-mode session before authorizing subsequent rows.
+Carry cumulative spend across the restart. Do not restart or silently enroll existing sessions.
+
+Suggested invocation from @plan-admin: `/plan-run docs/PLAN.md halt-at-boundaries`, accompanied by
+the B.1-only observe-run instruction above. Resume remaining rows only after the pilot checkpoint.
+Retain existing commit, regression, discovery, and scope gates. Budget exhaustion never authorizes
+a false green commit; preserve/report incomplete work and request further authorization.
+
+Record session IDs, modes, accounting comparisons, notice overhead, output preservation, failures,
+and observed strategy changes in the opencode-config pilot report, not shipped rDLP documentation.
+Task-boundary reports need no threshold crossing. Worker notices do; if none fires naturally,
+mark live notice delivery unverified rather than inflate workload or change thresholds covertly.

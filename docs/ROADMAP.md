@@ -312,6 +312,16 @@ accepting the A.7 adjudicator recommendations:
 
 ---
 
+### ALIGN boundary decisions (2026-09-17)
+
+- The rDLP portion is seven sessions: readiness baseline, licensing, dependency audit, root
+  toolchain/formatting, workspace lints, measured coverage, and contributor-guide/template handoff.
+- One exact stable root toolchain replaces the member-local floating-stable file. Select and verify
+  the release during baseline work; forward-seed the root-toolchain policy into rust-template.
+- Workspace-wide gate adoption may expose source remediation. Measure first and shard actual
+  remediation separately; do not hide it inside a config-only row.
+- B.7 closes only the rDLP portion. Bidirectional ALIGN remains open until template changes land.
+
 ## Status
 
 All not-started at construction. `/plan-shard` marks in-progress; the reconcile step marks done.
@@ -319,7 +329,7 @@ All not-started at construction. `/plan-shard` marks in-progress; the reconcile 
 | Sub-track | Status |
 |-----------|--------|
 | A. SURVEY | **done** (A.7 ◆ closed 2026-06-21; findings ledger frozen in docs/SURVEY.md; contracts frozen in docs/PLAN.md) |
-| B. ALIGN | not-started |
+| B. ALIGN | **in progress** (rDLP portion sharded; rust-template forward-seeds remain a separate handoff) |
 | C. ORACLE | not-started |
 | D. REFACTOR | **done** (D.6 ◆ closed 2026-06-21; C-Layout + C-Coherence code-half frozen; discoveries folded up) |
 | E. CONSOLIDATE | not-started |
