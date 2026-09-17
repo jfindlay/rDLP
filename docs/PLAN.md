@@ -164,7 +164,7 @@ The full bidirectional contract remains pending until the template changes are v
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
 | B.1 | Record workspace quality-gate readiness | done | c1b0832 | C-Baseline (prose/native-check) |
-| B.2 | Declare inherited workspace licensing | pending | — | — |
+| B.2 | Declare inherited workspace licensing | done | 0bfe20c | C-License (native-check) |
 | B.3 | Add workspace dependency audit policy | pending | — | — |
 | B.4 | Normalize workspace formatting and toolchain scope | pending | — | — |
 | B.5 | Enforce inherited workspace lint policy | pending | — | — |
