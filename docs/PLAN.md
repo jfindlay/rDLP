@@ -163,7 +163,7 @@ The full bidirectional contract remains pending until the template changes are v
 
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
-| B.1 | Record workspace quality-gate readiness | pending | — | — |
+| B.1 | Record workspace quality-gate readiness | done | c1b0832 | C-Baseline (prose/native-check) |
 | B.2 | Declare inherited workspace licensing | pending | — | — |
 | B.3 | Add workspace dependency audit policy | pending | — | — |
 | B.4 | Normalize workspace formatting and toolchain scope | pending | — | — |
@@ -173,7 +173,29 @@ The full bidirectional contract remains pending until the template changes are v
 
 ## Action-frame digest
 
-*(none yet)*
+### B.1 — 2026-09-17
+Discovery/flex: root toolchain candidate is rustc/cargo 1.95.0; `cargo fmt --all -- --check` fails
+workspace-wide (no rustfmt.toml, never formatted, ~1000+ hunks across ~170 files); `cargo clippy
+--workspace --all-targets` fails outright — the three manifests already opted into `[lints.clippy]
+all = "deny"` (`shor`, `shared/padic`, `shared/gf2m`) hit hard compile errors under the installed
+clippy 0.1.95, independent of any workspace-wide lint-adoption decision; `cargo-deny`, `cargo-audit`,
+`cargo-llvm-cov`/`llvm-tools-preview`, `cargo-tarpaulin` are all absent (not checked, not failed); no
+LICENSE file anywhere, every package resolves `license: null`; `rho/rust-toolchain.toml` (floating
+`stable`) and a second independent `rho/Cargo.lock` are pre-workspace residue, currently non-
+conflicting.
+Affected: C-Baseline (produced, frozen as above); none of this contradicts C-Scope (the only other
+frozen contract) — all findings are within the PLAN's own pre-anticipated "internal-continue" class
+(Discoveries & risks: "coverage is unmeasured... cargo-deny and cargo-llvm-cov were not found...
+recheck at B.1").
+Deferred: yes — B.5's session detail already anticipates exactly the already-broken-clippy-policy
+case ("If baseline findings require source/test remediation, stop for measured remediation shards
+before adopting the gate"); the next juncture/executor touching B.5 should re-examine whether fixing
+`shor`/`shared/padic`/`shared/gf2m`'s existing lint violations is a prerequisite shard before B.5
+can adopt a workspace-wide policy. B.4 should re-examine the `rho/rust-toolchain.toml` +
+`rho/Cargo.lock` residue when normalizing toolchain scope.
+Texture: format/lint readiness is much rougher than "probe and adopt" — B.4's formatting row is
+realistically a one-time whole-workspace reformat, not incremental; B.5 inherits a lint policy that
+is already red on 3/9 crates before any workspace-wide widening is even considered.
 
 ## Discoveries & risks
 
