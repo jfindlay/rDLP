@@ -219,3 +219,69 @@ Two identifier renames were made (both compiler- and test-verified):
   `rho/tests/binary_curve_kat.rs:582` (D.3 scope — sub-track-ID removal from test name).
 - `c_ek_relation_round_trip` → `relation_round_trip` in `rho/tests/index_calculus_kat.rs` (D.3
   scope — contract-label prefix `c_ek_` removed).
+
+---
+
+## Workspace verification-tooling baseline (2026-09-17)
+
+A measured, honest snapshot of this workspace's build/test health and its readiness for format,
+lint, dependency-audit, and coverage tooling, taken against one specific toolchain so that later
+tool-adoption decisions have real evidence instead of assumptions. "Not checked" (tool absent) is
+recorded separately from "checked and failed" (tool ran, did not pass) throughout.
+
+### Toolchain and workspace identity — checked and passed
+
+The active default stable toolchain, installed via `rustup` (`rustc`/`cargo` 1.95.0, with matching
+`rustfmt` 1.9.0-stable and `clippy` 0.1.95 shipped alongside it), is verified working end to end and
+is the recommended exact release for the workspace's root toolchain pin. `cargo metadata --no-deps
+--format-version 1` resolves exactly the nine intended workspace members (`gnfs`, `rho`, `shor`,
+`shared-bigint`, `shared-field`, `shared-gf2m`, `shared-numfield`, `shared-numth`, `shared-padic`).
+`cargo check --workspace` and `cargo test --workspace` are both green: every test that runs passes;
+the only non-passing outcome anywhere in the suite is the pre-existing `#[ignore]` gate on tests
+that need an external PARI or CADO-NFS oracle, which is deliberate and orthogonal to this baseline.
+
+### Format readiness — checked and failed
+
+`cargo fmt --all -- --check` fails. No `rustfmt.toml` exists anywhere in the tree, so this ran under
+rustfmt's built-in defaults, and the codebase appears never to have been passed through rustfmt at
+all: the diff touches essentially every source and test file in every one of the nine crates (on
+the order of a thousand hunks across ~170 files), not a handful of stragglers. Adopting a formatting
+gate here is a one-time whole-workspace reformat, not an incremental cleanup.
+
+### Lint readiness — checked and failed for the existing policy; mixed at default level elsewhere
+
+`cargo clippy --workspace --all-targets` fails outright — nonzero exit even without `-D warnings`.
+Exactly three manifests opt into a lint policy today (`shor`, `shared/padic`, `shared/gf2m`, each
+with `[lints.clippy] all = "deny"`), and all three now produce hard compile errors, not warnings,
+under the installed clippy: `shor` fails on several `needless_range_loop` and
+`manual_is_multiple_of` sites, `shared/gf2m` on `needless_range_loop`, and `shared/padic` on a
+`redundant_guard`-shaped lint.
+The policy already committed today does not build clean against this environment's clippy version —
+that is independent of any separate decision to widen the policy workspace-wide. The six crates with
+no opt-in policy (`gnfs`, `rho`, `shared-bigint`, `shared-field`, `shared-numfield`, `shared-numth`)
+only ever *warn* at clippy's default level; two of them (`rho`, `shared-field`) are already fully
+clean, the rest carry a handful to a few dozen warnings apiece, concentrated in the largest crate
+(`gnfs`). None of this is a required gate today — it is prospective-adoption evidence only.
+
+### Audit and coverage readiness — not checked (tool absent)
+
+`cargo-deny`, `cargo-audit`, `cargo-llvm-cov`, and `cargo-tarpaulin` are all absent from this
+environment — `cargo <name>` reports "no such command" for each — and the `llvm-tools-preview`
+`rustup` component that `cargo-llvm-cov` additionally needs is not installed either. None of these
+tools were run; their eventual pass/fail is genuinely unmeasured, not a recorded failure, and
+installing any of them is a separate decision from this baseline.
+
+### Licensing — observed fact, not this baseline's gate
+
+No `LICENSE` file exists at the repository root or in any member directory, and no member manifest
+declares a `license` or `license-file` key: `cargo metadata` reports a null license for every one of
+the nine packages.
+
+### Toolchain-scope residue found while surveying
+
+`rho/rust-toolchain.toml` (pinning the floating `stable` channel rather than an exact release) and
+`rho/Cargo.lock` (a second, independent lockfile alongside the workspace root's) both date to the
+repository's very first commit, before the Cargo workspace existed, and were never removed once
+`rho` joined the workspace. Neither currently conflicts with the root `Cargo.toml`/`Cargo.lock` —
+every command above ran clean — but both read as pre-workspace leftovers rather than an intentional
+per-member override, worth resolving whenever the workspace's toolchain scope is normalized.
