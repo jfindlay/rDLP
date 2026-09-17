@@ -2,6 +2,7 @@
 name = "gnfs"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 description = "General Number Field Sieve: polynomial selection, sieving, and factorization"
 
 [dependencies]

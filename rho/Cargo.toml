@@ -2,6 +2,7 @@
 name = "rho"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 description = "Pollard rho: integer factorization and ECDLP with all canonical optimizations"
 
 [[bin]]

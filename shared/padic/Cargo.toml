@@ -2,6 +2,7 @@
 name = "shared-padic"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 description = "p-adic arithmetic substrate: Z/p^k ring, p-adic valuation, unit inversion"
 
 [dependencies]

@@ -2,6 +2,7 @@
 name = "shared-field"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 description = "Prime-field arithmetic generic over limb count: Fp trait, FpNaive, FpMonty"
 
 [dependencies]

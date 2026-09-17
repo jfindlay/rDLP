@@ -2,6 +2,9 @@
 members = ["gnfs", "rho", "shor", "shared/field", "shared/bigint", "shared/numth", "shared/numfield", "shared/padic", "shared/gf2m"]
 resolver = "2"
 
+[workspace.package]
+license = "GPL-3.0-or-later"
+
 [profile.bench]
 opt-level = 3
 lto = "thin"

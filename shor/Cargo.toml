@@ -2,6 +2,7 @@
 name = "shor"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 description = "Classical state-vector quantum-circuit simulator: Shor's algorithm substrate"
 
 [dependencies]

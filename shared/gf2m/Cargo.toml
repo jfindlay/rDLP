@@ -2,6 +2,7 @@
 name = "shared-gf2m"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 description = "GF(2^m) polynomial-basis arithmetic: F2m trait, F2mNaive carryless-mul impl"
 
 [dependencies]
