@@ -39,7 +39,8 @@ A missing required tool blocks adoption. Tool installation requires separate app
 |---|---------|-----|------|----------|----------------|
 | B.1 | Record workspace quality-gate readiness | A | T1 | C-Scope | docs/NOTES.md; AGENTS.md |
 | B.2 | Declare inherited workspace licensing | A | T1 | C-Scope; C-Baseline | Manifests M; LICENSE |
-| B.3 | Add workspace dependency audit policy | A | T1 | C-Baseline; C-License | deny.toml; .cargo/config.toml |
+| B.3a | Remediate advisory-blocking transitive pins | A | T1 | C-Baseline | Cargo.lock |
+| B.3 | Add workspace dependency audit policy | A | T1 | C-Baseline; C-License; B.3a | deny.toml; .cargo/config.toml |
 | B.4 | Normalize workspace formatting and toolchain scope | A | T1 | C-Baseline | rust-toolchain.toml; rho/rust-toolchain.toml; rustfmt.toml; .cargo/config.toml |
 | B.5 | Enforce inherited workspace lint policy | A | T1 | C-Baseline; C-Toolchain | Manifests M; .cargo/config.toml |
 | B.6 | Add the measured workspace coverage gate | A | T1 | C-Baseline; C-Toolchain | .cargo/config.toml; docs/NOTES.md |
@@ -73,12 +74,30 @@ Acceptance/KAT: `cargo metadata --no-deps --format-version 1` resolves GPL-3.0-o
 workspace package; LICENSE matches the intended GPL text; VERIFY passes.
 The broad manifest fileset is one atomic inheritance change, not unrelated per-crate cleanup.
 
+### B.3a — Advisory remediation (inserted by discovery-adjudication ahead of B.3)
+A live cargo-deny/cargo-audit run against the actual dependency graph found RUSTSEC-2026-0204 (an
+invalid-pointer-dereference vulnerability in `crossbeam-epoch`, reached via `rayon`, a direct
+non-dev dependency of `rho`) and RUSTSEC-2026-0190 (a lower-severity "unsound" finding in `anyhow`,
+reachable only through a wasm-target, proc-macro-time path). Both patches are available as ordinary
+semver-compatible bumps. Bump `crossbeam-epoch` to >=0.9.20 and `anyhow` to >=1.0.103 via
+`cargo update -p <crate>`, confined to `Cargo.lock`. No manifest edit, no `[advisories] ignore`
+entry, no source/registry widening, no `rayon` demotion or removal, and no edit to the pre-existing
+`rho/Cargo.lock` residue (that stays out of scope; a later toolchain-scope row owns it).
+Acceptance/KAT: `cargo update -p crossbeam-epoch` and `-p anyhow` land only in `Cargo.lock`; VERIFY
+passes; `cargo metadata` still resolves every license in the dependency-policy allow-list unchanged.
+This row exists solely to unblock B.3's own stated acceptance criteria; it freezes no contract.
+
 ### B.3 — Dependency audit
 Adapt the template's advisory/license/source policy to the installed cargo-deny schema and actual
-dependency graph. Add the `audit` alias. Do not copy comments pointing to template-local NOTES.
+dependency graph. Add an alias for the policy check; do not name it literally `audit` if doing so
+would shadow the real `cargo-audit` binary (confirmed: it does, silently, under a deprecation
+warning rather than a hard error) — name it for what it checks (e.g. `dep-policy`) and leave
+`cargo audit` as the unaliased binary, so the KAT's two named commands stay two distinguishable
+things. Do not copy comments pointing to template-local NOTES.
 Acceptance/KAT: `cargo deny check` and `cargo audit` pass under the same policy.
 Do not suppress advisories, widen trusted sources, or update dependencies silently to get green.
-Necessary dependency remediation is a discovery requiring a separately scoped decision.
+Necessary dependency remediation is a discovery requiring a separately scoped decision (this is
+what B.3a was for; by the time B.3 runs, the graph is already clean).
 
 ### B.4 — Root toolchain and formatting
 Replace rho's floating-stable file with one root rust-toolchain.toml pinning the verified stable
@@ -165,6 +184,7 @@ The full bidirectional contract remains pending until the template changes are v
 |---|---------|--------|--------|-------|
 | B.1 | Record workspace quality-gate readiness | done | c1b0832 | C-Baseline (prose/native-check) |
 | B.2 | Declare inherited workspace licensing | done | 0bfe20c | C-License (native-check) |
+| B.3a | Remediate advisory-blocking transitive pins | pending | — | — |
 | B.3 | Add workspace dependency audit policy | pending | — | — |
 | B.4 | Normalize workspace formatting and toolchain scope | pending | — | — |
 | B.5 | Enforce inherited workspace lint policy | pending | — | — |
@@ -172,6 +192,33 @@ The full bidirectional contract remains pending until the template changes are v
 | B.7 | ◆ Publish the contributor guide and template-seeding handoff | pending | — | — |
 
 ## Action-frame digest
+
+### B.3 — 2026-09-18
+Discovery/flex: cargo-deny 0.20.2 and cargo-audit 0.22.2 got installed this session (approved
+tool-installation exception); a live `cargo deny check`/`cargo audit` run against the actual graph
+found RUSTSEC-2026-0204 (`crossbeam-epoch` 0.9.18, reached via `rayon` 1.12.0, a direct non-dev
+dependency of `rho`) as a hard-failing vulnerability, plus RUSTSEC-2026-0190 (`anyhow` 1.0.102,
+"unsound", reachable only via a wasm-target proc-macro path) as a cargo-audit-only warning that
+cargo-deny's advisories check doesn't surface under schema defaults (confirmed: separate, both-
+current advisory-db clones — a design difference, not staleness). B.3's own Acceptance/KAT could not
+be reached without a dependency bump its own prose puts out of scope, so the implementer correctly
+stopped and reported rather than resolving it. Forked `@plan-juncture` (discovery-adjudication);
+verdict `additive-reshard` — inserted B.3a (Cargo.lock-only bump of both crates) ahead of B.3, user-
+authorized (run has no `may-reshard`, so the fork's recommendation was surfaced, not auto-applied).
+Also endorsed the implementer's `dep-policy` alias naming (naming it literally `audit` would silently
+shadow the real `cargo-audit` binary — a genuine rust-template defect, carried to B.7's handoff).
+Affected: C-Audit (not invalidated — its "agree; exceptions require explicit justification" wording
+anticipates a live advisory; freezing is deferred until B.3a lands and B.3 re-runs clean). C-Scope,
+C-Baseline, C-License all confirmed intact.
+Deferred: yes — B.4 should treat `rho/Cargo.lock`'s independent copy of the same vulnerable pins as
+load-bearing residue removal (a stale, vulnerable second lockfile), not merely cosmetic toolchain-
+scope cleanup, per the B.1 baseline's original deferral. B.7 should carry the audit-alias-shadowing
+hazard forward as a concrete rust-template target in the C-TemplateSeed handoff.
+Texture: the juncture fork independently corrected the implementer's framing of the crossbeam-epoch
+fix as possibly upstream-blocked ("or waiting on rayon-core") — it verified from the lockfile that
+`rayon-core`'s requirement is an ordinary caret range, making the fix a pure lockfile bump available
+today, not a wait on an upstream release. Worth remembering: a subagent's own diagnosis of "blocked
+on upstream" is worth an independent recheck before it's treated as a hard constraint.
 
 ### B.1 — 2026-09-17
 Discovery/flex: root toolchain candidate is rustc/cargo 1.95.0; `cargo fmt --all -- --check` fails
@@ -207,6 +254,21 @@ is already red on 3/9 crates before any workspace-wide widening is even consider
   With halt-at-boundaries, surface the proposed shards; do not insert and execute them silently.
 - Destructive-HALT: a proposed change invalidates frozen layout, behavior, oracle, or licensing
   intent and cannot be reconciled. Do not weaken gates to close a row.
+- Actioned additive-reshard (B.3, 2026-09-18): a live `cargo deny check`/`cargo audit` run found a
+  real, current advisory (RUSTSEC-2026-0204, `crossbeam-epoch` via `rayon`, a direct non-dev
+  dependency of `rho`) blocking B.3's own stated Acceptance/KAT, plus a lower-severity, unreachable-
+  in-this-workspace advisory (RUSTSEC-2026-0190, `anyhow`). Neither is a frozen-contract conflict —
+  C-Audit's "agree; exceptions require explicit justification" wording anticipates exactly this case
+  — so `@plan-juncture` returned `additive-reshard`, not `destructive-HALT`. User authorized inserting
+  B.3a (Cargo.lock-only bump of both `crossbeam-epoch` and `anyhow`) ahead of B.3; see B.3a's session
+  detail. The `rho/Cargo.lock` residue (deferred to B.4 at the B.1 baseline) now also carries the
+  same vulnerable pins — its removal at B.4 is load-bearing (a stale, vulnerable second lockfile),
+  not merely cosmetic scope cleanup.
+- Free finding for C-TemplateSeed (B.3, 2026-09-18): naming a `.cargo/config.toml` alias literally
+  `audit` silently shadows the real `cargo-audit` binary (a cargo deprecation warning today, a hard
+  error in some future cargo release) — this is a genuine rust-template defect, already inside B.7's
+  existing handoff scope. B.3 named its alias `dep-policy` instead; B.7 should carry the shadowing
+  hazard itself forward as a concrete rust-template target, not just the alias name.
 - Runtime/plugin loading, live attribution, accounting, and output persistence remain unverified.
   Deterministic tests recorded as passing in the config plan are not live integration evidence.
 - There is no estimate that this entire graph fits within $10. Unfinished rows remain pending.
@@ -221,8 +283,9 @@ Outlier check: no broad source/test row, no repeated per-file cleanup, no catch-
 REGISTER: state the property/reason/invariant, never the plan coordinate, in source/tests/human docs.
 B.1 seeds this rule in AGENTS; sharding does not write AGENTS in architect mode.
 Anneal only ALIGN-owned durable files, excluding rolling context and AGENTS. Denylist:
-`\bB\.[1-7]\b`, `sub-track`, `frozen contract`, `PLAN\.md`, `ROADMAP\.md`, `action-frame`,
+`\bB\.[1-7][a-z]?\b`, `sub-track`, `frozen contract`, `PLAN\.md`, `ROADMAP\.md`, `action-frame`,
 `◆`, `\bCat [ABC]\b`, `plan-(run|shard|juncture)`. Do not sweep pre-existing unrelated prose.
+(Widened to `[a-z]?` at the B.3 additive-reshard to also catch the inserted B.3a token.)
 
 Pilot authorization: user approved real rDLP execution instead of disposable copies and $10 TOTAL
 for the pilot, not per session. Start accounting at the fresh pilot-preflight session; include all
