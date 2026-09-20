@@ -193,6 +193,25 @@ The full bidirectional contract remains pending until the template changes are v
 
 ## Action-frame digest
 
+### Preflight — 2026-09-18
+Discovery/flex: `/plan-run` loop start found the working tree dirty — `.cargo/config.toml` and
+`deny.toml` present as untracked files, matching B.3's expected fileset but never committed (`git
+log --all` shows zero history for either path). `Cargo.lock` still resolves `crossbeam-epoch`
+0.9.18, confirming B.3a's bump has not run — these are orphaned scratch artifacts from the earlier
+B.3 dispatch that stopped mid-session at the RUSTSEC discovery recorded below, not a post-B.3a
+completion left uncommitted.
+Affected: none — no frozen contract is touched, and B.3's own ledger row is still `pending`, so
+nothing here is a completed-but-unrecorded session.
+Deferred: yes — a human must choose whether to `git clean` the stale pre-B.3a draft so B.3a
+dispatches into a clean tree (B.3 gets freshly (re)dispatched afterward against the bumped lockfile,
+per B.3's own "by the time B.3 runs, the graph is already clean" provision), or to inspect the draft
+first for salvageable content. Precondition 5 (clean tree at loop start) fails until resolved; the
+driver halted rather than choosing, per its "do not stomp uncommitted work" mandate.
+Texture: this is the first `/plan-run` invocation to reach the loop since B.3's discovery-adjudication
+reshard landed B.3a ahead of B.3 — the aborted dispatch's leftovers were never cleaned up before that
+commit, so cold-resume here needed one extra disambiguating check (`git log --all` on the two paths)
+before it was safe to conclude "orphaned scratch," not "an uncommitted finished session."
+
 ### B.3 — 2026-09-18
 Discovery/flex: cargo-deny 0.20.2 and cargo-audit 0.22.2 got installed this session (approved
 tool-installation exception); a live `cargo deny check`/`cargo audit` run against the actual graph
