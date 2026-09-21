@@ -10,3 +10,6 @@ crypto-bigint = { version = "0.5", features = ["rand_core"] }
 
 [dev-dependencies]
 proptest = "1"
+
+[lints]
+workspace = true

@@ -5,6 +5,27 @@ resolver = "2"
 [workspace.package]
 license = "GPL-3.0-or-later"
 
+# unsafe_code is forbidden workspace-wide: every member is arithmetic/algorithm code with no FFI
+# or performance case made for unsafe, so any occurrence is a correctness risk, not an
+# optimization worth reviewing case-by-case. missing_docs stays at warn (not deny/forbid) so the
+# everyday loop -- cargo check, cargo test, plain cargo clippy -- keeps working while several
+# members are mid-pedagogical-documentation; the separate strict `lint` alias promotes it to an
+# error on its own, deliberately, as a stricter check than the everyday loop, not as a second
+# statement of this same level.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+# clippy::all and clippy::pedantic are disjoint lint groups today, but Cargo's lint-group-priority
+# mechanism requires an explicit, differentiated priority whenever two groups are configured
+# together in the same table: without it, a lint that ends up a member of both groups in a future
+# Clippy release has no deterministic winner. `all` (deny) is given the higher priority so it wins
+# over `pedantic` (warn) for any such lint, keeping "all" the non-negotiable floor and "pedantic"
+# strictly additive on top of it.
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -2 }
+
 [profile.bench]
 opt-level = 3
 lto = "thin"

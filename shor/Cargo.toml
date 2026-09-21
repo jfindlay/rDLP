@@ -16,10 +16,5 @@ rho = { path = "../rho" }
 shared-field = { path = "../shared/field" }
 crypto-bigint = { version = "0.5", features = ["rand_core"] }
 
-[lints.rust]
-unsafe_code = "forbid"
-missing_docs = "warn"
-
-[lints.clippy]
-all = "deny"
-pedantic = "warn"
+[lints]
+workspace = true

@@ -52,3 +52,6 @@ harness = false
 [[bench]]
 name = "attacks"
 harness = false
+
+[lints]
+workspace = true

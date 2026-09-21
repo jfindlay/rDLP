@@ -9,3 +9,6 @@ description = "Number-theoretic primitives: Miller–Rabin primality testing and
 shared-field = { path = "../field" }
 shared-bigint = { path = "../bigint" }
 crypto-bigint = { version = "0.5", features = ["rand_core"] }
+
+[lints]
+workspace = true

@@ -11,10 +11,5 @@ crypto-bigint = { version = "0.5", features = ["rand_core"] }
 [dev-dependencies]
 proptest = "1"
 
-[lints.rust]
-unsafe_code = "forbid"
-missing_docs = "warn"
-
-[lints.clippy]
-all = "deny"
-pedantic = "warn"
+[lints]
+workspace = true

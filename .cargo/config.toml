@@ -6,3 +6,4 @@
 dep-policy = "deny check"
 format = "fmt --all"
 fmt-check = "fmt --all -- --check"
+lint = "clippy --workspace --all-targets -- -D warnings"
