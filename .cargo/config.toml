@@ -1,0 +1,6 @@
+[alias]
+# Aliasing this to "audit" would shadow the real `cargo audit` binary: cargo resolves an
+# alias before an installed binary of the same name, so `cargo audit` would silently run
+# the alias instead of cargo-audit, with only a deprecation warning rather than a hard
+# error. Naming the alias for what it checks keeps the two commands distinguishable.
+dep-policy = "deny check"

@@ -1,0 +1,39 @@
+# Dependency policy for cargo-deny (schema: cargo-deny 0.20.x).
+# Run via `cargo deny check`, or the `dep-policy` alias defined in .cargo/config.toml.
+
+[advisories]
+# No RUSTSEC advisories are ignored. If a live advisory ever blocks this check, the fix is
+# to remediate the dependency graph, not to add an entry here.
+ignore = []
+
+[licenses]
+# Every license actually present in the resolved dependency graph (workspace crates plus
+# every third-party crate they pull in), one SPDX identifier per license text that appears.
+# Compound expressions (e.g. "MIT OR Apache-2.0") are satisfied if any one alternative in an
+# OR is allowed, so only the underlying identifiers need to be listed here.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+    "GPL-3.0-or-later",
+]
+
+[bans]
+# Multiple resolved versions of a crate (e.g. rand 0.8 vs 0.9, pulled in transitively by
+# different upstream dependencies) are a normal feature of the crates.io ecosystem and not a
+# policy violation on their own, so this stays a warning rather than a hard failure.
+multiple-versions = "warn"
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+# The graph resolves entirely from crates.io; no dependency is pulled from git or another
+# registry. Denying (rather than warning on) an unknown source means a future dependency
+# added from git or a private registry fails the check instead of passing with a warning.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
