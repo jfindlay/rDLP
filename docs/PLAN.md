@@ -26,7 +26,9 @@ bind this interpretation before dispatch. No compiler, regression, scope, or com
 
 New gates become mandatory after their introducing row succeeds:
 - B.3: `cargo deny check`.
-- B.4: `cargo fmt --all -- --check`.
+- B.4: `cargo fmt --all -- --check` — declared at B.4, adoption deferred to the separately
+  authorized whole-workspace formatting work (169 files non-conformant at B.4; per the rule below,
+  that prospective failure is baseline evidence, not an adopted gate).
 - B.5: `cargo clippy --workspace --all-targets -- -D warnings`.
 - B.6: `cargo llvm-cov --workspace --fail-under-lines <approved-floor>`.
 
@@ -41,7 +43,7 @@ A missing required tool blocks adoption. Tool installation requires separate app
 | B.2 | Declare inherited workspace licensing | A | T1 | C-Scope; C-Baseline | Manifests M; LICENSE |
 | B.3a | Remediate advisory-blocking transitive pins | A | T1 | C-Baseline | Cargo.lock |
 | B.3 | Add workspace dependency audit policy | A | T1 | C-Baseline; C-License; B.3a | deny.toml; .cargo/config.toml |
-| B.4 | Normalize workspace formatting and toolchain scope | A | T1 | C-Baseline | rust-toolchain.toml; rho/rust-toolchain.toml; rustfmt.toml; .cargo/config.toml |
+| B.4 | Normalize workspace formatting and toolchain scope | A | T1 | C-Baseline | rust-toolchain.toml; rho/rust-toolchain.toml; rustfmt.toml; .cargo/config.toml; rho/Cargo.lock |
 | B.5 | Enforce inherited workspace lint policy | A | T1 | C-Baseline; C-Toolchain | Manifests M; .cargo/config.toml |
 | B.6 | Add the measured workspace coverage gate | A | T1 | C-Baseline; C-Toolchain | .cargo/config.toml; docs/NOTES.md |
 | B.7 | ◆ Publish the contributor guide and template-seeding handoff | I | T1 | All contracts above | docs/development.md; AGENTS.md; docs/NOTES.md |
@@ -102,11 +104,19 @@ what B.3a was for; by the time B.3 runs, the graph is already clean).
 ### B.4 — Root toolchain and formatting
 Replace rho's floating-stable file with one root rust-toolchain.toml pinning the verified stable
 release. Declare rustfmt, clippy, and llvm-tools-preview; do not trigger unapproved installations.
-Add rustfmt.toml with max_width = 100 and the `format` / `fmt-check` aliases.
+Add rustfmt.toml with max_width = 100 and the `format` / `fmt-check` aliases. Remove `rho/Cargo.lock`
+(inert pre-workspace residue — `rho/Cargo.toml` has no `[workspace]` table, so cargo always resolves
+the root lockfile; this is the "later toolchain-scope row" that B.3a's own text named as this
+lockfile's owner).
 Acceptance/KAT: root and member-directory toolchain discovery resolve the intended release absent
-external overrides; no member toolchain files remain; `cargo fmt-check` and VERIFY pass.
+external overrides; no member toolchain files remain; no member lockfile residue remains;
+`cargo fmt-check` runs (its workspace-wide result is recorded as baseline, not required green);
+VERIFY passes.
 Repeat relevant baselines if the selected release differs from the one initially measured.
-Broad formatting changes are not authorized by this config fileset; surface and shard them separately.
+Broad formatting changes are not authorized by this config fileset; surface and shard them
+separately — the ~169-file reformat is not mechanical (exact source-line citations in
+shared/numth/docs/PEDAGOGY.md and docs/ROADMAP.md would silently desync; no `#[rustfmt::skip]`
+policy yet exists for numeric constant tables) and needs its own authorized, designed shard.
 
 ### B.5 — Workspace lints
 Define workspace Rust lints (unsafe_code forbid; missing_docs warn) and Clippy groups (all deny;
@@ -157,10 +167,25 @@ All workspace members resolve GPL-3.0-or-later and the root license text is pres
 Defined-in: B.3. Consumed-by: subsequent gates and B.7.
 The validated dependency policy and audit alias agree; exceptions require explicit justification.
 
-### C-Toolchain — native-check/prose-enforced; to be frozen at B.4
+### C-Toolchain — native-check/prose-enforced; frozen at B.4 (scoped: policy declared, conformance deferred)
 Defined-in: B.4. Consumed-by: B.5–B.7.
-One exact stable root toolchain, required development components, no member overrides, and
-100-column rustfmt policy. This selects development tools; it does not establish an untested MSRV.
+One exact stable root toolchain (1.95.0), the required development components (rustfmt, clippy,
+llvm-tools-preview — all three already present; `llvm-tools-preview` is the legacy alias of the
+satisfied `llvm-tools` component, which is why the B.1 baseline recorded it as absent), no member
+toolchain overrides, and a declared 100-column rustfmt policy. This selects development tools; it
+does not establish an untested MSRV.
+Scope of this freeze: the pin, the components, the absence of member overrides, and the declared
+rustfmt policy are frozen and verified — `cargo`/`rustc`/`rustfmt` resolve through rustup shims, so
+the pin is honored from the root and from member directories alike. Workspace-wide *conformance* to
+the rustfmt policy is expressly NOT frozen here and is not asserted: `cargo fmt --all -- --check` is
+red across 169 files at B.4. That non-conformance is pre-existing and independent of the declared
+policy (max_width = 100 is rustfmt's own default), so it is neither caused nor cured by this row.
+Accordingly the `cargo fmt --all -- --check` gate is NOT adopted at B.4; its adoption transfers to
+the separately authorized whole-workspace formatting work, which owns the one-time reformat, the
+`#[rustfmt::skip]` policy for numeric constant tables, and resynchronization of the exact
+source-line citations in `shared/numth/docs/PEDAGOGY.md` and `docs/ROADMAP.md`. B.5–B.7 may consume
+the pin and components immediately; B.7 documents `cargo fmt-check` as available-but-unadopted
+until that work lands.
 
 ### C-Lints — compiler/native-check-enforced; to be frozen at B.5
 Defined-in: B.5. Consumed-by: B.6–B.7.
@@ -186,12 +211,59 @@ The full bidirectional contract remains pending until the template changes are v
 | B.2 | Declare inherited workspace licensing | done | 0bfe20c | C-License (native-check) |
 | B.3a | Remediate advisory-blocking transitive pins | done | ba90783 | — (freezes no contract; unblocks B.3) |
 | B.3 | Add workspace dependency audit policy | done | b04a2d7 | C-Audit (native-check) |
-| B.4 | Normalize workspace formatting and toolchain scope | pending | — | — |
+| B.4 | Normalize workspace formatting and toolchain scope | done | 6c2f24b | C-Toolchain (native-check/prose, scoped — fmt-check adoption deferred) |
 | B.5 | Enforce inherited workspace lint policy | pending | — | — |
 | B.6 | Add the measured workspace coverage gate | pending | — | — |
 | B.7 | ◆ Publish the contributor guide and template-seeding handoff | pending | — | — |
 
 ## Action-frame digest
+
+### B.4 — 2026-09-21
+Discovery/flex: B.4's own Acceptance/KAT required `cargo fmt-check` (the new alias) to pass, but the
+workspace has never been formatted (169 files with diffs, matching the ~1000+-hunk B.1 baseline) and
+reformatting them is explicitly outside this row's four-file config scope — structurally identical
+to B.3's earlier RUSTSEC blocker. Forked `@plan-juncture` (discovery-adjudication); verdict
+`additive-reshard`, but shaped differently from B.3a's precedent: rather than inserting a same-plan
+"B.4a" reformat row, the fork found the reformat is not mechanical — `shared/numth/docs/PEDAGOGY.md`
+and `docs/ROADMAP.md` carry ~19 exact source-line citations a bulk reformat would silently desync,
+and no `#[rustfmt::skip]` policy yet exists for numeric constant tables — so it recommended closing
+B.4 now on its scoped fileset (adding `rho/Cargo.lock` removal, separately justified below), freezing
+C-Toolchain in a new "scoped" form (pin/components/declared-policy frozen; workspace-wide fmt
+conformance explicitly deferred, gate not adopted), and treating the whole-workspace reformat as its
+own future authorized shard outside this PLAN. User-authorized this shape over the B.4a-inside-ALIGN
+alternative (run has no `may-reshard`; surfaced, not auto-applied — same pattern as B.3a's
+authorization).
+Also actioned: `rho/Cargo.lock` removal, folded into B.4 rather than deferred or resharded — the
+fork found B.3a's own text already named B.4 ("a later toolchain-scope row") as this residue's
+owner, so its absence from B.4's original expected-files list was an omission, not a scope boundary;
+confirmed `rho/Cargo.toml` has no `[workspace]` table, so the file was genuinely dead/unread by any
+ordinary build, not a live vulnerable resolution path.
+Corrections to prior entries (the fork independently verified two things this run's earlier entries
+got wrong): (1) B.1's baseline recorded `llvm-tools-preview` as absent; it is present under its
+current name `llvm-tools` (a rustup rename, not a missing component) — confirmed directly against
+the toolchain's installed `lib/rustlib/.../bin/` contents; no installation was triggered at B.4.
+(2) B.3's digest called `rho/Cargo.lock`'s vulnerable pins "load-bearing residue removal... a stale,
+vulnerable second lockfile" — overstated; it is inert pre-workspace clutter presenting a
+false-positive surface to a scanner pointed at that path, not a live vulnerable path. Also caught
+and fixed in-session: `rustfmt.toml`'s original comment falsely claimed 100-column wrap overrides
+rustfmt's "80-column default" — rustfmt's actual `max_width` default is already 100 (80 is
+`comment_width`'s default); corrected to state the file pins an explicit durable policy rather than
+relying on rustfmt's unstated future default.
+Affected: C-Toolchain (frozen scoped, as above — see the `## Cross-session contracts` block for the
+exact frozen text). C-Scope, C-Baseline, C-License, C-Audit all confirmed intact; none extended.
+Deferred: yes — (1) the whole-workspace reformat needs its own future authorization outside this
+PLAN, owning: the bulk `cargo fmt --all` pass, a `#[rustfmt::skip]` policy decision for numeric
+constant tables, and citation resynchronization in `shared/numth/docs/PEDAGOGY.md` and
+`docs/ROADMAP.md` (whose exact source-line citations may already be stale from REFACTOR — worth a
+spot-check before assuming the reformat is the only thing that desyncs them). (2) B.6 will very
+likely hit the same "missing required tool blocks adoption" pattern as B.3 did: `cargo-llvm-cov` is
+confirmed absent from PATH and `~/.cargo/bin` (which holds only `cargo-deny`/`cargo-audit` from
+B.3). (3) `AGENTS.md`'s line asserting `cargo deny check`/`cargo audit` "are not installed" is now
+stale (B.3 installed both); belongs to B.7's documentation pass or an earlier one-line correction.
+Texture: this is the second additive-reshard this run, and it deliberately diverged from the first's
+shape (B.3a inserted a same-plan row; B.4's fix did not) — worth remembering that "mirror the last
+juncture's shape" is not a safe default; each discovery needs its own reconciliation against what's
+actually frozen and actually mechanical, not a template match against the previous one.
 
 ### Preflight — 2026-09-18
 Discovery/flex: `/plan-run` loop start found the working tree dirty — `.cargo/config.toml` and
