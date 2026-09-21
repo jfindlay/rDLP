@@ -29,7 +29,10 @@ New gates become mandatory after their introducing row succeeds:
 - B.4: `cargo fmt --all -- --check` — declared at B.4, adoption deferred to the separately
   authorized whole-workspace formatting work (169 files non-conformant at B.4; per the rule below,
   that prospective failure is baseline evidence, not an adopted gate).
-- B.5: `cargo clippy --workspace --all-targets -- -D warnings`.
+- B.5: `cargo clippy --workspace --all-targets -- -D warnings` — declared at B.5, adoption deferred
+  to a separately authorized lint-remediation shard (234 `clippy::all`-group hits across 25 distinct
+  lints workspace-wide, plus a much larger pre-existing `pedantic`/`missing_docs` backlog measured at
+  B.5; per the rule below, this is baseline evidence, not an adopted gate).
 - B.6: `cargo llvm-cov --workspace --fail-under-lines <approved-floor>`.
 
 Prospective gate failures are baseline evidence before adoption, not successful gate results.
@@ -122,7 +125,9 @@ policy yet exists for numeric constant tables) and needs its own authorized, des
 Define workspace Rust lints (unsafe_code forbid; missing_docs warn) and Clippy groups (all deny;
 pedantic warn, explicit group priorities). Replace existing member duplicates with inheritance and
 opt every member in. Add the workspace-wide strict `lint` alias.
-Acceptance/KAT: all members inherit the policy; `cargo lint` passes with warnings denied; VERIFY passes.
+Acceptance/KAT: all members inherit the policy; `cargo lint` runs (its workspace-wide result is
+recorded as baseline, not required green — 234 measured `clippy::all` hits plus a much larger
+pre-existing pedantic/doc backlog, per the discovery below); VERIFY passes.
 If baseline findings require source/test remediation, stop for measured remediation shards before
 adopting the gate. No broad lint suppressions, hidden behavioral changes, or catch-all cleanup.
 
@@ -187,9 +192,39 @@ source-line citations in `shared/numth/docs/PEDAGOGY.md` and `docs/ROADMAP.md`. 
 the pin and components immediately; B.7 documents `cargo fmt-check` as available-but-unadopted
 until that work lands.
 
-### C-Lints — compiler/native-check-enforced; to be frozen at B.5
+### C-Lints — compiler/native-check-enforced; frozen at B.5 (scoped: policy inherited, strict gate deferred)
 Defined-in: B.5. Consumed-by: B.6–B.7.
-Every member inherits the stated workspace policy and the strict workspace lint command is green.
+Every workspace member inherits one stated lint policy from the root manifest: `unsafe_code`
+forbidden, `missing_docs` at warn, `clippy::all` denied and `clippy::pedantic` warned with explicit
+differentiated group priorities so the deny floor wins over the warn layer for any lint that joins
+both groups in a future Clippy release. The three pre-existing per-crate duplicate blocks (`shor`,
+`shared/padic`, `shared/gf2m`) are replaced by inheritance and the six previously-unopted members are
+opted in, so the policy is declared in exactly one place. The strict `lint` alias
+(`clippy --workspace --all-targets -- -D warnings`) is defined and runnable.
+Scope of this freeze: the single-source policy definition, universal member inheritance, and the
+alias's existence are frozen and verified. Workspace-wide *conformance* to the strict form is
+expressly NOT frozen and is not asserted: `cargo lint` is red. Accordingly the
+`cargo clippy --workspace --all-targets -- -D warnings` gate is NOT adopted at B.5.
+A full, reproducible characterization (`cargo clippy --workspace --all-targets --message-format=json
+-- -W clippy::all`, whose trailing flag downgrades the deny floor so every unit compiles and no
+crate is short-circuited) measured 234 genuine `clippy::all`-group hits (correctness/suspicious/
+style/complexity/perf — e.g. `needless_range_loop`, `manual_is_multiple_of`, `unnecessary_map_or`,
+`too_many_arguments`, `new_without_default`, `ptr_arg`) spread across 25 distinct lint kinds and
+essentially all nine members, well past the small-mechanical-set threshold that would justify a
+same-plan micro-remediation row (some of these — `too_many_arguments`, `new_without_default`,
+`ptr_arg` — need signature or API changes, not pure idiom rewrites). The much larger
+`clippy::pedantic`/`missing_docs` mass (thousands of hits, dominated by `doc_markdown` and
+`must_use_candidate`) is pre-existing opt-in strictness this row only measures, not causes, and is
+separately non-mechanical: `many_single_char_names` conflicts with AGENTS.md's register discipline
+for a mathematics library and needs a suppression-policy decision; `missing_panics_doc`/
+`missing_docs` on the largely-undocumented `shared-numfield` and `shared-field` need substantive
+mathematical prose; `doc_markdown` edits shift doc-comment line numbers and can desync the
+source-line citations named under C-Toolchain.
+Both halves — the `clippy::all` floor and the `pedantic`/`missing_docs` mass — are therefore
+deferred together to one separately authorized lint-remediation shard outside this PLAN, which owns
+the strict-gate adoption; no same-plan sub-row is inserted for either half.
+B.6 does not consume this contract. B.7 documents `cargo lint` as available-but-unadopted, alongside
+`cargo fmt-check`, until the remediation shard lands.
 
 ### C-Coverage — native-check/prose-enforced; to be frozen at B.6
 Defined-in: B.6. Consumed-by: B.7 and future test work.
@@ -212,11 +247,60 @@ The full bidirectional contract remains pending until the template changes are v
 | B.3a | Remediate advisory-blocking transitive pins | done | ba90783 | — (freezes no contract; unblocks B.3) |
 | B.3 | Add workspace dependency audit policy | done | b04a2d7 | C-Audit (native-check) |
 | B.4 | Normalize workspace formatting and toolchain scope | done | 6c2f24b | C-Toolchain (native-check/prose, scoped — fmt-check adoption deferred) |
-| B.5 | Enforce inherited workspace lint policy | pending | — | — |
+| B.5 | Enforce inherited workspace lint policy | done | f239f77 | C-Lints (compiler/native-check, scoped — strict-gate adoption deferred) |
 | B.6 | Add the measured workspace coverage gate | pending | — | — |
 | B.7 | ◆ Publish the contributor guide and template-seeding handoff | pending | — | — |
 
 ## Action-frame digest
+
+### B.5 — 2026-09-21
+Discovery/flex: B.5's own Acceptance/KAT required `cargo lint` (`-D warnings`) to pass, but the
+scoped centralization work (11 manifests: workspace-level `[workspace.lints.*]`, all 9 members
+opted in via `[lints] workspace = true`, a new `lint` alias) surfaced it red. Forked
+`@plan-juncture` (discovery-adjudication) with the implementer's first-pass per-crate report (~438
+diagnostics across 4 reached crates, 5 unreached). The fork's own read-only probes falsified parts
+of that first-pass report before adjudicating: `cargo clippy -p <crate> -- -D warnings` does NOT
+bypass the workspace-wide wrapper (still applies to all members, not just the `-p` target); which
+crates clippy reaches under a short-circuiting deny is a cargo pipelined-compilation scheduling
+race, not a stable per-crate signal; and `shared-bigint` — reported as emitting nothing — actually
+carries a genuine `clippy::all` hit (`manual_div_ceil`). The fork returned `additive-reshard`, split
+along the policy's own seam (`clippy::all` floor vs. `pedantic`/`missing_docs` mass), and delegated
+a decision rule to me rather than requiring a second fork: if the `clippy::all`-only set (measured
+via `cargo clippy --workspace --all-targets --message-format=json -- -W clippy::all`, which
+downgrades the deny floor so no crate is short-circuited) was ≲15 mechanical, semantics-preserving
+hits, insert a same-plan B.5a (B.3a shape); otherwise both halves defer to an outside shard. I ran
+that measurement command myself (mechanical, read-only) and diffed it against a `-A clippy::all -W
+clippy::pedantic` run to isolate the "all"-only lint names: 234 hits across 25 distinct lint kinds,
+spread over essentially all nine members, several requiring signature/API changes
+(`too_many_arguments`, `new_without_default`, `ptr_arg`) rather than pure idiom rewrites — decisively
+past the ≲15 threshold. Applied the fork's own pre-delegated "exceeds" branch: no B.5a; C-Lints
+freezes scoped, with BOTH halves (not just the pedantic mass) deferred to the same outside
+lint-remediation shard that will also own B.4's deferred reformat. User-authorized the scoped-freeze
+shape itself out of band (run has no `may-reshard`); the ≲15/exceeds branch was pre-delegated by the
+fork and applied directly without a second round-trip.
+Also fixed in-session (small, in-scope, comment-only): the root `Cargo.toml`'s `missing_docs`
+comment asserted "a hard failure would block unrelated work" as the reason it stays at warn, which
+the new strict `lint` alias's `-D warnings` directly contradicts (it does force exactly that hard
+failure, deliberately, as a stricter check than the everyday loop). Corrected to state the true
+scope distinction (everyday loop vs. strict alias) rather than a safety claim the alias itself
+removes.
+Affected: C-Lints (frozen scoped, as above). C-Scope, C-Baseline, C-License, C-Audit, C-Toolchain
+(scoped) all confirmed intact; none extended. B.6 does not consume C-Lints (confirmed from the
+session list), so this scoped freeze does not block B.6.
+Deferred: yes — the workspace now carries a growing outside-PLAN remediation backlog: B.4's
+~169-file reformat (with citation-resync and skip-policy work) and B.5's clippy remediation
+(234 `clippy::all` hits plus a much larger pedantic/doc-hygiene mass, some of it requiring a
+suppression-policy decision for `many_single_char_names` against AGENTS.md's register discipline for
+a mathematics library) are both real, both sizable, and neither yet has its own authorized shard.
+B.7's contributor guide will need to document TWO declared-but-unadopted gates (`fmt-check`,
+`lint`), not one — worth deciding before B.7 whether that's acceptable contributor-guide framing or
+whether one or both remediation shards should land first.
+Texture: this is the second consecutive additive-reshard where the fork's own first-pass discovery
+report needed correction via its own read-only re-verification before adjudication — worth noting
+as a pattern: subagent-reported diagnostic *counts and per-unit attribution* under tools with
+short-circuiting or pipelined semantics (clippy under deny, in this case) are less reliable than
+diagnostic *presence*, and the reproducible-inventory command is worth demanding before treating
+scale claims (438 vs. the measured 234) as load-bearing for a shape decision.
 
 ### B.4 — 2026-09-21
 Discovery/flex: B.4's own Acceptance/KAT required `cargo fmt-check` (the new alias) to pass, but the
@@ -363,6 +447,33 @@ is already red on 3/9 crates before any workspace-wide widening is even consider
 - Runtime/plugin loading, live attribution, accounting, and output persistence remain unverified.
   Deterministic tests recorded as passing in the config plan are not live integration evidence.
 - There is no estimate that this entire graph fits within $10. Unfinished rows remain pending.
+- Actioned additive-reshard (B.4, 2026-09-21): adopting the root toolchain pin required a
+  `cargo fmt-check` gate B.4's own four-file scope cannot satisfy (169 non-conformant files) without
+  a non-mechanical reformat (exact source-line citations in shared/numth/docs/PEDAGOGY.md and
+  docs/ROADMAP.md would desync; no `#[rustfmt::skip]` policy yet exists). C-Toolchain froze in scoped
+  form (pin/components/declared-policy frozen, fmt conformance deferred to a shard outside this PLAN)
+  rather than via a same-plan B.4a, since the remediation is design-bearing, not mechanical. Also
+  folded `rho/Cargo.lock` removal into B.4 (inert pre-workspace residue B.3a's own text had already
+  assigned to "a later toolchain-scope row"), and corrected two prior digest claims: `llvm-tools-
+  preview` was already present under its renamed form `llvm-tools` (not actually absent, as B.1
+  recorded), and `rho/Cargo.lock`'s vulnerable pins were never a live resolution path (B.3's "load-
+  bearing" framing overstated it) — see the B.4 digest entry for both corrections in full.
+- Actioned additive-reshard (B.5, 2026-09-21): adopting the inherited workspace lint policy left
+  `cargo lint` red. A full reproducible characterization (`cargo clippy --workspace --all-targets
+  --message-format=json -- -W clippy::all`, which downgrades the deny floor so no crate is
+  short-circuited) measured 234 genuine `clippy::all`-group hits across 25 distinct lint kinds and
+  essentially all nine members — far past the small-mechanical-set threshold, and including several
+  (`too_many_arguments`, `new_without_default`, `ptr_arg`) that need signature/API changes, not pure
+  idiom rewrites — plus a much larger pre-existing `pedantic`/`missing_docs` backlog (thousands of
+  hits, dominated by `doc_markdown` and `must_use_candidate`) that is design-bearing for reasons
+  named in C-Lints (register-discipline conflict, undocumented crates, doc-comment line-number
+  citation desync risk). Both halves defer together to one lint-remediation shard outside this PLAN;
+  no same-plan sub-row inserted for either. The originally-reported per-crate baseline (from the
+  first `cargo lint` attempt) was both incomplete and non-reproducible — cargo's pipelined
+  compilation makes which members clippy reaches under a short-circuiting deny a scheduling race,
+  and `cargo clippy -p <crate>` does not bypass the workspace-wide `-D warnings` wrapper — so the
+  measured characterization command above, not the first attempt's per-crate table, is the
+  authoritative inventory.
 
 ## Notes for executors
 
