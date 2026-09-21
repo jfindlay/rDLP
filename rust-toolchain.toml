@@ -1,0 +1,6 @@
+# Pinned to the exact stable release the workspace has been built and tested against, rather than
+# a floating "stable" channel, so every checkout and CI run resolves the same compiler without
+# depending on whatever happens to be the newest release on the day it runs.
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy", "llvm-tools-preview"]

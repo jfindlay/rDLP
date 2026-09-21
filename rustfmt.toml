@@ -1,0 +1,4 @@
+# Pins max_width = 100 explicitly as a durable declared policy, matching this workspace's general
+# 100-column line-length convention for source, tests, and comments alike, rather than relying on
+# whatever rustfmt ships as its unstated future default.
+max_width = 100
