@@ -312,6 +312,52 @@ accepting the A.7 adjudicator recommendations:
 
 ---
 
+### B. ALIGN discoveries (folded up at B.7 ◆, 2026-09-22)
+
+- **D15 — Seven planned rows closed plus one inserted row; two additive-reshards, all
+  human-authorized (B.7 ◆).** The rDLP portion ran readiness baseline (B.1), licensing (B.2), an
+  inserted advisory-remediation row (B.3a), dependency-audit policy (B.3), root-toolchain/formatting
+  (B.4), workspace lints (B.5), measured coverage (B.6), and the contributor-guide/template handoff
+  (B.7). B.3a and the B.4/B.5 additive-reshards were each surfaced by `@plan-juncture`
+  discovery-adjudication and explicitly authorized by the human, never applied silently.
+- **D16 — Five contracts frozen in FULL: C-Scope, C-Baseline, C-License, C-Audit, C-Coverage
+  (B.7 ◆).** The adopted, genuinely-green gates are `cargo check --workspace`,
+  `cargo test --workspace`, `cargo dep-policy` (= `cargo deny check`), `cargo audit`, and
+  `cargo coverage` (measured 92.78% line coverage against the ratified 80% floor).
+- **D17 — Two contracts frozen SCOPED, not FULL: C-Toolchain and C-Lints (B.7 ◆).** Both declare
+  and verify their policy while leaving workspace-wide conformance unadopted. C-Toolchain: one exact
+  root toolchain (1.95.0) with required components (`rustfmt`, `clippy`, `llvm-tools-preview`), no
+  member-level overrides, and a declared 100-column rustfmt policy are frozen — `cargo fmt-check` is
+  red across 169 files workspace-wide, so that gate is not adopted. C-Lints: a single-source
+  workspace lint policy (`unsafe_code` forbidden, `missing_docs` warn, `clippy::all` denied,
+  `clippy::pedantic` warned with explicit group priorities) with universal member inheritance is
+  frozen — `cargo lint` is red (234 measured `clippy::all`-group hits across 25 distinct lint kinds,
+  plus a larger pre-existing `pedantic`/`missing_docs` backlog), so that gate is not adopted either.
+  Both scoped freezes execute this campaign's own standing rule — recorded below in "ALIGN boundary
+  decisions" and in the PLAN's Discoveries log — that measured remediation exceeding a config-only
+  row's fileset is sharded separately, not hidden inside the row.
+- **D18 — C-TemplateSeed frozen on the rDLP side only (B.7 ◆).** The root-toolchain
+  pin-with-components pattern, a cargo-alias-naming-shadowing hazard (naming a `cargo-deny`-check
+  alias literally `audit` would silently shadow the real `cargo-audit` binary), and the
+  declared-but-unadopted-gate pattern are recorded in `docs/NOTES.md` as concrete rust-template
+  targets. No `rust-template` file was read or changed this sub-track; the bidirectional contract
+  stays OPEN.
+- **D19 — Two sized but unscheduled follow-on items, neither owned by any plan yet.** A
+  whole-workspace reformat (needs a `#[rustfmt::skip]` policy decision for numeric constant tables,
+  plus resync of the exact source-line citations in `shared/numth/docs/PEDAGOGY.md` and this
+  document — check whether those citations are already stale from REFACTOR before assuming the
+  reformat is the only desync source); and a lint-remediation pass (the `clippy::all` floor plus the
+  pedantic/`missing_docs` mass, including a suppression-policy decision on `many_single_char_names`
+  against this project's register discipline for a mathematics library). Both are design-bearing,
+  not mechanical. Whichever plan picks these up owns `fmt-check`/`lint` gate adoption respectively.
+- **D20 — A durable-to-rolling reference newly introduced this sub-track, flagged for CONSOLIDATE
+  (C-DocsLayer not yet frozen).** `.cargo/config.toml`'s comments and `docs/development.md` both
+  point at `docs/NOTES.md` for measurement provenance — in tension with the three-layer reference
+  discipline ALIGN itself just recorded as a rust-template seed target (durable prose should not
+  point at rolling notes). This may or may not be a defect — pointing at where measurement
+  provenance lives could be preferable to duplicating it — but CONSOLIDATE should adjudicate it as
+  newly-authored this week, not misread it as pre-existing residue from before REFACTOR.
+
 ### ALIGN boundary decisions (2026-09-17)
 
 - The rDLP portion is seven sessions: readiness baseline, licensing, dependency audit, root
@@ -329,7 +375,7 @@ All not-started at construction. `/plan-shard` marks in-progress; the reconcile 
 | Sub-track | Status |
 |-----------|--------|
 | A. SURVEY | **done** (A.7 ◆ closed 2026-06-21; findings ledger frozen in docs/SURVEY.md; contracts frozen in docs/PLAN.md) |
-| B. ALIGN | **in progress** (rDLP portion sharded; rust-template forward-seeds remain a separate handoff) |
+| B. ALIGN | **rDLP portion done** (B.7 ◆ closed 2026-09-22; bidirectional ALIGN remains open — rust-template forward-seeds need their own execution plan) |
 | C. ORACLE | not-started |
 | D. REFACTOR | **done** (D.6 ◆ closed 2026-06-21; C-Layout + C-Coherence code-half frozen; discoveries folded up) |
 | E. CONSOLIDATE | not-started |
