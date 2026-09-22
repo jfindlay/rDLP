@@ -328,3 +328,66 @@ the gate — recorded here as the honest per-crate picture behind the aggregate 
 **Not done this session:** no new test was written to close any gap, no ignored oracle test was
 executed, and the 80% floor was not lowered — the measured number cleared it, so none of the three
 forbidden moves were needed.
+
+---
+
+## C-TemplateSeed handoff — rDLP side (2026-09-22)
+
+Records the rDLP-side half of C-TemplateSeed: what this campaign's SURVEY findings and its own
+execution produced that is worth seeding into the `rust-template` repository. Template execution is
+a separate decision made in that repository, by whoever owns it, on its own schedule; **no file in
+`rust-template` has been read or changed by this session or any session in this campaign.**
+
+**Findings consumed (now complete at rDLP):** F-D1-01 through F-D1-09 — `deny.toml`, `rustfmt.toml`,
+`rust-toolchain.toml`, root `LICENSE`, workspace `[lints]` tables (with per-member
+`[lints] workspace = true` inheritance replacing three previously-duplicated per-crate blocks),
+the `cargo coverage` gate, `docs/development.md`, `.cargo/config.toml` aliases, and this campaign's
+`AGENTS.md` edits. All nine are now real, verified state in this repository (see the coverage and
+toolchain baselines above, and `docs/development.md` for the consolidated command reference).
+
+**Adapted conventions mapped to C-TemplateSeed's three clauses (still pending in the template repo,
+not evaluated there):**
+
+- *Root-toolchain policy* — the exact-release pin-with-components pattern itself
+  (`rust-toolchain.toml` pinning a specific release, e.g. `1.95.0`, rather than a floating channel,
+  with `rustfmt`/`clippy`/`llvm-tools-preview` declared as required components) is a direct template
+  target on its own, independent of the three F-D1-1x findings below.
+- *Appropriately sized rolling-context conventions* (F-D1-10, multisession docs layering) — this
+  repository's three-tier split (`docs/PLAN.md` for the live sub-track, `docs/ROADMAP.md` for the
+  project-lifetime view, `docs/NOTES.md` for rolling dated framings that either graduate to ROADMAP
+  or stay local) is the concrete shape to offer the template, sized down as needed for a template's
+  typically smaller scope.
+- *Opt-in oracle guidance* (F-D1-11, dev-oracle policy) — the `#[ignore]`-by-default convention for
+  tests needing an external tool, named so the gate is discoverable (`kat_pari_*`, `kat_c_cado_*`
+  here), run only via `cargo test -- --ignored`, and never promoted onto the default test path.
+- *Docs-reference discipline* (F-D1-12, docs-register / three-layer reference discipline) — the
+  register split this repository enforces between code-adjacent doc-comments, durable human prose
+  (`README.md`, a contributor guide), and rolling context notes, with each layer stating which of
+  the others it may reference and which it may not (durable prose never points at rolling notes;
+  code never points at either).
+
+**Concrete defects/patterns discovered while executing this plan, not from the original SURVEY
+digest, also worth carrying into the template:**
+
+- **Alias-naming shadowing hazard:** naming a `cargo-deny`-check alias literally `audit` in
+  `.cargo/config.toml` silently shadows the real `cargo-audit` binary — cargo resolves an alias
+  before a same-named installed binary, so `cargo audit` would silently run the alias instead of
+  `cargo-audit`, today only a deprecation warning but a hard error in a future cargo release. This
+  repository's alias is named `dep-policy` specifically to avoid the collision; a template
+  bootstrapping both `cargo-deny` and `cargo-audit` should avoid the `audit` alias name from the
+  start rather than rename it later.
+- **The "declared-but-unadopted gate" pattern:** used twice in this plan (`cargo fmt-check` and
+  `cargo lint` in this repository — see `docs/development.md`) for a gate whose alias/infrastructure
+  is correct and runnable but whose workspace-wide conformance requires a separately authorized
+  remediation pass on a pre-existing, previously-unformatted or previously-unlinted codebase. Worth
+  naming as a reusable, honest intermediate state for any template bootstrapping onto an existing
+  codebase rather than a fresh one: wire the alias and document it as declared-but-not-yet-enforced,
+  rather than either skipping it entirely or claiming false conformance.
+
+**Verification run this session (all commands actually executed, not assumed):**
+`cargo check --workspace` and `cargo test --workspace` green (0 failures across all nine crates'
+lib/integration/doc tests); `cargo dep-policy` and `cargo audit` both pass cleanly; `cargo coverage`
+passes (92.7–92.8% measured, consistent with the 2026-09-22 coverage baseline above, single-line
+fluctuation between runs as previously noted); `cargo fmt-check` and `cargo lint` both still fail,
+unchanged from their recorded baseline — neither was touched, and neither is claimed as a gate in
+`docs/development.md` or `AGENTS.md`.

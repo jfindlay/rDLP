@@ -12,16 +12,20 @@ and `docs/PEDAGOGY.md` for the section-by-section code tour.
 
 ## Commands that work today
 
-- `cargo check --workspace` and `cargo test --workspace` are the only enforced gates; keep both
-  green before finishing any change.
+See [`docs/development.md`](docs/development.md) for the full contributor guide: setup, toolchain
+upgrades, and a precise enforced-vs-declared breakdown of every check command. Summary:
+
+- Enforced (must stay green before finishing any change): `cargo check --workspace`,
+  `cargo test --workspace`, `cargo dep-policy` (dependency license/advisory/source policy),
+  `cargo audit` (RustSec advisory cross-check), and `cargo coverage` (80% line-coverage floor,
+  currently measuring around 92–93%).
+- Declared and runnable, but not yet required to pass workspace-wide: `cargo fmt-check` and
+  `cargo lint`. Both currently fail against the full codebase (a never-formatted tree and a large
+  pre-existing lint backlog, respectively). Do not assume either is green, and do not "fix"
+  formatting or lints as a drive-by side effect of an unrelated change — that rewrite belongs to its
+  own dedicated change.
 - `cargo build --release --workspace`, `cargo bench --bench <name>`, and the `rho-factor`/`rho-dlog`
   CLIs all work — see `README.md`'s build/bench/CLI sections for the exact invocations.
-- `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets` both run (rustfmt and
-  clippy ship with the active stable toolchain), but neither is a required gate yet, and neither is
-  currently clean. Do not assume either is green, and do not "fix" formatting or lints as a
-  drive-by side effect of an unrelated change — that rewrite belongs to its own dedicated change.
-- `cargo deny check`, `cargo audit`, and `cargo llvm-cov` are not installed in this environment.
-  Treat any claim about what they would report as unverified until the tool is actually present.
 
 ## Oracle policy
 
