@@ -7,3 +7,12 @@ dep-policy = "deny check"
 format = "fmt --all"
 fmt-check = "fmt --all -- --check"
 lint = "clippy --workspace --all-targets -- -D warnings"
+# 80% line-coverage floor: a dead-code floor, not a correctness ceiling (mathematical KATs
+# remain the primary signal — see docs/NOTES.md's "Workspace verification-tooling baseline").
+# `cargo llvm-cov --workspace` runs the same `cargo test --workspace` the workspace already
+# gates on, so `#[ignore]`-gated oracle tests (PARI/CADO-NFS) are excluded from the RUN exactly
+# as they are today; nothing here trims the coverage DENOMINATOR, so their otherwise-uncovered
+# code still counts against the 80% floor. Measured at 92.78% line coverage under
+# rustc/cargo 1.95.0 with cargo-llvm-cov 0.9.1 on 2026-09-22; see docs/NOTES.md for the exact
+# command and per-crate breakdown.
+coverage = "llvm-cov --workspace --fail-under-lines 80"

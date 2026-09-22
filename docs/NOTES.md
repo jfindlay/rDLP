@@ -285,3 +285,46 @@ repository's very first commit, before the Cargo workspace existed, and were nev
 `rho` joined the workspace. Neither currently conflicts with the root `Cargo.toml`/`Cargo.lock` —
 every command above ran clean — but both read as pre-workspace leftovers rather than an intentional
 per-member override, worth resolving whenever the workspace's toolchain scope is normalized.
+
+---
+
+## Workspace coverage measurement (2026-09-22)
+
+`cargo-llvm-cov` 0.9.1 is now installed against the pinned 1.95.0 toolchain (its
+`llvm-tools-preview` requirement was already satisfied — see the toolchain baseline above), closing
+the "not checked" gap the 2026-09-17 baseline recorded for coverage tooling specifically. This is
+the first actual run.
+
+**Command:** `cargo llvm-cov --workspace --fail-under-lines 80`, now also reachable as the
+`cargo coverage` alias in `.cargo/config.toml`. Both invocations were run and both exit 0.
+
+**Result:** measured line coverage **92.78%** (18594 total lines, 1342–1343 missed across two
+successive runs — a single-line rounding-level fluctuation between builds, not a regression).
+Region coverage measured 94.20–94.21%, function coverage 94.55%. The ratified 80% floor
+(C-Testing-Philosophy, frozen at A.7: line coverage is a dead-code floor, not a correctness
+ceiling) holds with comfortable margin, so no recalibration decision was needed or made this
+session — the floor is recorded as-is.
+
+**Denominator semantics, stated precisely:** `cargo llvm-cov --workspace` runs the same
+`cargo test --workspace` invocation the workspace already gates on, so the `#[ignore]`-gated
+PARI/CADO-NFS oracle tests are excluded from the coverage *run* exactly as they already are from
+the plain test gate — no `--include-ignored` flag was added and no oracle binary was invoked. That
+is a fact about which tests execute, not about which source lines count: their otherwise-uncovered
+code is not excluded from the coverage *denominator*, and is counted as uncovered wherever an
+oracle-only test would have been the sole thing exercising a line. No source file, module, or crate
+was excluded from the denominator to inflate the score; `--ignore-filename-regex` was not used
+anywhere.
+
+**Shape of the uncovered residue (for whoever next revisits this floor):** two files show a
+genuine 0.00% line coverage, both CLI-entry-point binaries never invoked as processes by the test
+suite — `rho/src/ecdlp/cli.rs` (84 lines) and `rho/src/factor/cli.rs` (22 lines), thin
+argument-parsing wrappers over already-tested library entry points. The weakest non-zero library
+modules by line coverage: `shared/gf2m/src/normal.rs` (55.36%), `rho/src/index_calculus/mod.rs`
+(69.44%), `gnfs/src/filter/merge.rs` (69.91%), `gnfs/src/dl/descent/node.rs` (72.45%),
+`rho/src/ssa/mod.rs` (79.73%), `gnfs/src/polyselect/mod.rs` (80.18%), `shor/src/shor/mod.rs`
+(80.54%), `shor/src/gates/mod.rs` (80.63%). None of this shape was used to trim the run or widen
+the gate — recorded here as the honest per-crate picture behind the aggregate number.
+
+**Not done this session:** no new test was written to close any gap, no ignored oracle test was
+executed, and the 80% floor was not lowered — the measured number cleared it, so none of the three
+forbidden moves were needed.
