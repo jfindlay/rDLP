@@ -249,9 +249,32 @@ The full bidirectional contract remains pending until the template changes are v
 | B.4 | Normalize workspace formatting and toolchain scope | done | 6c2f24b | C-Toolchain (native-check/prose, scoped — fmt-check adoption deferred) |
 | B.5 | Enforce inherited workspace lint policy | done | f239f77 | C-Lints (compiler/native-check, scoped — strict-gate adoption deferred) |
 | B.6 | Add the measured workspace coverage gate | done | c5e8c9f | C-Coverage (native-check/prose) |
-| B.7 | ◆ Publish the contributor guide and template-seeding handoff | pending | — | — |
+| B.7 | ◆ Publish the contributor guide and template-seeding handoff | done | af9972d | C-TemplateSeed (rDLP side, prose-enforced) |
 
 ## Action-frame digest
+
+### B.7 — 2026-09-22
+Discovery/flex: closed clean, like B.6 — no discovery-adjudication fork needed. Synthesized
+docs/development.md (setup, toolchain-upgrade procedure, an honest enforced-vs-declared-but-
+unadopted check-command table, KAT-first coverage philosophy, opt-in oracle policy), corrected
+AGENTS.md's now-stale "cargo-deny/cargo-audit/cargo-llvm-cov not installed" claim and its
+"check+test are the only enforced gates" claim (now five gates: check, test, dep-policy, audit,
+coverage), and recorded the rDLP-side C-TemplateSeed handoff in docs/NOTES.md (F-D1-01..09 consumed;
+F-D1-10/11/12 mapped to C-TemplateSeed's three clauses; the alias-shadowing hazard and the
+declared-but-unadopted-gate pattern named as concrete template targets) without touching the
+rust-template repository. All five already-adopted gates (check, test, dep-policy, audit, coverage)
+independently re-verified green; the two declared-but-unadopted gates (fmt-check, lint)
+independently re-confirmed still red at their known baseline, not silently fixed.
+Affected: C-TemplateSeed (frozen, rDLP side). No other contract touched or extended.
+Deferred: no new deferrals — this entry mostly closes out prior deferrals (B.4's/B.5's request that
+B.7 document both declared-but-unadopted gates; B.3's request to carry the alias-shadowing hazard
+into the template handoff; B.4's note that AGENTS.md's cargo-deny/audit line was stale). The two
+actual remediation shards (whole-workspace reformat; lint remediation) remain genuinely unscheduled
+outside this PLAN — that's not a B.7 deferral, it's a standing fact for whoever plans the next work.
+Texture: this is the last session in the sub-track. Anneal gate (run by the driver over every
+ALIGN-touched durable file — all manifests, deny.toml, rustfmt.toml, rust-toolchain.toml,
+.cargo/config.toml, LICENSE, AGENTS.md, docs/development.md) found zero denylist hits; no anneal-fix
+dispatch was needed before the boundary-transform fork.
 
 ### B.6 — 2026-09-22
 Discovery/flex: unlike B.3/B.4/B.5, this row closed clean on its first attempt — no
