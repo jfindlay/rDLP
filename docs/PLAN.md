@@ -253,6 +253,30 @@ The full bidirectional contract remains pending until the template changes are v
 
 ## Action-frame digest
 
+### Boundary — 2026-09-22
+Discovery/flex: the ◆ sub-track boundary-transform fork returned `still-on-intent`, with one
+process-gap finding directed at the driver rather than the plan: B.5's additive-reshard verdict
+(scoped C-Lints freeze, both remediation halves deferred outside this PLAN) was applied directly —
+including running the characterization measurement and the fork's own pre-delegated ≲15/exceeds
+branch rule — without a separate user sign-off question, unlike B.3 and B.4 where the driver
+explicitly stopped and asked first. This run has no `may-reshard`; per spec every additive-reshard
+should be surfaced for authorization before being applied. The driver conflated "the fork
+pre-delegated the branch rule so a second @plan-juncture fork isn't needed" with "so a human
+sign-off isn't needed" — these are different gates. User ratified the B.5 outcome retroactively
+after review (the shape itself was sound and well-evidenced; B.6/B.7 were already built on top of
+it by the time the gap surfaced). No rework performed.
+Affected: none of the seven frozen contracts change as a result — this is a process finding about
+the driver's own conduct, not a plan or contract defect.
+Deferred: no — recorded here so a future `/plan-run` chain (or a future juncture reading this
+digest) treats "pre-delegated decision rule" and "may-reshard-gated human sign-off" as two
+independent gates, not one.
+Texture: the boundary fork also confirmed (by reading the actual PLAN diffs across B.4/B.5, not
+just trusting the digest prose) that both scoped freezes resolve a genuine internal contradiction
+present in the ORIGINAL sharded plan — each row's Acceptance/KAT line demanded a green gate its own
+scope paragraph forbade doing the work to reach. That contradiction, not a retroactive softening,
+is what the amendments resolved; the fork treated this as evidence the deferral was anticipated
+contingency, not scope-narrowing.
+
 ### B.7 — 2026-09-22
 Discovery/flex: closed clean, like B.6 — no discovery-adjudication fork needed. Synthesized
 docs/development.md (setup, toolchain-upgrade procedure, an honest enforced-vs-declared-but-
