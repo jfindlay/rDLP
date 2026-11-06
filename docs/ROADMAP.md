@@ -12,6 +12,12 @@ governed that work is preserved in git history at the commit prior to this docum
 This is the **arc-2 roadmap**: a meta-campaign over the now-complete codebase — survey, revision,
 consolidation, refactoring, and addendum/appendix work — plus a gated algorithmic-extension slot.
 
+**2026-11-06 qualification:** arc-1 completion above records campaign closure, not independently
+established algorithmic completeness. Source-level correctness findings invalidate that stronger
+premise. The user selected a correctness-first interposition, beginning with a GNFS campaign whose
+mathematical design was accepted on 2026-11-06. Execution remains a separate `/plan-run` action.
+No runtime verification was performed during this reassessment or sharding. See D21–D24 below.
+
 ---
 
 ## Design intent
@@ -47,6 +53,12 @@ more finished and more coherent, or just bigger?*
 ---
 
 ## Sub-track DAG
+
+**Current overlay (2026-11-06):** the original graph below remains the historical campaign map.
+Insert GNFS correctness and its design checkpoint before broad CONSOLIDATE execution. Review NFS-DL
+and fallback-masked algorithm evidence at the GNFS boundary, not as automatic scope expansion.
+ORACLE infrastructure can be prepared independently, but its comparisons must target demonstrated
+mathematical contracts. This overlay does not reopen completed layout/formalities work.
 
 Arc 2 is a survey substrate feeding five campaign slots. The substrate's only deliverable is a
 findings ledger; every campaign is **gated behind survey findings** — the roadmap commits to the
@@ -166,6 +178,13 @@ junctures.
 
 ## Sequencing & scope
 
+**Current priority, user-approved 2026-11-06:** GNFS mathematical design checkpoint → approved
+corrective implementation and genuine integration evidence → correctness boundary review (NFS-DL
+next candidate). Resume ORACLE comparisons and broad CONSOLIDATE against the resulting supported
+scope. The order below is the original sequence, superseded where it assumes algorithm completeness.
+Narrow documentation corrections belong with repairs; the separate format/lint backlog and template
+handoff remain open. EXTEND stays deliberately deferred, not implicitly reauthorized.
+
 **Proposed order:** `A. SURVEY` → then `B. ALIGN` ∥ `C. ORACLE` ∥ `D. REFACTOR` (independent of each
 other) → `E. CONSOLIDATE` (after REFACTOR) → `F. EXTEND` (after REFACTOR; content gated on SURVEY).
 
@@ -191,11 +210,12 @@ Reasoning:
 | E. CONSOLIDATE | medium (prose; the inner test loop doesn't guard prose) | medium (incoherent textbook is costly to re-thread) | opus juncture at the math-spine freeze (C-MathSpine) |
 | F. EXTEND | high (new algorithmic correctness — KAT-gated) | high if content is non-obvious | **opus** for any substrate session; per arc-1's Category-A discipline |
 
-**Commit-size leaning:** arc-1's codebase is a *garden* (coherent structure, strong KAT discipline,
-trustworthy tests) — lever 5 (inner-loop bandwidth) is strong, which licenses smaller, denser commits
-and *opting juncture-tier down to sonnet* where correctness-criticality is also low (ALIGN, ORACLE).
-The two opus-leaning nodes (REFACTOR, F-EXTEND-substrate) are where blast radius and abductive design
-weight concentrate — hold the default there.
+**Commit-size leaning (revised 2026-11-06):** existing substrate tests remain useful, but the newly
+identified algorithm-path gaps invalidate a blanket assumption of a trustworthy integration loop.
+Use small conceptual repair units with independent mathematical acceptance. Hold architect-level
+judgment at the GNFS contract checkpoint and correctness boundary; implementation belongs at build
+tier after those contracts are approved. Historical ALIGN/REFACTOR closure is not retroactively
+invalidated by this change in the assurance model.
 
 ---
 
@@ -368,6 +388,45 @@ accepting the A.7 adjudicator recommendations:
   remediation separately; do not hide it inside a config-only row.
 - B.7 closes only the rDLP portion. Bidirectional ALIGN remains open until template changes land.
 
+### Correctness reassessment (2026-11-06)
+
+- **D21 — GNFS correctness outranks broad consolidation (confirmed facts; inferred consequence).**
+  The algebraic square-root implementation returns a norm rather than evaluation at m. Its tests
+  assert the norm identity or use fixtures that conceal the distinction. Mathematical inspection
+  shows the required square congruence does not generally follow. Reconstruction/character seams
+  also need adjudication, so a one-line replacement is not a justified repair plan. The user approved
+  a design-gated GNFS campaign; at that checkpoint, only mathematical design was actionable. D24
+  records the subsequent acceptance and sharding.
+- **D22 — Algorithm-path assurance is incomplete (confirmed).** Shor ECDLP and elliptic index
+  calculus have exhaustive fallbacks that final-answer tests do not distinguish from primary-path
+  success. NFS-DL has an incomplete context-free wrapper and no inspected value-checked integration
+  from generated relations through a nontrivial descent. Candidate arithmetic defects there remain
+  unresolved, not proven. These are queued for separate planning, not enrolled in GNFS by default.
+- **D23 — Oracle availability is not oracle evidence (confirmed).** Several ignored tests are
+  placeholders, including both panic bodies and unconditional assertions. Preserve opt-in isolation,
+  but do not claim oracle verification until comparisons actually run and check mathematical results.
+  The previous coverage baseline and campaign ledgers certify neither these comparisons nor
+  algorithm fidelity. NOTES records exact evidence; this assessment ran no tests or oracles.
+
+The corrective campaign may edit source, tests, and directly affected claims together. This is an
+explicit addition to the original artifact-based scope routing, not permission for broad refactoring
+or textbook cleanup. The initial reassessment required G.1 to establish supported-domain and failure
+contracts before implementation; any reduction of advertised capabilities requires human approval.
+That initial decision froze no specific field, fixture, reconstruction algorithm, or session count;
+the subsequent accepted design is recorded in D24.
+
+- **D24 — Canonical reconstruction design accepted (confirmed decision, 2026-11-06).** The user
+  accepted the G.1 mathematical design and approved its executable sharding: direct p-adic Newton
+  reconstruction plus Thomé's published split-prime CRT fallback, checked non-monic normalization,
+  certified coefficient bounds, exact root verification and modular mapping, typed failure outcomes,
+  and bounded discovery of a runtime-generated sieve-to-factor fixture. The inherited affine
+  collection boundary remains explicit. The existing `gnfs -> shared-padic` path edge is approved;
+  no external package expansion is enrolled. Deterministic machine-prime validation and budgeted
+  root enumeration avoid another dependency or a full polynomial factorization engine. The earlier
+  design-only restriction is superseded by design acceptance, not by an execution launch. Runtime
+  feasibility and generated-pipeline success remain unverified. PLAN now separates reconstruction
+  and checked-composition delivery boundaries; independent correctness review remains mandatory.
+
 ## Status
 
 All not-started at construction. `/plan-shard` marks in-progress; the reconcile step marks done.
@@ -379,7 +438,8 @@ All not-started at construction. `/plan-shard` marks in-progress; the reconcile 
 | C. ORACLE | not-started |
 | D. REFACTOR | **done** (D.6 ◆ closed 2026-06-21; C-Layout + C-Coherence code-half frozen; discoveries folded up) |
 | E. CONSOLIDATE | not-started |
-| F. EXTEND | not-started (content gated on SURVEY; scope-ceiling open-Q for human) |
+| F. EXTEND | deliberately deferred to arc-3; arc-2 recommendations note remains pending (Q3 ratified) |
+| GNFS correctness | **in progress** — mathematical design accepted; reconstruction and checked-composition shards prepared, implementation pending |
 
 ---
 
@@ -471,3 +531,14 @@ revision triggers an inflection-point Opus juncture, not an ad-hoc edit by a Son
   `shared/*` dedup. C-Coherence code-half FROZEN: ~524 cataloged F-D9-01…06 tokens re-anchored
   (≈99% completeness; ~5 residue tokens for CONSOLIDATE). KAT suite identically green throughout.
   Durable discoveries D10–D14 folded into Discoveries log above. D. REFACTOR status: **done**.
+- **2026-11-06 — Correctness-first boundary reassessment.** Source inspection plus independent
+  verification exposed a GNFS map mismatch and algorithm-path assurance gaps. User approved D21–D23,
+  the priority overlay, and a gated PLAN replacing the completed ALIGN ledger (preserved at
+  `3cd6fe5:docs/PLAN.md`). Implementation requires mathematical design review and subsequent approval;
+  no source changes, runtime verification, or commits were authorized in this planning session.
+- **2026-11-06 — GNFS design accepted and sharded.** User accepted G.1, then approved fourteen
+  implementation rows with reconstruction and generated-composition boundaries. Mathematical
+  contracts and discovery limits are preserved; interface design and final independent review use
+  high-tier junctures, implementation uses build tier. D24 records the design decision. No
+  implementation sub-track is marked done, no checks ran, and no commits or execution were started.
+  ALIGN's rDLP closure and all unrelated deferrals remain unchanged.
