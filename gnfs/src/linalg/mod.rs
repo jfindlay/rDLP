@@ -8,8 +8,10 @@
 //!   for block Lanczos and Wiedemann solvers.
 //! - [`operator`] — `MatrixOperator`: sparse matrix as a linear operator over GF(2).
 //! - [`kernel`] — `KernelVector`: nullspace vector representation (the linear algebra → square root seam).
-//! - [`qc`] — `populate_qc_columns`, `select_qc_primes`, `DEFAULT_NUM_QC`: quadratic-
-//!   character column construction.
+//! - [`qc`] — individual root characters `(q, s)`: `select_root_characters`, `RootCharacters`
+//!   (fill and verify the matrix's character columns by XOR over original provenance); plus the
+//!   legacy norm-character helpers `populate_qc_columns`, `select_qc_primes`, `DEFAULT_NUM_QC`.
+//!   Characters are necessary filters, never square certificates.
 //! - [`lanczos`] — `block_lanczos`: Montgomery's block Lanczos nullspace solver.
 //! - [`wiedemann`] — `block_wiedemann`: Coppersmith's block Wiedemann nullspace solver.
 //!
@@ -17,8 +19,9 @@
 //!
 //! The linear algebra step takes the filtered sparse GF(2) matrix from the filtering step
 //! and finds vectors in its left nullspace. Each nullspace vector corresponds to a set of
-//! relations whose product is a perfect square on both sides — the raw material for the
-//! congruence of squares in the square root step.
+//! relations that satisfies every parity, sign, and character constraint of the matrix — a
+//! candidate for the congruence of squares in the square root step. The constraints are
+//! necessary conditions, so exact verification in the square root step remains authoritative.
 //!
 //! # Linear algebra contract
 //!
@@ -36,6 +39,10 @@ mod qc;
 pub use blockvec::{BlockVec, BLOCK_WIDTH};
 pub use operator::MatrixOperator;
 pub use kernel::KernelVector;
-pub use qc::{populate_qc_columns, select_qc_primes, DEFAULT_NUM_QC};
+pub use qc::{
+    populate_qc_columns, select_qc_primes, select_root_characters, CharacterResource,
+    CharacterValue, PairRejection, RejectedPair, RootCharacter, RootCharacterError,
+    RootCharacterLimits, RootCharacterSelection, RootCharacters, SelectionReport, DEFAULT_NUM_QC,
+};
 pub use lanczos::block_lanczos;
 pub use wiedemann::block_wiedemann;
