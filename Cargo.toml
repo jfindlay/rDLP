@@ -26,6 +26,12 @@ missing_docs = "warn"
 all = { level = "deny", priority = -1 }
 pedantic = { level = "warn", priority = -2 }
 
+# Line tables only: backtraces and panic locations still resolve, but full variable debuginfo is
+# dropped, shrinking dev/test artifacts and the link step's memory and disk traffic. The test
+# profile inherits this, as does the instrumented build `cargo coverage` produces.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.bench]
 opt-level = 3
 lto = "thin"

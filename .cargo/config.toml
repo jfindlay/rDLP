@@ -1,3 +1,13 @@
+# Half the logical cores (negative = all cores minus N), so a build leaves headroom for the rest
+# of the system; compile and link steps are the main memory consumers.
+[build]
+jobs = -4
+
+# Libtest otherwise spawns one thread per core on top of cargo's own parallelism. Not `force`d,
+# so an exported RUST_TEST_THREADS (or `-- --test-threads`) still wins for one-off runs.
+[env]
+RUST_TEST_THREADS = "4"
+
 [alias]
 # Aliasing this to "audit" would shadow the real `cargo audit` binary: cargo resolves an
 # alias before an installed binary of the same name, so `cargo audit` would silently run
