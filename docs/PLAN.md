@@ -1974,7 +1974,8 @@ additional mandatory gates=`cargo dep-policy`, `cargo audit`, `cargo coverage`. 
 self-continue (chosen by the user at run start over `halt-at-boundaries`). Baselines re-established
 green at 0e974ab on 2026-11-06 (check, test, dep-policy, audit, coverage 92.76% lines). C-Design is
 accepted input, not an uncompleted producer row. Concrete interfaces await their listed freezes.
-Final G.5 independent review: **pending**. Row 1 allowed extras: none; unrelated dirty
+Final G.5 independent review: **block (documentation findings only; no code defect found)** — see
+the "14 ◆ boundary and final review" digest entry; closure awaits a human decision. Row 1 allowed extras: none; unrelated dirty
 `.cargo/config.toml` and `Cargo.toml` (build-tuning edits not made by any worker) were left
 unstaged and uncommitted.
 
@@ -2253,6 +2254,75 @@ Texture: the anneal denylist over the new test file gave zero hits; the added RE
 PEDAGOGY text carries no plan coordinate. The only denylist-pattern hit on a changed line is the
 pre-existing historical text "G.D, G.E, and G.F" in PEDAGOGY, re-wrapped by the row, left untouched
 (unrelated historical text, same disposition as the first boundary).
+
+### 14 ◆ boundary and final review — 2026-11-07
+Discovery/flex: Anneal gate (driver, mechanical) over `gnfs/src`, `gnfs/tests`, README, MATHEMATICS,
+BENCHMARKS, PEDAGOGY with the plan's denylist: zero hits attributable to this chain; the remaining
+hits are pre-existing and unrelated (blame: PEDAGOGY "of a frozen contract" 76f3633; Shor/Track-S
+text in MATHEMATICS, BENCHMARKS, README; `[S09]`-style bibliography keys). Boundary fork (read-only,
+run mode default self-continue) returned **`still-on-intent`**: relations are generated and
+validated, never injected; direct Newton is primary and Thomé CRT only on inert-prime exhaustion; the
+bound is exact integer arithmetic; every inversion is re-checked; the factor was re-derived from raw
+(a,b) pairs. It also ruled the row-13 `factor_from_congruence` refinement a legitimate clarification
+(the frozen `Proper` type holds one divisor, so "both gcds" could never be reported literally). Its
+independent **final review (G.5) verdict is `block`**, for documentation only; no code correctness
+defect was found, and it recommended no destructive halt. Review facts it confirmed by reading the
+code: `NonSquareCertificate::new` non-test call sites are exactly `padic.rs:181,234` and
+`crt.rs:407,732`; `seal` has one production call site (`normalize.rs:179`); the pub(super)
+certificate disposition is acceptable (forgery can only skip a candidate, never mint a root; the rule
+is grep-enforced only, and an optional source-grep test would be cheap); the coefficient bound
+re-derives; the hand fixtures NM, R{1,3,5}, x³−2 and f(31)=45113 re-derive.
+Affected: C-PipelineEvidence; durable docs (not any frozen code contract).
+**Unresolved findings (numbered as returned):**
+1. **blocking** — `gnfs/docs/PEDAGOGY.md` §56 (≈ lines 4637–4642), §68 (≈ 5774), §22 (≈ 1492), §32 (≈
+   2116) still say finite quadratic-character columns *guarantee* the algebraic square root exists
+   in K; the plan prohibits carrying that claim forward and `kat_root_character_unit_passes_some_
+   characters_but_is_not_a_square` and `kat_omitting_exceptional_parity_admits_a_candidate_exact_
+   verification_rejects` refute it. MATHEMATICS §5 (≈ 1690) points readers to PEDAGOGY §56.
+2. **blocking** — the norm-map congruence is still stated as true: `docs/MATHEMATICS.md` §5 (≈
+   1644–1656, "Theorem (dependency gives congruence of squares)": X = Π(a+bm), Y² = ΠN_alg, "the
+   bridge ensures X ≡ Y") and `gnfs/docs/PEDAGOGY.md` §32 (≈ 2123–2136, "Y = Norm(β)", y = Y mod N)
+   and §33 (≈ 2174–2175). It contradicts the accepted map (y² = P = Π(a−bm), not Norm(γ)) and is
+   refuted by `kat_modular_image_is_the_normalized_map_not_the_norm` and
+   `kat_wrong_norm_map_counterexample`. The driver spot-checked both blocking findings against the
+   files and confirms they are present. The row-13 entry recorded MATHEMATICS §5–6 as corrected;
+   only the character paragraph and §6 were.
+3. non-blocking — the ignored oracle stub `gnfs/tests/lanczos_kat.rs` (≈ 352–357) repeats the norm
+   method ("y = sqrt(product of norms) mod N", both gcds).
+4. non-blocking — `docs/BENCHMARKS.md` (≈ 403–446) square-root timing text is stale and
+   self-contradictory, and names only `factor_end_to_end_kat.rs`, not `factor_pipeline_kat.rs`
+   (an under-claim).
+5. non-blocking — PEDAGOGY Principle-1 text (≈ 4850, 4940): lists legacy `populate_qc_columns` as the
+   character construction and says no follow-on was found; the verdict line itself is correctly
+   scoped.
+6. non-blocking — legacy `select_qc_primes`/`populate_qc_columns` remain public (`linalg/qc.rs`,
+   re-exported at `linalg/mod.rs:48`), unused by any production path; `populate_qc_columns` panics on
+   a bad width. Removal was never enrolled.
+7. observations — `PrimeCursor`, `centered` and the exponent search are duplicated in `crt.rs` and
+   `padic.rs` (consolidation, unenrolled); pipeline counts (60 relations, rank 18, the 22-relation
+   list) and the V4/(−5,0) match counts are regression values, not independent derivations; the
+   "every b = 0" control is weak (the real b-participation evidence is b ≥ 1 on all 22 relations plus a
+   non-constant β); the three-seed pooling did not change the outcome (candidate 0 is the first
+   verified vector from seed 42).
+**Prohibited carry-forward claims:** "global sign needs a real root" and "former routine differed only
+by a scale knob" are confirmed absent; "finite QC guarantees a field square" is finding 1.
+**External oracles are not ready:** the `#[ignore]`d PARI/CADO tests are placeholders (`todo!()` at
+`factor_end_to_end_kat.rs:725`, `unimplemented!()` at `merge_kat.rs:279`, a hand-made matrix at
+`lanczos_kat.rs:318`); they stay ignored but validate nothing, and no PARI cross-check exists for the
+new square-root code. A useful opt-in oracle row would check irreducibility and discriminant of f, and
+β² = γ plus nonsquare certificates on the NM, V4, x³−2 and 45113 fixtures (for example via
+`nffactor`).
+**NFS-DL:** the fork recommends against auto-enrolling it. It needs its own design pass (Schirokauer
+maps, descent, Shor/index-calculus fallback masking, the possible Dedekind-gcd defect). It would
+reuse the finite-field polynomial arithmetic, residue-field roots and checked-relation work, but the
+DL code does not use the repaired GF(2) merge (inferred from grep).
+Deferred: yes — HALT for human sign-off (not drift-HALT; a closure block). The fork's recommendation
+is one doc-only fix row for findings 1–5 (PEDAGOGY §22, §32–33, §56, §59, §68; MATHEMATICS §5;
+BENCHMARKS; the `lanczos_kat.rs` comment), then a G.5 re-check by grep, then optionally the oracle row.
+The driver did not enrol that row: the run was not invoked with `may-reshard`, and the verdict itself
+asks for a human decision.
+Texture: the review fork's shell was refused, so it reviewed by reading code and tests rather than
+re-running gates; its gate evidence is the driver's per-row green record.
 
 ## Discoveries & risks
 
