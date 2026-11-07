@@ -64,7 +64,7 @@ the named paths, not permission to edit an entire directory. New paths are ident
 | 9 | Preserve kernels through elimination and XOR lifts | B | T1 | C-Design, C-CheckedRelations | `gnfs/src/filter/{matrix,merge}.rs`, `gnfs/tests/merge_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 10 | Filter candidates with individual root characters | B | T1 | C-Design, C-FpPoly, C-CheckedRelations, C-XorLift | `gnfs/src/linalg/{qc,mod}.rs`, `gnfs/tests/linalg_substrate_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 11 | Validate dependencies against original relations — @architect | A | T1 + T0 design | C-Design, C-SqrtContext, C-NormalizedTarget, C-CheckedRelations, C-XorLift, C-RootCharacters | `gnfs/src/sqrt/{dependency,mod}.rs`, `gnfs/tests/sqrt_dependency_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
-| 12 | Enumerate bounded combinations of kernel vectors | B | T1 | C-Design, C-Dependency | `gnfs/src/linalg/kernel.rs`, `gnfs/tests/kernel_combinations_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
+| 12 | Enumerate bounded combinations of kernel vectors | B | T1 | C-Design, C-Dependency | `gnfs/src/linalg/{kernel,mod}.rs`, `gnfs/tests/kernel_combinations_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 13 | Migrate factor assembly to verified root reports | I | T1 | C-Design, C-SqrtContext, C-NormalizedTarget, C-VerifiedRoot, C-CheckedRelations, C-Dependency, C-KernelSearch | `gnfs/src/sqrt/{algebraic,rational,assembly,mod}.rs`, `gnfs/src/lib.rs`, `gnfs/tests/{sqrt_algebraic_kat,sqrt_rational_kat,factor_end_to_end_kat}.rs`, `gnfs/docs/PEDAGOGY.md`, `docs/{MATHEMATICS,BENCHMARKS}.md` |
 | 14 | Demonstrate factorization from generated relations ◆ | I | T1; T0 boundary | C-Design, C-VerifiedRoot, C-CheckedRelations, C-XorLift, C-RootCharacters, C-Dependency, C-KernelSearch, C-FactorReport | `gnfs/tests/factor_pipeline_kat.rs`, `README.md`, `gnfs/docs/PEDAGOGY.md`, `docs/MATHEMATICS.md` |
 
@@ -205,6 +205,12 @@ public factor-attempt/report interface that row 13 will implement. Old public AP
 in this additive row. Fake exponent matrices belong only in isolated unit tests.
 
 ### 12 — Bounded computed-kernel combinations (G.3d, enumeration half)
+
+Fileset refined at the row-11 inflection (2026-11-07): `gnfs/src/linalg/mod.rs` is added, only to
+re-export the new public kernel-search items (the `kernel` module is private). Row 12 must emit a
+`Vec<KernelVector>` plus a `KernelSearchStatus` carrying a `Complete` variant and `is_complete()`;
+the dependency validation layer never trusts these and never calls `KernelVector::verify` or
+`expand_provenance` (the latter panics on out-of-range rows).
 
 New: `gnfs/tests/kernel_combinations_kat.rs`.
 Deliver: deterministic budgeted enumeration of distinct nonzero XOR combinations of computed kernel
@@ -1547,11 +1553,269 @@ necessary filters, not square certificates or sign-selection rules.
 
 ### C-Dependency — checked original-row lifting and products
 
-**Enforcement:** compiler + test. **Defined-in:** 11. **Consumed-by:** 12–14.
-To be frozen at 11: matrix/context binding, sorted unique indices, provenance bounds, per-row lifted
-parity and kernel membership, exact original-row products, and final checked factor-attempt/report
+**Enforcement:** compiler + test + prose. **Defined-in:** 11. **Consumed-by:** 12–14.
+**Status:** designed at the row-11 inflection (2026-11-07); freezes when row 11 lands. Original
+statement: matrix/context binding, sorted unique indices, provenance bounds, per-row lifted parity
+and kernel membership, exact original-row products, and final checked factor-attempt/report
 signatures. KATs reject malformed contexts and verify overlap cancellation and non-monic products.
 Deduplicate pairs before building a matrix; never alter provenance indexing after validation.
+
+**Fileset.** Row 11's fileset is unchanged: `gnfs/src/sqrt/{dependency,mod}.rs`,
+`gnfs/tests/sqrt_dependency_kat.rs`, `gnfs/docs/PEDAGOGY.md`. No `context.rs`, `lib.rs`, `filter/*`,
+`linalg/*` or manifest edit. `sqrt/mod.rs` adds `pub mod dependency;`, re-exports the five public
+items below at `gnfs::sqrt::*`, and adds one module-list bullet. Its legacy Background text is not
+rewritten here; row 13 does that. Row 11 does **not** implement the factor-attempt/report types.
+Their signatures are frozen below and implemented by row 13, so no producer-less public API lands
+early. Intra-crate edges `sqrt -> {sieve, filter, linalg}` already exist through the legacy modules.
+
+Signatures (module `gnfs::sqrt::dependency`; owned values, no lifetimes; hand-written `Display` +
+`Error` on every error type; no panic on any input, including a `KernelVector` struct literal):
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum DependencyContextError {            // first failure, checked in this order
+        LayoutRelationsMismatch,                 // layout.checker() != relations.checker()
+        CharactersRelationsMismatch,             // characters.checker() != relations.checker()
+        CharacterCountMismatch { layout: usize, characters: usize },
+        MatrixShapeMismatch,                     // !layout.shape_matches(&matrix)
+        Characters(RootCharacterError),          // bit_table: a character vanishes (ZeroValue)
+        // then per row, ascending row index:
+        MalformedColumns { row: usize },         // cols not strictly ascending
+        ColumnOutOfRange { row: usize, column: usize },        // column >= num_cols
+        EmptyProvenance { row: usize },
+        MalformedProvenance { row: usize },      // not strictly ascending
+        ProvenanceOutOfRange { row: usize, index: usize, relations: usize },
+        LiftedParityMismatch { row: usize, column: usize },    // smallest differing column
+        // after all rows:
+        ColumnWeightMismatch { column: usize },  // col_weights[c] != true weight
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct DependencyContext { /* private: relations: CheckedRelations, layout: MatrixLayout,
+        characters: RootCharacters, matrix: SparseMatrix,
+        original_columns: Vec<Vec<usize>>   // per original relation, incl. character columns */ }
+    impl DependencyContext {
+        pub fn new(relations: CheckedRelations, matrix: SparseMatrix, layout: MatrixLayout,
+            characters: RootCharacters) -> Result<Self, DependencyContextError>;
+        pub fn context(&self) -> &SqrtContext;     pub fn relations(&self) -> &CheckedRelations;
+        pub fn layout(&self) -> &MatrixLayout;     pub fn characters(&self) -> &RootCharacters;
+        pub fn matrix(&self) -> &SparseMatrix;     // the filtered matrix candidates index
+        pub fn original_columns(&self, relation: usize) -> Option<&[usize]>;
+        pub fn validate(&self, selection: &[usize]) -> Result<CheckedDependency, DependencyError>;
+        pub fn validate_kernel_vector(&self, vector: &KernelVector)
+            -> Result<CheckedDependency, DependencyError>;   // = validate(&vector.row_indices)
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum DependencyRejection {               // first failure, checked in this order
+        EmptySelection,
+        MalformedSelection { position: usize },  // selection[position] <= selection[position-1]
+        RowOutOfRange { position: usize, row: usize, rows: usize },
+        NotInKernel { column: usize },           // smallest column of odd selected weight
+        EmptyLift,                               // provenance cancels to the empty set
+    }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum DependencyError { Rejected(DependencyRejection), Invariant(InvariantViolation) }
+    // DependencyError::class(&self) -> FailureClass: InvalidInput | InvariantViolation.
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct CheckedDependency { /* private; minted only by DependencyContext::validate:
+        selection: Vec<usize>, relations: Vec<usize>, factors: RelationFactors,
+        rational_product: BigInt, gamma: RatPoly */ }
+    impl CheckedDependency {
+        pub fn context(&self) -> &SqrtContext;
+        pub fn selection(&self) -> &[usize];       // filtered-matrix rows, as validated
+        pub fn relations(&self) -> &[usize];       // lifted original indices, ascending, non-empty
+        pub fn factors(&self) -> &RelationFactors; // pairs in `relations()` order; owns context
+        pub fn relation_count(&self) -> usize;     // k = relations().len() >= 1
+        pub fn rational_product(&self) -> &BigInt; // P = prod(a - b m) over Z, exact m
+        pub fn gamma(&self) -> &RatPoly;           // prod(a - b theta/c) mod F, theta basis
+        pub fn target(&self, limits: PrecisionLimits) -> Result<TargetOutcome, SqrtError>;
+            // = NormalizedTarget::new(self.factors().clone(), limits)
+    }
+
+Semantics consumers may rely on:
+
+- **Binding.** The context owns the relation set, layout, characters, and filtered matrix. They
+  belong together by checker equality and the character count. The matrix belongs to them by the
+  per-row lifted-parity identity. `MatrixLayout` is minted only by `build_checked_matrix`.
+  Relation sets that share a checker can produce layouts that compare equal. The identity check,
+  not the layout, ties the matrix to *these* relations. A mismatch that slipped through could only
+  produce a candidate that exact verification rejects, never a false root.
+- **Per-row lifted parity (construction).** `original_columns(i)` is
+  `layout.row_columns(relations()[i])`, which always succeeds for bound relations, together with
+  `character_column(slot)` for every set bit of `characters.relation_bits(relations, i)`, sorted.
+  Each matrix row's `cols` must equal the XOR of `original_columns` over its provenance. This
+  subsumes `verify_columns`. With K > 0 it rejects unfilled character columns. It also forces
+  omitted exceptional columns to stay zero. Filling characters before or after filtering both
+  pass. Empty provenance is rejected because correct XOR elimination and row drops keep
+  provenance vectors linearly independent, so a genuine row never has empty provenance
+  (inferred). A duplicated genuine row passes construction; it can only produce `EmptyLift`.
+- **Candidates are untrusted.** `validate` re-derives everything from the selection and never
+  calls `KernelVector::verify`/`expand_provenance` (the latter panics out of range). Kernel
+  membership is checked in the owned filtered matrix. The lift uses symmetric difference
+  (`SparseMatrix::lift_dependency` or equivalent), so overlapping provenance cancels and nothing
+  unions. Lifted parity is then recomputed from `original_columns`, not from the matrix. A
+  failure after membership passed is `Invariant`, never a rejection, because construction makes it
+  unreachable. So is a `RelationFactors::new` failure: every nonempty subset of `CheckedRelations`
+  is a valid factor set.
+- **Derived consequences of a validated dependency (inferred, not re-proved as preconditions).**
+  Every rational factor-base column and the sign column have even lifted weight, and rational norms
+  factor completely over the validated base. So P > 0 is an exact integer square. Good-ideal and
+  character parities are necessary filters only. gamma need not be a square: `CheckedDependency`
+  is a candidate, not a certificate.
+- **Products.** P = Π(a − b·m) over Z with the exact m. gamma is computed directly as
+  Π(c·a − b·θ) mod F over Z, scaled by 1/c^k, reduced, in the θ basis. That is the same
+  representation as `NormalizedTarget::gamma`, so a KAT can check equality across the two
+  implementations. No raw homogeneous-norm product is formed or tested. For non-monic f, Π f_hom
+  = c^k·Norm(gamma) need not be an integer square even when gamma is.
+- **Uniqueness.** Pair uniqueness is the `CheckedRelations::new` invariant (`DuplicatePair`).
+  Composition removes duplicates from the `Relation` list *before* `CheckedRelations::new`, keeping
+  first occurrences in order. Provenance then indexes the deduplicated list. No API accepts an
+  index map or renumbers provenance after validation. (a, b) and (−a, −b) stay distinct records.
+- **Fake matrices.** Fully synthetic `SparseMatrix` values appear only in `#[cfg(test)]` unit tests
+  in `dependency.rs`, which also cover the unreachable invariant paths by corrupting private state.
+  Integration KATs start from genuine `build_checked_matrix` output. Rejection KATs apply explicit,
+  named corruptions to that output; a corrupted matrix is never success evidence.
+
+**Final checked factor-attempt/report interface (frozen here; row 13 implements it in
+`sqrt/{rational,algebraic,assembly}.rs`, replacing the legacy signatures of the same names, and adds
+crate-root re-exports).** It consumes only C-Dependency, C-VerifiedRoot, and two row-12 items:
+`KernelVector` and `KernelSearchStatus`, defined below under C-KernelSearch.
+
+    // rational.rs
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct RationalRoot { /* private: product P > 0, root x0 > 0 with x0² = P exactly,
+        image x = x0 mod N in [0, N) */ }    // product(), root(), modular_image()
+    #[must_use] #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum RationalSqrtOutcome { Root(RationalRoot), NonSquare { product: BigInt } } // P <= 0 too
+    pub fn rational_sqrt(dependency: &CheckedDependency) -> RationalSqrtOutcome;
+    // algebraic.rs
+    pub fn algebraic_sqrt(dependency: &CheckedDependency, limits: SqrtLimits)
+        -> Result<AlgebraicSqrtOutcome, SqrtError>;
+        // exactly reconstruct_root_from_factors(dependency.factors().clone(), limits)
+    // assembly.rs
+    #[must_use] #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum CongruenceOutcome { Proper { divisor: BigInt, cofactor: BigInt }, Trivial }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum CongruenceError { ModulusNotGreaterThanOne { n: BigInt }, NotCongruent }
+    pub fn factor_from_congruence(x: &BigInt, y: &BigInt, n: &BigInt)
+        -> Result<CongruenceOutcome, CongruenceError>;   // N > 1, x² ≡ y² (mod N), then gcds
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct VerifiedFactor { /* private, minted only in assembly.rs: divisor, cofactor,
+        rational: RationalRoot, algebraic: VerifiedRoot, relations: Vec<usize> */ }
+        // divisor(), cofactor(), rational_root(), algebraic_root(), relations()
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum AttemptOutcome {
+        Factor(VerifiedFactor), TrivialCongruence { x: BigInt, y: BigInt },
+        RationalNonSquare { product: BigInt }, AlgebraicNonSquare(NonSquareCertificate),
+        Unsupported(UnsupportedDomain), Incidental(IncidentalFactor),
+        ResourceExhausted(Vec<ResourceExhaustion>),
+    }   // class(&self) -> Option<FailureClass>, None for Factor
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct AttemptRecord { pub candidate: usize, pub relations: Vec<usize>,
+        pub outcome: AttemptOutcome }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum FactorError {
+        InvalidCandidate { candidate: usize, error: DependencyError },
+        Sqrt(SqrtError), Invariant(InvariantViolation),
+    }
+    pub fn attempt_factor(dependency: &CheckedDependency, limits: SqrtLimits)
+        -> Result<AttemptOutcome, FactorError>;
+    #[must_use] #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum FactorOutcome { Factor(VerifiedFactor), IncidentalOnly(IncidentalFactor), Exhausted }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct FactorReport { /* private: outcome, attempts: Vec<AttemptRecord>,
+        search: KernelSearchStatus */ }
+        // outcome(), attempts(), search(), resource_limited()
+    pub fn factor(context: &DependencyContext, candidates: &[KernelVector],
+        search: KernelSearchStatus, limits: SqrtLimits) -> Result<FactorReport, FactorError>;
+
+Report semantics row 13 must implement:
+
+- `attempt_factor` runs in this order. (1) `rational_sqrt`; `NonSquare` gives `RationalNonSquare`,
+  which is typed even though it is unreachable for a validated dependency. (2) `algebraic_sqrt`;
+  every non-`Verified` outcome passes through unchanged into the matching variant. (3) It requires
+  `root.rational_product() == rational.product()` and `root.context() == dependency.context()`;
+  a mismatch is `Invariant`. This binds x and y to the same P. (4) `factor_from_congruence(x, y,
+  N)`. `NotCongruent` or a modulus error is `Invariant`, because the context and both verified
+  roots make them impossible. `Trivial` gives `TrivialCongruence`, and `Proper` mints
+  `VerifiedFactor`.
+- **Retry-loop invariant.** `AttemptOutcome::AlgebraicNonSquare` is produced only by passing through
+  the certificate returned by `algebraic_sqrt`, hence only by `reconstruct_root_from_factors` →
+  `reconstruct_root`. No other code path builds or relabels a nonsquare. Invalid candidates,
+  invariant failures, rejections, and resource exhaustion are never recorded as nonsquare.
+- `factor` validates and attempts candidates in slice order. A `DependencyError` aborts with
+  `InvalidCandidate{candidate: position}`. Computed-kernel candidates are kernel vectors by
+  construction, so such a failure is an upstream defect and is never retried. The loop stops at
+  the first `Factor`. `Incidental` is recorded and the search continues; `IncidentalOnly` is
+  returned only when no attempt factored, so pipeline evidence never rests on an incidental gcd.
+  `resource_limited()` is true iff the search status is not complete or any attempt is
+  `ResourceExhausted`. `Exhausted` with `resource_limited() == false` is a complete negative
+  result for the supplied candidates only, not for the kernel.
+- No panic, no unverified-root wrapper, and no legacy-shaped `Option<BigInt>` `factor` retained.
+
+**Settled at this inflection.**
+
+1. **`NonSquareCertificate::new` stays `pub(super)`; it is not tightened.** In the `sqrt` module
+   tree, Rust visibility can name only ancestors. Restricting minting to `padic`/`crt` would mean
+   moving both under a new parent module, which changes frozen module paths, or adding a
+   source-grepping test; both cost more than they protect. Forgery can only produce a false
+   negative (a skipped candidate), never a false root. Success stays compiler-sealed. Review
+   invariant, greppable at the row-14 boundary: non-test `NonSquareCertificate::new(` call sites
+   exist only in `padic.rs` and `crt.rs`. `dependency.rs`, `rational.rs`, `algebraic.rs`, and
+   `assembly.rs` never call it. *Cost:* it remains crate-sibling-forgeable; the final review should
+   confirm that this is acceptable.
+2. **Retry-loop invariant:** as above. NotSquare comes only from `reconstruct_root` /
+   `reconstruct_root_from_factors`, through `algebraic_sqrt`.
+3. **Row-12 candidates:** row 12 emits `Vec<KernelVector>`, each with sorted unique filtered-matrix
+   row indices, plus `KernelSearchStatus`. Validation trusts neither: it rechecks ordering, range,
+   and kernel membership in the context's own matrix, lifts by XOR, and recomputes parity from the
+   original rows.
+4. **Fileset:** row 11 is unchanged (above). Flag for the driver: row 12's `kernel` module is
+   private (`mod kernel;` in `linalg/mod.rs`), so its new public items need a re-export line. Row 12
+   therefore needs `gnfs/src/linalg/mod.rs` added to its fileset as an explicit refinement. Row 13's
+   fileset suffices, since it only reads `gnfs::linalg::{KernelVector, KernelSearchStatus}`.
+
+KATs in `gnfs/tests/sqrt_dependency_kat.rs`, each with an independent arithmetic comment. The
+worker re-derives every hand value with an independent script. Fixture T is f = 3x²+x−1, m = 3,
+N = 29, with relations in the order (4,1), (7,1), (2,1), (−3,2), (−9,2), (5,2) as rows 0–5, and
+F = t²+t−3, so θ² = 3 − θ. The seam fixture is x²−2, m = 23, N = 527, with (3,−2).
+
+- `kat_context_binds_relations_layout_characters`: T with K = 0 and K = 2, where the two pairs are
+  valid characters derived by the worker and filled. Covers accessors, and checks
+  `original_columns` against `row_columns` plus the character bits.
+- `kat_context_rejects_binding_mismatches`: a layout and characters from another checker, a K
+  mismatch, and a truncated `col_weights`.
+- `kat_context_rejects_malformed_rows`: named corruptions of a genuine matrix. These are unsorted or
+  duplicate cols, a column ≥ num_cols, empty provenance, unsorted or duplicate provenance,
+  provenance ≥ len, and a wrong column weight. Each yields its variant and the first row.
+- `kat_context_rejects_lifted_parity_mismatch`: a flipped bit in one row with the weight adjusted,
+  unfilled character columns at K > 0, and a character vanishing on a relation (`Characters`).
+- `kat_validate_rejects_malformed_selection`: empty, unsorted, duplicate, and out-of-range
+  selections, including a `KernelVector { row_indices: vec![5, 2] }` literal with no panic. Also a
+  duplicated genuine row, where selecting both copies gives `EmptyLift`.
+- `kat_validate_rejects_non_kernel_selection`: T rows {0, 1} give `NotInKernel` at column 6.
+- `kat_overlap_cancellation_lifts_symmetric_difference`: a pinned genuine checked matrix and one
+  `eliminate_column` weight-three elimination. A kernel selection containing both replacement
+  rows p⊕a and p⊕b lifts to a set without the pivot. `relations()` and P equal the hand values
+  for the symmetric difference, not the union.
+- `kat_exact_products_seam_monic`: selection [0] gives P = 49, gamma = 3 + 2θ, and
+  `target(..).gamma()` equal to `gamma()`.
+- `kat_exact_products_non_monic_without_norm_square`: T at K = 0, with two cases.
+  - Selection {2, 5}: P = 1 and gamma = (96 − 29θ)/9 = 32/3 − (29/9)θ. Π f_hom = 13·81 = 1053 is
+    not a square, and Norm(gamma) = 117. Validation succeeds.
+  - Selection {1, 2, 3} (k = 3, h = 2): P = 4·(−9)·(−1) = 36 and gamma = (−993 − 62θ)/27. Here
+    Norm(−993 − 62θ) = Π Norm(3a − bθ) = Π 3·f_hom = 3³·33813 = 912951, and Π f_hom = 33813 =
+    153·17·13 is not a square.
+  - Both cases check `target(..).gamma()` equality. Neither asserts squareness.
+- `kat_duplicates_reconciled_before_matrix`: [(4,1), (7,1), (4,1)] gives `DuplicatePair{0,2}`.
+  After deduplication with first occurrences kept, the context builds and provenance indexes the
+  deduplicated list. (a,b) and (−a,−b) are both accepted.
+- `kat_validate_computed_kernel_vectors`: the pinned line-sieve matrix (x³−x−1, m = 2, N = 5,
+  FB(30,30), `LineSieveConfig::new(10,3)`) after `remove_singletons` and `merge_columns`, run
+  through `block_lanczos` with a fixed seed. Every returned vector that passes
+  `KernelVector::verify` also validates, and its lifted parity holds. If any such vector fails, that
+  is a discovery to surface, not a reason to weaken the KAT.
 
 ### C-KernelSearch — deterministic bounded kernel combinations
 
@@ -1559,6 +1823,14 @@ Deduplicate pairs before building a matrix; never alter provenance indexing afte
 To be frozen at 12: enumeration ordering and work/output bounds, distinct nonzero XOR candidates,
 and exhaustion accounting. Candidates originate in the computed kernel; validation remains at the
 checked dependency boundary. KATs include non-basis combinations and degenerate/duplicate inputs.
+**Output shape fixed by the row-11 inflection.** Row 13's frozen `factor` consumes these, so row 12
+must provide them. Candidates are emitted as `Vec<KernelVector>`, each with sorted unique
+filtered-matrix row indices, in the frozen deterministic order. Row 12 also provides
+`gnfs::linalg::KernelSearchStatus` (`Debug, Clone, PartialEq, Eq`) with a `Complete` variant, at
+least one resource-limited variant whose fields are frozen at 12, and `is_complete(&self) -> bool`.
+`kernel` is a private module, so the re-export needs `gnfs/src/linalg/mod.rs`, an explicit fileset
+refinement the driver applies. Row 12 does not validate candidates against relations; C-Dependency
+does.
 
 ### C-FactorReport — verified dependency-to-factor boundary
 
@@ -1568,6 +1840,9 @@ report with deterministic candidate retry. Require P>0 and exact integer square 
 and modular image, x²=y² mod N, and proper divisor checks. Incidental gcds have distinct provenance.
 Candidate exhaustion reports unresolved resource-limited attempts. KATs include the nonconstant
 527 fixture, nonsquare-to-success combinations, invalid inputs, trivial gcd, and API migration.
+**Signatures frozen at the row-11 inflection.** See C-Dependency, "Final checked
+factor-attempt/report interface". Row 13 implements them verbatim, records any deviation here, and
+freezes this contract with its KAT evidence.
 
 ### C-PipelineEvidence — generated sieve-to-factor evidence
 
