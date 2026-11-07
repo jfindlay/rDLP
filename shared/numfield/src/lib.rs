@@ -13,6 +13,9 @@
 //! - [`is_bad_prime`] — test whether p | disc(f).
 //! - [`FpPoly`] — polynomials over a proved-prime field F_p, with gcd, `pow_mod`, an exact
 //!   irreducibility test, and budgeted root enumeration (see [`fp_poly`]).
+//! - [`ResidueField`] — the field `F_p[x]/(f)` for irreducible `f`, with inverses, a squareness
+//!   test, and Tonelli–Shanks square roots under a bounded nonresidue search (see
+//!   [`residue_field`]).
 //!
 //! # Design
 //!
@@ -32,6 +35,7 @@ pub mod element;
 pub mod fp_poly;
 pub mod ideal;
 pub mod poly;
+pub mod residue_field;
 pub mod resultant;
 
 pub use dedekind::{
@@ -44,4 +48,7 @@ pub use fp_poly::{
 };
 pub use ideal::Ideal;
 pub use poly::{IntPoly, RatPoly};
+pub use residue_field::{
+    NonresidueSearch, NonresidueSearchLimits, ResidueField, ResidueFieldError, SqrtOutcome,
+};
 pub use resultant::{resultant, subresultant_gcd};

@@ -741,6 +741,30 @@ each one verifies. All tests are in `shared/numfield/tests/`.
 | `kat_distinct_root_count` | `fp_poly_kat.rs` | deg gcd(f, x^p−x) counts distinct roots, including repeated and root-free cases |
 | `kat_root_enumeration_complete` | `fp_poly_kat.rs` | ascending complete enumeration with exact evaluation counts; agrees with brute force over small fields |
 | `kat_root_enumeration_truncated` | `fp_poly_kat.rs` | a spent budget returns the exact root count and exactly the roots found so far |
+| `kat_valid_fields_report_characteristic_degree_and_order` | `residue_field_kat.rs` | x²+1 over F₃, x³−2 over F₇, a linear modulus and x⁴+x+1 over F₂ are fields of order 9, 343, p and 16 |
+| `kat_non_monic_modulus_is_scaled_to_monic` | `residue_field_kat.rs` | 2x²+2 and x²+1 over F₃ define the same field |
+| `kat_cardinality_exceeds_machine_words` | `residue_field_kat.rs` | p² for p = 2⁶⁴−59 and p³ for p = 2⁶¹−1 are exact `BigUint` orders beyond `u64` |
+| `kat_invalid_moduli_are_rejected_with_the_right_error` | `residue_field_kat.rs` | zero, constant, rooted-reducible, rootless-reducible and repeated-factor moduli each get their own error |
+| `kat_integer_polynomial_entry_checks_the_prime_and_the_reduction` | `residue_field_kat.rs` | non-prime characteristics are rejected; a degree drop mod p gives a lower-degree field; a reduction to zero is rejected |
+| `kat_error_display_and_source` | `residue_field_kat.rs` | every error variant has a message; only the wrapped prime-field error has a source |
+| `kat_elements_over_another_characteristic_are_rejected` | `residue_field_kat.rs` | every operation rejects an element over a different prime |
+| `kat_arithmetic_reduces_modulo_the_modulus` | `residue_field_kat.rs` | in F₃[x]/(x²+1): x² = −1, (1+x)² = 2x, unreduced spellings reduce, u⁸ = 1 |
+| `kat_inverse_by_multiplication` | `residue_field_kat.rs` | (1+x)⁻¹ = 4+x in F₅[x]/(x²−2) by hand and by product; large-prime inverses |
+| `kat_zero_has_no_inverse_but_is_a_square_with_root_zero` | `residue_field_kat.rs` | zero (and the modulus as an unreduced zero) is uninvertible, a square, and has root zero without any search |
+| `kat_exhaustive_even_degree_fields` | `residue_field_kat.rs` | `is_square`, `sqrt` and `inv` agree with enumeration of all of F₉, F₂₅, F₄₉, F₁₂₁, F₁₆₉, F₂₈₉ |
+| `kat_exhaustive_odd_degree_and_prime_fields` | `residue_field_kat.rs` | the same cross-check for F₂₇, F₃₄₃, F₁₇, F₉₇, F₂₅₇ (long Tonelli–Shanks loops, 2-adic valuation up to 8) |
+| `kat_exhaustive_characteristic_two` | `residue_field_kat.rs` | every element of GF(2), GF(8), GF(16) is a square with a verified root |
+| `kat_roots_of_degree_two_squares_are_plus_or_minus_the_witness` | `residue_field_kat.rs` | the root of w² is ±w, including over F_(p²) with p = 2⁶⁴−59 |
+| `kat_deep_two_adic_valuation_over_a_machine_prime` | `residue_field_kat.rs` | F_(p²), p = 2⁶¹−1: v₂(q−1) = 62; squareness agrees with the norm criterion and roots square back |
+| `kat_odd_degree_over_a_machine_prime` | `residue_field_kat.rs` | F_(p³), p = 2⁶¹−1: roots of squares; scalar nonresidues of F_p stay nonsquares |
+| `kat_large_prime_field_roots_and_nonsquares` | `residue_field_kat.rs` | p = 2⁶⁴−59: Euler-criterion agreement, 2 is a nonsquare, −1 has a root |
+| `kat_unreduced_inputs_are_accepted` | `residue_field_kat.rs` | an unreduced element is treated as its class |
+| `kat_characteristic_two_has_unique_roots_and_no_nonresidues` | `residue_field_kat.rs` | GF(16): the root of a is a⁸, there is no nonresidue, and a zero budget still succeeds |
+| `kat_search_order_and_budget_boundary` | `residue_field_kat.rs` | odd-degree search order: constants, first nonresidue 3 in F₁₇ and F₇[x]/(x³−2); budgets below it are exhausted |
+| `kat_even_degree_search_skips_constants` | `residue_field_kat.rs` | even-degree search order: monic linear polynomials; F_(p²) finds a nonsquare quickly despite p−1 square constants |
+| `kat_budget_exhaustion_is_distinct_from_nonsquare` | `residue_field_kat.rs` | in F₂₅ a zero budget exhausts exactly the 9 squares that need a nonresidue; nonsquares and zero are unaffected |
+| `kat_too_small_budget_reports_candidates_spent` | `residue_field_kat.rs` | in F₁₇ budgets 0, 1, 2 report that many candidates tried and budget 3 succeeds |
+| `kat_three_mod_four_needs_no_nonresidue` | `residue_field_kat.rs` | q ≡ 3 mod 4: every root is found with a zero budget |
 
 ---
 
@@ -803,6 +827,63 @@ root or at the budget. The outcome is a `RootEnumeration`: `Complete` carries al
 count. Exhausting the budget is a resource outcome, never evidence that roots are absent, and there
 is no resume: retry with a larger budget. For primes near 2⁶⁴ the budget turns an O(p) scan into a
 reported resource limit instead of a hang.
+
+---
+
+## 13. Residue Fields and Square Roots
+
+`residue_field` builds the field F_q = F_p[x]/(f), q = pᵈ, on top of `fp_poly` and takes square
+roots in it. The checked constructor is the whole validity story: `ResidueField::new` rejects the
+zero polynomial, a nonzero constant (the zero ring), and any `f` for which `is_irreducible` is false
+(a root test would miss rootless reducibles such as a product of two quadratics). It scales `f` to
+monic, so a non-monic modulus and its monic multiple are the same field. After that, no operation
+can silently work in a ring with zero divisors.
+
+### Elements and exponents
+
+An element is a plain `FpPoly`. Every operation first reduces its operands modulo `f`, so an
+unreduced polynomial is just another spelling of its class, and a polynomial over a different prime
+is a `ModulusMismatch`. Nothing borrows the field, which lets a caller keep elements after the field
+is gone. The cardinality q and the exponents derived from it — (q−1)/2, the odd part t of q−1,
+q/2 — are `BigUint`, because already q = p² exceeds a machine word for p near 2⁶⁴. `inv` runs the
+extended Euclidean algorithm against `f` and returns `DivisionByZero` for zero.
+
+### Squareness and Tonelli–Shanks
+
+In odd characteristic the Euler criterion is exact: a nonzero a is a square iff a^((q−1)/2) = 1, and
+otherwise the power is −1. `is_square` counts zero as a square. Equivalently a is a square in F_q iff
+its norm to F_p is a square in F_p, which the tests use as an independent oracle.
+
+Write q−1 = 2ˢ·t with t odd. Tonelli–Shanks starts from r = a^((t+1)/2) and tt = aᵗ, and repeatedly
+multiplies r by a power of c = zᵗ, for a nonresidue z, until tt = 1. Each pass lowers m (initially
+s) strictly, so there are at most s passes: large 2-adic valuations of q−1 are slow but terminate.
+Two consequences:
+
+- A nonresidue is needed only if aᵗ ≠ 1. For q ≡ 3 mod 4 (s = 1) it never is, so those roots need
+  no search at all.
+- In characteristic 2 the Frobenius map is a bijection, so every element is a square with the
+  unique root a^(q/2).
+
+Every root is squared and compared with the input before it is returned, so an unverified root is
+unrepresentable; a failure there is reported as an invariant violation rather than a wrong root.
+
+### The bounded nonresidue search
+
+`find_nonresidue` tests candidates in a fixed order under `NonresidueSearchLimits`, with no
+randomness. The order is chosen so that each list provably contains a nonsquare and finds one fast:
+
+- For odd d the candidates are the constants 1, 2, …: c^((q−1)/2) = Legendre(c)^(1+p+…+pᵈ⁻¹) and the
+  exponent is odd, so a nonresidue of F_p stays a nonresidue.
+- For even d every constant is a square, so a plain digit-by-digit enumeration would burn the first
+  p−1 candidates on constants. The candidates are instead the monic polynomials of degree 1 … d−1.
+  Any nonsquare a = c·m with monic m forces m to be a nonsquare, so the list is complete.
+
+The three outcomes are separate types of fact. `Found` carries a verified nonsquare;
+`Absent` is a certificate (characteristic 2); `BudgetExhausted` is a resource outcome that says
+nothing about the field. `sqrt` reports the same distinction as `NotSquare` (a proof, by the Euler
+criterion), `Root` (verified by squaring) and `ResourceExhausted` (the search ran dry, not a claim
+about the input). The tests cross-check every element of fields up to 289 elements against
+brute-force squaring, and exercise q−1 with 2-adic valuation 62 using the norm criterion.
 
 ---
 
