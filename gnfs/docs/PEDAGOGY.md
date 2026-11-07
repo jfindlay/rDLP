@@ -1424,11 +1424,20 @@ The conversion is straightforward:
 - **The entry is the GF(2) parity of the exponent.** If prime p divides the rational norm to an
   odd exponent, the entry is 1; if even (or absent), it is 0.
 
-The column layout is fixed by `FactorBase::matrix_width()`:
+For the legacy `build_matrix`, the column layout is fixed by `FactorBase::matrix_width()`:
 
 $$
 \text{columns} = \underbrace{\text{rational\_size}}_{\text{rational primes}} + \underbrace{\text{algebraic\_size}}_{\text{algebraic ideals}} + \underbrace{\text{obstruction\_count}}_{\text{sign + quad. chars.}}
 $$
+
+That formula describes only the legacy builder. A matrix from `build_checked_matrix` has
+`MatrixLayout::num_cols()` = R + A + 1 + K columns, where K is the number of character slots the
+caller asks for; its obstruction block is the sign column plus the K characters, not the factor
+base's own `obstruction_count`, and the columns of ideals above primes dividing c·disc(F) are kept
+but permanently zero. Code that consumes a matrix reads `SparseMatrix::num_cols` rather than
+recomputing the width from a factor base. Because `excess()` counts every non-obstruction column
+as active, it undercounts the true excess of a checked matrix by the number of omitted columns,
+which only makes pruning conservative.
 
 Concretely, for the toy setup in `merge_kat.rs` (f(x) = x³ − x − 1, B_rat = B_alg = 13):
 
@@ -1673,80 +1682,95 @@ Ties are broken by row index (lowest index first) for determinism.
 The KAT `kat_prune_cliques_respects_excess_floor` in `merge_kat.rs` verifies that after
 pruning, `excess() == EXCESS_FLOOR` exactly (when the initial excess is above the floor).
 
+### Pruning loses candidates, and says so
+
+Unlike singleton removal (which only drops rows that cannot be in any dependency) and column
+elimination (§26, lossless), pruning drops rows that *can* be in dependencies. Every dependency
+using a dropped row is gone. `prune_cliques_reported` returns a `PruneReport` listing the removed
+rows (with their provenance) and the excess before and after, so the loss is visible and is never
+mistaken for elimination; `prune_cliques` is the same call with the report discarded. What is
+preserved is the *restricted kernel*: the dependencies supported entirely on the surviving rows.
+`kat_pruning_reports_the_candidates_it_loses` counts this by hand and by enumeration on a
+22-row matrix where dropping one row loses exactly half of the 2²⁰ dependencies.
+
 ---
 
-## 26. Merging
+## 26. Column Elimination
 
-### Eliminating a column by XOR
+### The invariant: elimination preserves the kernel
 
-A column of weight 2 appears in exactly two rows. XOR-merging those two rows eliminates the
-column: the shared column cancels in the symmetric difference (GF(2) addition), and the merged
-row contains only the columns that appeared in exactly one of the two source rows.
+A *dependency* is a set of rows summing to zero in every column; the linear algebra step looks
+for them. Column elimination must neither destroy nor invent any. The argument is a statement
+about the rows incident to the eliminated column c: a dependency uses an *even* number of them,
+because column c must sum to zero.
 
-The `MatrixRow::xor_merge` method computes the symmetric difference of column sets and the
-union of provenance sets in a single O(n + m) merge pass:
+- **Weight 2**, rows R₀, R₁. Evenness forces both or neither, so the dependencies are exactly
+  those using the single row R₀ ⊕ R₁ (where column c has cancelled).
+- **Weight 3**, rows R₀, R₁, R₂. The even selections are ∅, {0,1}, {0,2}, {1,2}, which are the
+  combinations y₁(R₀⊕R₁) + y₂(R₀⊕R₂). So the three rows are replaced by the **two** rows R₀⊕R₁
+  and R₀⊕R₂, and column c cancels in both.
+
+Replacing the three rows by their *total* XOR R₀⊕R₁⊕R₂ is not elimination. The shared column
+stays set (three odd contributions), and dependencies vanish: three copies of the row [1] have a
+two-dimensional kernel, but the single row [1] has none. `kat_three_identical_rows_keep_their_kernel`
+pins this: the correct result is two empty rows with provenance [0,1] and [0,2], whose four
+dependencies lift to exactly the original four.
+
+In both cases the map from reduced dependencies to old dependencies is a linear bijection, so the
+whole pipeline's reduced kernel lifts, through provenance, onto the kernel of the starting
+matrix (restricted to the rows that survived singleton removal and pruning).
+
+### `xor_merge`: symmetric difference everywhere
+
+`MatrixRow::xor_merge` takes the symmetric difference of the column sets **and** of the
+provenance sets, each in one O(n + m) pass over sorted vectors:
 
 ```rust
 pub fn xor_merge(&self, other: &MatrixRow) -> MatrixRow {
-    // Symmetric difference of two sorted vecs — O(n + m).
-    let mut cols = Vec::new();
-    let mut i = 0; let mut j = 0;
-    while i < self.cols.len() && j < other.cols.len() {
-        match self.cols[i].cmp(&other.cols[j]) {
-            Ordering::Less    => { cols.push(self.cols[i]); i += 1; }
-            Ordering::Greater => { cols.push(other.cols[j]); j += 1; }
-            Ordering::Equal   => { /* XOR = 0, skip both */ i += 1; j += 1; }
-        }
+    MatrixRow {
+        cols: symmetric_difference(&self.cols, &other.cols),
+        provenance: symmetric_difference(&self.provenance, &other.provenance),
     }
-    cols.extend_from_slice(&self.cols[i..]);
-    cols.extend_from_slice(&other.cols[j..]);
-    // ... union of provenance sets (same pattern) ...
-    MatrixRow { cols, provenance }
 }
 ```
 
-### 2-way merge: two rows sharing a column
+The weight-3 replacement rows share the pivot R₀, so their provenance overlaps ({0,1} and
+{0,2}). If those two rows are later combined, original row 0 must cancel: R₁ ⊕ R₂ involves
+only rows 1 and 2. A union would claim {0,1,2}, which is a different (wrong) vector.
+`kat_overlapping_provenance_cancels` follows two successive weight-3 eliminations through to
+exactly that cancellation.
 
-For a weight-2 column c with rows R₀ and R₁:
+### `eliminate_column`: one lossless step
 
-1. Compute `merged = R₀.xor_merge(R₁)`.
-2. Remove R₀ and R₁ from the matrix.
-3. Append `merged`.
-4. Update `col_weights`: decrement for all columns in R₀ and R₁, increment for all columns
-   in `merged`. The shared column c is decremented twice and not incremented → weight drops
-   to 0 (eliminated).
+`eliminate_column(&mut matrix, col)` eliminates one non-obstruction column of weight 2 or 3:
 
-The net effect on row count: two rows become one (net −1). The net effect on column count:
-column c is eliminated (weight 0). The excess formula changes: both the numerator and the
-effective denominator decrease, so the excess may increase or decrease depending on the
-specific column weights.
+1. Collect the incident rows (ascending index).
+2. Weight 2: replacement `R₀ ⊕ R₁`. Weight 3: the **pivot** is the lightest incident row
+   (fewest columns; lowest index on ties), and the replacements are `pivot ⊕ other` for the other
+   two rows in ascending order. A light pivot keeps the new rows sparse.
+3. Remove the incident rows (`remove_row` decrements their columns' weights), then append the
+   replacements, incrementing the weights of their columns. Column c is in none of them, so its
+   weight is now 0, and `col_weights` equals the true column weights after every step.
 
-### k-way merge for k = 3
+It returns `Err(EliminationRefusal)` — leaving the matrix untouched — for an out-of-range column,
+an obstruction column, a weight other than 2 or 3, or a weight table that disagrees with the
+rows. Zero columns, such as the omitted exceptional-ideal columns of a checked matrix, have weight
+0 and are therefore never touched; every other column, including character columns, is XORed
+along with its row, so it stays consistent with provenance.
 
-For a weight-3 column c with rows R₀, R₁, R₂, the merge is:
-
-```text
-tmp = R₀ ⊕ R₁
-merged = tmp ⊕ R₂
-```
-
-implemented in `merge_three_rows`. The three source rows are removed and `merged` is appended.
-The shared column c is decremented three times and not incremented → weight drops to 0.
-
-The `merge_columns` function performs two passes:
+`merge_columns` runs two passes of `eliminate_column`:
 
 ```rust
 pub fn merge_columns(mut matrix: SparseMatrix) -> SparseMatrix {
-    matrix = merge_pass(&mut matrix, 2);  // weight-2 pass
-    matrix = merge_pass(&mut matrix, 3);  // weight-3 pass (after re-scan)
+    merge_pass(&mut matrix, 2);  // weight-2 columns, ascending index
+    merge_pass(&mut matrix, 3);  // weight-3 columns, ascending index
     matrix
 }
 ```
 
-The weight-2 pass is performed first; after it completes, some weight-3 columns may have
-become weight-2 or weight-1 (because earlier merges in the weight-2 pass changed their
-weights). The weight-3 pass re-scans `col_weights` and processes the remaining weight-3
-columns.
+Each pass re-checks a column's weight when its turn comes, since earlier steps in the pass change
+weights. Columns that become weight 2 or 3 only during the weight-3 pass are left for the linear
+algebra step.
 
 ### The Cavallar weight-cost heuristic
 
@@ -1777,24 +1801,27 @@ module docstring in `merge.rs` annotates this disconnect explicitly.
 
 ### What provenance tracks
 
-Every `MatrixRow` carries a `provenance: Vec<usize>` — a sorted, deduplicated list of original
-relation indices (indices into the `Vec<Relation>` passed to `build_matrix`):
+Every `MatrixRow` carries a `provenance: Vec<usize>` — a sorted list of original relation
+indices without repeats (indices into the relation list passed to the builder):
 
 ```rust
 pub struct MatrixRow {
     /// Sorted column indices where this row has a 1 in GF(2).
     pub cols: Vec<usize>,
-    /// Sorted, deduplicated original relation indices this row derives from.
+    /// Sorted original relation indices this row derives from.
     pub provenance: Vec<usize>,
 }
 ```
 
-For a freshly built row, `provenance = [i]` (the original relation index). Under merging,
-`provenance` is combined by sorted union: if R₀ has provenance `[0, 2]` and R₁ has provenance
-`[1, 3]`, then `R₀.xor_merge(R₁)` has provenance `[0, 1, 2, 3]`.
+For a freshly built row, `provenance = [i]` (the original relation index). The invariant is that
+a row's `cols` are the GF(2) sum of the original rows its provenance names. Under elimination,
+provenance is therefore combined by symmetric difference, exactly like `cols`: if R₀ has
+provenance `[0, 2]` and R₁ has provenance `[1, 2]`, then `R₀.xor_merge(R₁)` has provenance
+`[0, 1]` — original row 2 contributes twice and cancels. (A union would give `[0, 1, 2]` and
+would break the invariant.)
 
-Singleton removal drops rows without merging, so provenance is unchanged. Clique pruning also
-drops rows without merging. Only `merge_columns` grows provenance sets.
+Singleton removal and clique pruning drop rows without merging, so provenance is unchanged.
+Only elimination (`merge_columns`, `eliminate_column`) combines provenance sets.
 
 ### The G.F expansion
 
@@ -1806,8 +1833,9 @@ The expansion is:
 
 1. G.E selects a subset of rows in the final matrix (the null-space vector).
 2. For each selected row, collect its `provenance` set.
-3. Take the union of all collected provenance sets — this gives the set of original relation
-   indices.
+3. Take the GF(2) sum (symmetric difference) of all collected provenance sets — this gives the
+   set of original relation indices. `SparseMatrix::lift_dependency` does exactly this. An index
+   that appears in an even number of the selected rows cancels and is not used.
 4. Look up the original `Relation` objects by index to recover the (a, b) pairs.
 
 The KAT `kat_d_end_to_end_provenance` in `merge_kat.rs` verifies this property: for each row
@@ -1843,11 +1871,13 @@ The output of the full filtering pipeline — `build_matrix` → `remove_singlet
 pub struct SparseMatrix {
     /// The rows of the matrix, each with its column set and provenance.
     pub rows: Vec<MatrixRow>,
-    /// Total number of columns = FactorBase::matrix_width().
+    /// Total number of columns. FactorBase::matrix_width() for the legacy builder;
+    /// MatrixLayout::num_cols() (R + A + 1 + K) for a checked matrix.
     pub num_cols: usize,
     /// Index of the first obstruction column = rational_size + algebraic_size.
     pub obstruction_col_start: usize,
-    /// Number of obstruction columns = FactorBase::obstruction_count.
+    /// Number of obstruction columns: the factor base's obstruction_count for the legacy
+    /// builder, 1 + K for a checked matrix.
     pub obstruction_count: usize,
     /// col_weights[c] = number of rows with a 1 in column c.
     pub col_weights: Vec<u32>,
@@ -1887,7 +1917,7 @@ let matrix = remove_singletons(matrix);
 // 3. Prune heavy rows while excess > EXCESS_FLOOR.
 let matrix = prune_cliques(matrix);
 
-// 4. Eliminate weight-2 and weight-3 columns by XOR-merging.
+// 4. Eliminate weight-2 and weight-3 columns (lossless: keeps every surviving dependency).
 let matrix = merge_columns(matrix);
 
 // matrix is now ready for G.E (linear algebra over GF(2)).
@@ -1905,11 +1935,23 @@ mathematical fact each one verifies. All tests are in `gnfs/tests/merge_kat.rs`.
 
 | Test | Mathematical fact verified |
 |------|---------------------------|
-| `kat_a_two_way_merge_correctness` | Weight-2 column eliminated; merged row has correct cols (symmetric difference) and provenance (union) |
+| `kat_a_two_way_merge_correctness` | Weight-2 column eliminated; merged row has correct cols and provenance (both symmetric differences; disjoint here) |
 | `kat_b_determinism` | Full pipeline (build → singletons → prune → merge) is deterministic for a fixed corpus |
 | `kat_c_cado_nfs_oracle` | (Ignored) CADO-NFS oracle for filtered matrix dimensions — gated when CADO absent |
 | `kat_d_end_to_end_provenance` | For each final row, XOR of provenance relations' GF(2) column sets equals the row's cols |
 | `kat_prune_cliques_respects_excess_floor` | After pruning, `excess() == EXCESS_FLOOR` exactly when initial excess > floor |
+| `kat_exhaustive_small_matrices_lift_exactly` | For every 4×4 and 5×3 matrix, the lifted reduced kernel equals the brute-force kernel of the starting matrix |
+| `kat_sampled_larger_matrices_lift_exactly` | Same comparison on sampled 8×7 and 10×8 matrices, with chains of overlapping provenance |
+| `kat_three_identical_rows_keep_their_kernel` | Three identical rows become two empty rows; the two-dimensional kernel survives |
+| `kat_weight_three_elimination_with_disjoint_provenance` | Pivot-relative weight-3 step gives the rows and lift derived by hand |
+| `kat_overlapping_provenance_cancels` | Provenance shared by two replacement rows cancels under later XOR; a union would be wrong |
+| `kat_weight_two_elimination_with_overlapping_provenance` | `xor_merge` is the symmetric difference on columns and provenance |
+| `kat_lift_dependency_is_symmetric_difference` | A selection lifts to the GF(2) sum of provenance; repeats cancel |
+| `kat_eliminate_column_refusals` | Obstruction, out-of-range, wrong-weight, and inconsistent-weight columns are refused and the matrix is unchanged |
+| `kat_checked_matrix_elimination_keeps_omitted_columns_zero` | On a checked matrix with omitted columns and an empty row, elimination is lossless and the zero columns stay zero |
+| `kat_pruning_reports_the_candidates_it_loses` | Pruning removes exactly the reported row and loses exactly the dependencies using it |
+| `kat_pruning_below_floor_is_lossless` | At or below the excess floor, pruning removes nothing and says so |
+| `kat_elimination_after_dropping_rows_keeps_the_restricted_kernel` | After rows are dropped, the lifted reduced kernel is the original kernel restricted to survivors |
 
 ---
 
@@ -2008,11 +2050,13 @@ G.E inherits the `SparseMatrix` from G.D unchanged:
 pub struct SparseMatrix {
     /// The rows of the matrix, each with its column set and provenance.
     pub rows: Vec<MatrixRow>,
-    /// Total number of columns = FactorBase::matrix_width().
+    /// Total number of columns. FactorBase::matrix_width() for the legacy builder;
+    /// MatrixLayout::num_cols() (R + A + 1 + K) for a checked matrix.
     pub num_cols: usize,
     /// Index of the first obstruction column = rational_size + algebraic_size.
     pub obstruction_col_start: usize,
-    /// Number of obstruction columns = FactorBase::obstruction_count.
+    /// Number of obstruction columns: the factor base's obstruction_count for the legacy
+    /// builder, 1 + K for a checked matrix.
     pub obstruction_count: usize,
     /// col_weights[c] = number of rows with a 1 in column c.
     pub col_weights: Vec<u32>,
