@@ -792,8 +792,42 @@ outside that unit test until row 4.
 ### C-NormalizedTarget — exact target, bound, verifier, and map
 
 **Enforcement:** compiler + test + prose. **Defined-in:** 4. **Consumed-by:** 5–7, 11, 13.
-To be frozen at 4: integral eta/H, rational gamma, inverse of F', coefficient bounds, and the only
-successful root-verification/map path. With reduced eta and monic F of degree d, use exact integers:
+**Status:** **frozen at row 4 (commit e636477, 2026-11-07)**; module
+`gnfs::sqrt::context::normalize` (child of `context`; re-exported at `gnfs::sqrt::*`). 12 KATs plus
+unit tests (the unreachable invariant paths are exercised by unit tests that corrupt private state).
+Exactly one non-test `VerifiedRoot::seal` call site, in `NormalizedTarget::verify_candidate`.
+Integral eta/H, rational gamma, inverse of F', coefficient bounds, and the only successful
+root-verification/map path. Public surface as implemented (owned values; no lifetimes):
+
+    pub struct NormalizedTarget { /* private; owns RelationFactors */ }
+    #[must_use] pub enum TargetOutcome { Ready(NormalizedTarget), ResourceExhausted(ResourceExhaustion) }
+    #[must_use] pub enum CandidateVerdict { Verified(VerifiedRoot), Rejected(CandidateRejection),
+        Incidental(IncidentalFactor), Unsupported(UnsupportedDomain) }
+    pub enum CandidateRejection { DegreeTooHigh, CoefficientOutOfBound { index: usize },
+        NotSquareRootOfTarget }                                  // Debug, Clone, Copy, PartialEq, Eq
+    impl NormalizedTarget {
+        pub fn new(factors: RelationFactors, limits: PrecisionLimits)
+            -> Result<TargetOutcome, SqrtError>;
+        pub fn verify_candidate(&self, z: &IntPoly, method: ReconstructionMethod)
+            -> Result<CandidateVerdict, SqrtError>;
+        pub fn factors(&self) -> &RelationFactors;   // additive over the plan; rows 11/13 need the pairs
+        pub fn context(&self) -> &SqrtContext;  pub fn relation_count(&self) -> usize;
+        pub fn half_count(&self) -> usize;  pub fn rational_product(&self) -> &BigInt;  // P
+        pub fn gamma(&self) -> &RatPoly;  pub fn eta(&self) -> &IntPoly;
+        pub fn target(&self) -> &IntPoly;  /* H */  pub fn derivative(&self) -> &IntPoly;
+        pub fn derivative_inverse(&self) -> &RatPoly;
+        pub fn coefficient_bounds(&self) -> &[BigInt];  pub fn bound(&self) -> &BigInt;  // B
+        pub fn minimum_modulus(&self) -> &BigInt;       // 2B+1
+    }
+
+Consumer notes: `new` returns `ResourceExhausted{Precision,..}` before computing the inverse when
+bits(2B+1) exceeds `max_modulus_bits`; `Rejected` is never a nonsquare certificate (rows 5/7 decide
+bound-exhaustion themselves); `z` of degree >= d is rejected, not reduced (callers reduce mod F
+first); both ±z verify; z²=H and bound failures are `Rejected`, but beta²=gamma and y²≡P failures
+after z²=H passes are `Err(Invariant)`; a proper gcd on a non-unit map denominator gives
+`Incidental(MapDenominator)` (preferred over an earlier unsupported denominator), gcd = N gives
+`Unsupported(MapDenominatorNotUnit)`; P>0 / exact-square is NOT checked here (row 13). Bound
+formulas, with reduced eta and monic F of degree d, use exact integers:
 
     R = 1 + max_{i<d}|F_i|; E = sum_{i<d}|eta_i| R^i; U = ceil(sqrt(E))
     B_i = d U sum_{ell=i+1}^d |F_ell| R^(ell-1-i); B = max_i B_i
@@ -901,7 +935,7 @@ unstaged and uncommitted.
 | 1 | Checked finite-field polynomials | done | a5e168b | C-FpPoly |
 | 2 | Residue-field square roots | done | 237d353 | C-ResidueField |
 | 3 | Checked square-root contexts | done | e82b2eb | C-SqrtContext (dependency signatures freeze at 11) |
-| 4 | Normalized targets and bounds | pending | — | — |
+| 4 | Normalized targets and bounds | done | e636477 | C-NormalizedTarget |
 | 5 | Direct p-adic reconstruction | pending | — | — |
 | 6 | Split-prime local contributions | pending | — | — |
 | 7 | CRT recombination and dispatch ◆ | pending | — | — |
@@ -954,6 +988,16 @@ Deferred: yes — row 4 must declare `pub mod normalize;` in `context.rs`, drop 
 sibling-forgeable certificate at row 7/11 boundaries; row 11 freezes final dependency signatures.
 Texture: the human committed their `.cargo/config.toml` edit (79b9531) after the second surfacing; no
 dirty files remain besides PLAN's own edits.
+
+### 4 — 2026-11-07
+Discovery/flex: Clean dispatch under the refined fileset; planned verifier entry points proved
+adequate. Two small additions/decisions: `NormalizedTarget::factors()` accessor (rows 11/13 need the
+pairs) and a denominator tie-break (a proper factor beats an earlier unsupported denominator).
+`Rejected` carries no nonsquare evidence, so rows 5 and 7 own the decision that a failed centered
+root at M > 2B means bound/sign-search exhaustion. `z` must be pre-reduced mod F.
+Affected: C-NormalizedTarget (frozen); consumers 5–7, 11, 13.
+Deferred: yes — row 5/7 must reduce candidates mod F and only certify NotSquare from local
+obstruction or full-bound failure; row 13 must check P>0 and the exact integer square itself.
 
 ## Discoveries & risks
 
