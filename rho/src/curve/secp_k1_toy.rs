@@ -83,7 +83,7 @@ pub fn glv_phi_x(x_uint: Uint<4>) -> Uint<4> {
     // Compute β·x mod p using widening multiplication.
     let beta_u = Uint::<4>::from(BETA);
     let p_u    = Uint::<4>::from(P);
-    let (lo, hi) = beta_u.mul_wide(&x_uint);
+    let (lo, hi) = beta_u.widening_mul(&x_uint);
     let wide = crypto_bigint::Uint::<8>::from((lo, hi));
     let p8   = crypto_bigint::Uint::<8>::from((p_u, Uint::<4>::ZERO));
     let nz   = crypto_bigint::NonZero::new(p8).expect("p is non-zero");

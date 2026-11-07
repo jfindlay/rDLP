@@ -7,14 +7,14 @@ description = "Classical state-vector quantum-circuit simulator: Shor's algorith
 
 [dependencies]
 num-complex = "0.4"
-rand = "0.8"
-rand_chacha = "0.3"
+rand = "0.10"
+rand_chacha = "0.10"
 
 [dev-dependencies]
 proptest = "1"
 rho = { path = "../rho" }
 shared-field = { path = "../shared/field" }
-crypto-bigint = { version = "0.5", features = ["rand_core"] }
+crypto-bigint = { version = "0.7", features = ["rand_core"] }
 
 [lints]
 workspace = true

@@ -2,7 +2,7 @@
 //!
 //! This crate exposes the [`Fp`] trait and two concrete implementations:
 //! [`FpNaive`] (schoolbook arithmetic) and [`FpMonty`] (Montgomery form via
-//! ``crypto-bigint``'s ``DynResidue``).
+//! ``crypto-bigint``'s ``FixedMontyForm``).
 //!
 //! # Design: const-generic-on-trait approach
 //!
@@ -184,7 +184,7 @@ pub trait Fp<const L: usize>: Clone + PartialEq + Eq + std::fmt::Debug + Send + 
         //
         // Factor p-1 = Q * 2^S with Q odd.
         let pm1 = p.wrapping_sub(&Uint::<L>::ONE);
-        let s = pm1.trailing_zeros(); // usize
+        let s = pm1.trailing_zeros() as usize;
         let q = pm1 >> s; // Q = (p-1) / 2^S, odd
 
         // Find a quadratic non-residue z by trial: try 2, 3, 5, ...

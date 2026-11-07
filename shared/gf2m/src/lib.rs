@@ -10,7 +10,7 @@
 //! exactly and avoids the nightly-only `generic_const_exprs` feature that
 //! would be required by an explicit degree const (see `shared/field/src/lib.rs`
 //! lines 7–18 for the same design note).  The degree `m` is a *runtime*
-//! property recovered from the irreducible as `m = poly.bits() − 1`.
+//! property recovered from the irreducible as `m = poly.bit_len() − 1`.
 //!
 //! # Storage: `Uint<L>` as a polynomial coefficient bit-vector
 //!
@@ -71,6 +71,49 @@ pub use subfield::{
 
 use crypto_bigint::Uint;
 
+/// `usize`-indexed bit access and shifts over a `Uint`.
+///
+/// `crypto_bigint::Uint` indexes and measures bits in `u32`, while the degree arithmetic in this
+/// crate (`m = poly.bit_len() − 1`) works in `usize`. The shifts are the panic-free
+/// `unbounded_*` variants: a shift of `BITS` or more yields zero rather than panicking.
+pub trait BitLen: Sized {
+    /// Number of bits needed to represent the value (zero for zero).
+    fn bit_len(&self) -> usize;
+
+    /// Bit `i` (little-endian from bit 0); `false` when `i` is out of range.
+    fn bit_at(&self, i: usize) -> bool;
+
+    /// `self << n`, zero if `n` exceeds the precision. Variable time in `n` only.
+    #[must_use]
+    fn shl_bits(&self, n: usize) -> Self;
+
+    /// `self >> n`, zero if `n` exceeds the precision. Variable time in `n` only.
+    #[must_use]
+    fn shr_bits(&self, n: usize) -> Self;
+}
+
+impl<const L: usize> BitLen for Uint<L> {
+    #[inline]
+    fn bit_len(&self) -> usize {
+        self.bits() as usize
+    }
+
+    #[inline]
+    fn bit_at(&self, i: usize) -> bool {
+        u32::try_from(i).is_ok_and(|i| self.bit_vartime(i))
+    }
+
+    #[inline]
+    fn shl_bits(&self, n: usize) -> Self {
+        u32::try_from(n).map_or(Self::ZERO, |n| self.unbounded_shl_vartime(n))
+    }
+
+    #[inline]
+    fn shr_bits(&self, n: usize) -> Self {
+        u32::try_from(n).map_or(Self::ZERO, |n| self.unbounded_shr_vartime(n))
+    }
+}
+
 /// GF(2^m) field arithmetic, generic over the limb count `L`.
 ///
 /// All values are implicitly reduced mod the irreducible polynomial `poly`.
@@ -80,7 +123,7 @@ use crypto_bigint::Uint;
 /// # Const-generic design
 ///
 /// Parameterised as `F2m<const L: usize>` where `L` = ⌈m/64⌉ (the number of
-/// 64-bit limbs).  The degree `m` is recovered at runtime as `poly.bits() − 1`.
+/// 64-bit limbs).  The degree `m` is recovered at runtime as `poly.bit_len() − 1`.
 ///
 /// # Storage contract
 ///

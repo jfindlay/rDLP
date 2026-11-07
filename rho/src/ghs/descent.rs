@@ -60,6 +60,7 @@ use shared_gf2m::{
 };
 #[cfg(test)]
 use shared_gf2m::is_in_subfield;
+use shared_gf2m::BitLen;
 
 use crate::binary_curve::BinaryCurve;
 use crate::ghs::{GhsError, check_ghs_params};
@@ -328,7 +329,7 @@ impl WeilRestriction {
 ///
 /// # Panics
 ///
-/// Panics if `l` does not divide `m = poly_m.bits() − 1` (delegated to
+/// Panics if `l` does not divide `m = poly_m.bit_len() − 1` (delegated to
 /// `frobenius_subfield_orbit`).
 ///
 /// # Principle-4 annotation
@@ -346,7 +347,7 @@ pub fn weil_restrict_poly(
         return Poly::zero();
     }
 
-    let m = poly_m.bits() - 1;
+    let m = poly_m.bit_len() - 1;
     let steps = m / l; // m/l = Weil restriction dimension
 
     let deg = p.degree().unwrap_or(0);
@@ -449,7 +450,7 @@ fn project_to_subfield(
     poly_m: &Uint<1>,
     poly_l: &Uint<1>,
 ) -> F2mNaive<1> {
-    let m = poly_m.bits() - 1;
+    let m = poly_m.bit_len() - 1;
     let steps = m / l; // m/l = Weil restriction dimension
 
     // Build the full GF(2)-basis for GF(2^m) as a GF(2^l)[α]-module:

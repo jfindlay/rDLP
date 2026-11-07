@@ -1,43 +1,45 @@
 //! Montgomery-form field arithmetic over GF(p), generic over the limb count.
 //!
-//! ``FpMonty<L>`` wraps ``crypto_bigint::modular::runtime_mod::DynResidue<L>``
+//! ``FpMonty<L>`` wraps ``crypto_bigint::modular::FixedMontyForm<L>``
 //! to get the Montgomery multiplication speedup.  The internal representation
 //! is ``aR mod p`` where ``R = 2^(64·L)``.  Conversion to/from canonical form
 //! is transparent via [`Fp::from_uint`] / [`Fp::to_uint`].
 //!
-//! ``DynResidue<L>`` and ``DynResidueParams<L>`` are already const-generic in
-//! ``crypto-bigint 0.5``, so the generic-over-``L`` reshape is straightforward.
+//! ``FixedMontyForm<L>`` and ``FixedMontyParams<L>`` are const-generic over the
+//! limb count, so the generic-over-``L`` reshape is straightforward.
 
 use crypto_bigint::{
-    modular::runtime_mod::{DynResidue, DynResidueParams},
-    Uint,
+    modular::{FixedMontyForm, FixedMontyParams},
+    Odd, Uint,
 };
 
 use super::Fp;
 
-/// Montgomery-form field element backed by ``crypto-bigint``'s ``DynResidue``.
+/// Montgomery-form field element backed by ``crypto-bigint``'s ``FixedMontyForm``.
 ///
-/// The ``DynResidue`` carries its ``DynResidueParams`` internally, which encodes
+/// The ``FixedMontyForm`` carries its ``FixedMontyParams`` internally, which encodes
 /// the modulus and the Montgomery constant.  We cache the params as a ``Copy``
 /// field so we can reconstruct elements after operations that consume ``self``.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FpMonty<const L: usize> {
-    /// Inner ``DynResidue`` (Montgomery form ``v * R mod p``).
-    inner: DynResidue<L>,
+    /// Inner ``FixedMontyForm`` (Montgomery form ``v * R mod p``).
+    inner: FixedMontyForm<L>,
     /// Cached params — re-used on every operation.
-    params: DynResidueParams<L>,
+    params: FixedMontyParams<L>,
 }
 
 impl<const L: usize> FpMonty<L> {
-    /// Build ``DynResidueParams`` from a modulus ``p`` (must be odd).
+    /// Build ``FixedMontyParams`` from a modulus ``p``.
+    ///
+    /// Panics if ``p`` is even: Montgomery reduction requires an odd modulus.
     #[inline]
-    fn params_from(p: &Uint<L>) -> DynResidueParams<L> {
-        DynResidueParams::<L>::new(p)
+    fn params_from(p: &Uint<L>) -> FixedMontyParams<L> {
+        FixedMontyParams::<L>::new(Odd::new(*p).expect("Montgomery modulus must be odd"))
     }
 
-    /// Wrap a ``DynResidue`` together with its params.
+    /// Wrap a ``FixedMontyForm`` together with its params.
     #[inline]
-    fn wrap(inner: DynResidue<L>, params: DynResidueParams<L>) -> Self {
+    fn wrap(inner: FixedMontyForm<L>, params: FixedMontyParams<L>) -> Self {
         Self { inner, params }
     }
 }
@@ -45,25 +47,25 @@ impl<const L: usize> FpMonty<L> {
 impl<const L: usize> Fp<L> for FpMonty<L> {
     fn zero(p: &Uint<L>) -> Self {
         let params = Self::params_from(p);
-        let inner = DynResidue::zero(params);
+        let inner = FixedMontyForm::zero(&params);
         Self::wrap(inner, params)
     }
 
     fn one(p: &Uint<L>) -> Self {
         let params = Self::params_from(p);
-        let inner = DynResidue::one(params);
+        let inner = FixedMontyForm::one(&params);
         Self::wrap(inner, params)
     }
 
     fn from_u64(v: u64, p: &Uint<L>) -> Self {
         let params = Self::params_from(p);
-        let inner = DynResidue::new(&Uint::<L>::from(v), params);
+        let inner = FixedMontyForm::new(&Uint::<L>::from(v), &params);
         Self::wrap(inner, params)
     }
 
     fn from_uint(v: Uint<L>, p: &Uint<L>) -> Self {
         let params = Self::params_from(p);
-        let inner = DynResidue::new(&v, params);
+        let inner = FixedMontyForm::new(&v, &params);
         Self::wrap(inner, params)
     }
 

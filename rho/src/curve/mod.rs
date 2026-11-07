@@ -370,7 +370,7 @@ impl Curve {
     pub fn scalar_mul<F: Fp<4>>(&self, pt: &AffinePoint<F>, scalar: &Uint<4>) -> AffinePoint<F> {
         let p = &self.p;
         let mut result = JacobianPoint::infinity(p);
-        let bits = 256usize;
+        let bits = 256u32;
 
         for i in (0..bits).rev() {
             result = self.double_jacobian(&result);

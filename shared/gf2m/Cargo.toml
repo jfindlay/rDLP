@@ -6,7 +6,7 @@ license.workspace = true
 description = "GF(2^m) polynomial-basis arithmetic: F2m trait, F2mNaive carryless-mul impl"
 
 [dependencies]
-crypto-bigint = { version = "0.5", features = ["rand_core"] }
+crypto-bigint = { version = "0.7", features = ["rand_core"] }
 
 [dev-dependencies]
 proptest = "1"

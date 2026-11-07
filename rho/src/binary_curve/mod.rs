@@ -479,7 +479,7 @@ impl BinaryCurve {
     ) -> BinaryAffinePoint<F> {
         let poly = &self.poly;
         let mut result = LDPoint::infinity();
-        let bits = 64usize; // Uint<1> has 64 bits
+        let bits = 64u32; // Uint<1> has 64 bits
 
         for i in (0..bits).rev() {
             result = self.double_ld(&result);

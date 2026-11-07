@@ -10,7 +10,7 @@
 //!
 //! The sampler uses `rand_chacha::ChaCha8Rng` seeded with a `u64` seed. This makes KATs
 //! reproducible: the same seed + same state always produces the same measurement outcome.
-//! For non-test code, use a random seed from `rand::thread_rng()` or an OS source.
+//! For non-test code, use a random seed from `rand::rng()` or an OS source.
 //!
 //! # Single-qubit vs full-register measurement
 //!
@@ -19,7 +19,7 @@
 //!   (the remaining qubits are renormalized conditioned on the measured outcome).
 
 use num_complex::Complex;
-use rand::Rng;
+use rand::{Rng, RngExt};
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
@@ -72,7 +72,7 @@ fn sample_basis<R: Rng>(sv: &StateVec, rng: &mut R) -> usize {
         (total - 1.0).abs() < 0.5,
         "measure: state is not normalized (Σ|aᵢ|² = {total:.6})"
     );
-    let u: f64 = rng.r#gen::<f64>() * total;
+    let u: f64 = rng.random::<f64>() * total;
     let mut cumulative = 0.0;
     for (i, a) in amps.iter().enumerate() {
         cumulative += a.norm_sqr();
@@ -135,7 +135,7 @@ pub fn measure_qubit<R: Rng>(sv: StateVec, qubit: usize, rng: &mut R) -> Measure
         .map(|(_, a)| a.norm_sqr())
         .sum();
 
-    let u: f64 = rng.r#gen::<f64>();
+    let u: f64 = rng.random::<f64>();
     let bit = if u < prob1 { 1u8 } else { 0u8 };
 
     // Collapse: zero out amplitudes inconsistent with the measurement, renormalize.

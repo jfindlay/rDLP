@@ -41,7 +41,7 @@
 //! - FFT continuation for stage 2 — TODO.
 //! - Stage 2 step-size optimization — TODO.
 
-use crypto_bigint::{NonZero, Uint};
+use crypto_bigint::{NonZero, Odd, Uint};
 
 use crate::smooth::factor_base_up_to;
 
@@ -57,7 +57,7 @@ use crate::smooth::factor_base_up_to;
 /// This mirrors the approach in ``FpNaive::mul``.
 #[inline]
 fn mul_mod(a: &Uint<4>, b: &Uint<4>, n: &Uint<4>) -> Uint<4> {
-    let (lo, hi) = a.mul_wide(b);
+    let (lo, hi) = a.widening_mul(b);
     // Assemble the 512-bit product: value = hi * 2^256 + lo.
     let wide = Uint::<8>::from((lo, hi));
     // Embed n into Uint<8> as a low-half value for rem.
@@ -74,13 +74,13 @@ fn mul_mod(a: &Uint<4>, b: &Uint<4>, n: &Uint<4>) -> Uint<4> {
 /// Compute ``(a + b) mod n`` for ``a, b < n``.
 #[inline]
 fn add_mod(a: &Uint<4>, b: &Uint<4>, n: &Uint<4>) -> Uint<4> {
-    a.add_mod(b, n)
+    a.add_mod(b, &NonZero::new(*n).expect("modulus must be non-zero"))
 }
 
 /// Compute ``(a - b) mod n`` for ``a, b < n``.
 #[inline]
 fn sub_mod(a: &Uint<4>, b: &Uint<4>, n: &Uint<4>) -> Uint<4> {
-    a.sub_mod(b, n)
+    a.sub_mod(b, &NonZero::new(*n).expect("modulus must be non-zero"))
 }
 
 /// Binary GCD (Stein's algorithm) for ``Uint<4>``.
@@ -138,8 +138,8 @@ fn try_inv(a: &Uint<4>, n: &Uint<4>) -> Result<Uint<4>, Uint<4>> {
         // gcd(0, n) = n — degenerate, return n as the "factor" (caller discards).
         return Err(*n);
     }
-    let (inv, exists) = a.inv_odd_mod(n);
-    if bool::from(exists) {
+    let odd_n = Odd::new(*n).expect("ECM modulus must be odd");
+    if let Some(inv) = a.invert_odd_mod(&odd_n).into_option() {
         Ok(inv)
     } else {
         // No inverse: gcd(a, n) > 1.  Compute the actual gcd.
@@ -693,7 +693,7 @@ mod tests {
         assert!(result.is_err(), "should find a factor");
         let g = result.unwrap_err();
         assert!(g > u(1) && g < n, "factor should be proper");
-        assert_eq!(u(143).wrapping_rem(&g), u(0), "factor should divide N");
+        assert_eq!(u(143).rem(&NonZero::new(g).unwrap()), u(0), "factor should divide N");
     }
 
     // ── KAT: stage 1 alone ────────────────────────────────────────────────────

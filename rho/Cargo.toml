@@ -21,19 +21,19 @@ shared-numth = { path = "../shared/numth" }
 shared-padic = { path = "../shared/padic" }
 shared-numfield = { path = "../shared/numfield" }
 shared-gf2m = { path = "../shared/gf2m" }
-crypto-bigint = { version = "0.5", features = ["rand_core"] }
+crypto-bigint = { version = "0.7", features = ["rand_core"] }
 num-bigint = "0.4"
 num-integer = "0.1"
 num-traits = "0.2"
-rand = "0.8"
-rand_chacha = "0.3"
+rand = "0.10"
+rand_chacha = "0.10"
 crossbeam-channel = "0.5"
 rayon = "1"
 clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]
-k256 = { version = "0.13", features = ["arithmetic"] }
-p256 = { version = "0.13", features = ["arithmetic"] }
+k256 = { version = "0.14", features = ["arithmetic"] }
+p256 = { version = "0.14", features = ["arithmetic"] }
 proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 

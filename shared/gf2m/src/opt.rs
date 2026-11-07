@@ -6,7 +6,7 @@
 //!
 //! # Algorithm: single-level Karatsuba split
 //!
-//! For a degree-`m` field element (`m = poly.bits() − 1`), split each operand
+//! For a degree-`m` field element (`m = poly.bit_len() − 1`), split each operand
 //! at the midpoint `h = m / 2`:
 //!
 //! ```text
@@ -55,6 +55,7 @@
 //! algorithmically the same speed-up story as Karatsuba but without an additional equivalence
 //! contract.  It is deliberately not separately implemented here.
 
+use crate::BitLen;
 use crypto_bigint::Uint;
 
 use super::F2m;
@@ -102,8 +103,8 @@ fn comb_mul_narrow<const L: usize>(a: Uint<L>, b: Uint<L>) -> Uint<L> {
     let b_bits = uint_bits(&b);
     let mut acc = Uint::<L>::ZERO;
     for i in 0..b_bits {
-        if b.bit(i).into() {
-            acc ^= a.shl_vartime(i);
+        if b.bit_at(i) {
+            acc ^= a.shl_bits(i);
         }
     }
     acc
@@ -133,8 +134,8 @@ macro_rules! impl_f2m_opt {
             }
 
             fn from_uint(v: Uint<$L>, poly: &Uint<$L>) -> Self {
-                let m = poly.bits();
-                if v.bits() < m {
+                let m = poly.bit_len();
+                if v.bit_len() < m {
                     return Self::wrap(v);
                 }
                 let wide = wide_from_low::<$L, $DL>(v);
@@ -177,7 +178,7 @@ macro_rules! impl_f2m_opt {
                 //
                 // The three half-products fit in Uint<L> (degree < m).
                 // Assembly into the full degree-<2m product uses Uint<DL>.
-                let m = poly.bits() - 1; // degree of the irreducible
+                let m = poly.bit_len() - 1; // degree of the irreducible
                 let h = m / 2; // split point
 
                 // Build the half-mask: bits 0..h-1 set.
@@ -188,14 +189,14 @@ macro_rules! impl_f2m_opt {
                 let mask: Uint<$L> = if h == 0 {
                     Uint::<$L>::ZERO
                 } else {
-                    Uint::<$L>::ONE.shl_vartime(h).wrapping_sub(&Uint::<$L>::ONE)
+                    Uint::<$L>::ONE.shl_bits(h).wrapping_sub(&Uint::<$L>::ONE)
                 };
 
                 // Split operands.
                 let a_lo = self.c & mask;
-                let a_hi = self.c.shr_vartime(h);
+                let a_hi = self.c.shr_bits(h);
                 let b_lo = rhs.c & mask;
-                let b_hi = rhs.c.shr_vartime(h);
+                let b_hi = rhs.c.shr_bits(h);
 
                 // Three half-products (all fit in Uint<L>: degree < 2*h ≤ m).
                 let lo_lo = comb_mul_narrow::<$L>(a_lo, b_lo);
@@ -224,14 +225,14 @@ macro_rules! impl_f2m_opt {
             fn square(&self, poly: &Uint<$L>) -> Self {
                 // Frobenius bit-spread: identical to F2mNaive::square.
                 // Karatsuba does not improve squaring — the bit-spread is already optimal.
-                let m = poly.bits() - 1;
-                let self_bits = self.c.bits();
+                let m = poly.bit_len() - 1;
+                let self_bits = self.c.bit_len();
                 let mut spread = Uint::<$DL>::ZERO;
 
                 for i in 0..self_bits {
-                    if self.c.bit(i).into() {
+                    if self.c.bit_at(i) {
                         let bit_val = Uint::<$DL>::ONE;
-                        let shifted = bit_val.shl_vartime(2 * i);
+                        let shifted = bit_val.shl_bits(2 * i);
                         spread ^= shifted;
                     }
                 }
@@ -251,7 +252,7 @@ macro_rules! impl_f2m_opt {
                 let mut base = self.clone();
                 let mut e = *exp;
                 while e != Uint::<$L>::ZERO {
-                    if e.bit(0).into() {
+                    if e.bit_at(0) {
                         result = result.mul(&base, poly);
                     }
                     base = base.square(poly);
@@ -263,7 +264,7 @@ macro_rules! impl_f2m_opt {
             fn trace(&self, poly: &Uint<$L>) -> Self {
                 // Absolute trace: Tr(a) = Σ_{i=0}^{m-1} a^(2^i) in GF(2^m).
                 // Identical algorithm to F2mNaive::trace — iterate Frobenius and XOR-sum.
-                let m = poly.bits() - 1;
+                let m = poly.bit_len() - 1;
                 let mut acc = self.clone();
                 let mut cur = self.clone();
                 for _ in 1..m {
@@ -276,7 +277,7 @@ macro_rules! impl_f2m_opt {
             fn solve_quadratic(c: &Self, poly: &Uint<$L>) -> Self {
                 // Solve x² + x = c in GF(2^m).  Identical algorithm to F2mNaive.
                 // For odd m: half-trace formula.  For even m: brute-force search.
-                let m = poly.bits() - 1;
+                let m = poly.bit_len() - 1;
                 if m % 2 == 1 {
                     let mut acc = c.clone();
                     let mut cur = c.clone();

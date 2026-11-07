@@ -33,6 +33,7 @@
 //! generates a complete `impl F2m<$L> for F2mNaive<$L>` for each concrete
 //! `($L, $DL)` pair where `$DL = 2 * $L`.  Pairs: (1,2), (2,4), (4,8), (8,16).
 
+use crate::BitLen;
 use crypto_bigint::Uint;
 
 use super::F2m;
@@ -63,10 +64,10 @@ impl<const L: usize> F2mNaive<L> {
 /// Return the bit-length of a `Uint<L>` (position of the highest set bit + 1).
 ///
 /// Returns 0 for the zero value.  This is the degree of the polynomial + 1.
-/// `Uint::bits()` returns `usize` in crypto-bigint 0.5.
+/// Delegates to [`BitLen::bit_len`], since `Uint::bits()` returns `u32`.
 #[inline]
 pub(crate) fn uint_bits<const L: usize>(v: &Uint<L>) -> usize {
-    v.bits()
+    v.bit_len()
 }
 
 /// Implement the complete `F2m<L>` trait for a specific limb count.
@@ -93,10 +94,10 @@ macro_rules! impl_f2m_naive {
 
             fn from_uint(v: Uint<$L>, poly: &Uint<$L>) -> Self {
                 // Reduce v mod poly if its degree >= degree of poly.
-                // Degree of poly = poly.bits() - 1.  Degree of v = v.bits() - 1.
-                // We need degree(v) < degree(poly), i.e. v.bits() <= poly.bits() - 1.
-                let m = poly.bits(); // degree of poly + 1; degree of poly = m - 1
-                if v.bits() < m {
+                // Degree of poly = poly.bit_len() - 1.  Degree of v = v.bit_len() - 1.
+                // We need degree(v) < degree(poly), i.e. v.bit_len() <= poly.bit_len() - 1.
+                let m = poly.bit_len(); // degree of poly + 1; degree of poly = m - 1
+                if v.bit_len() < m {
                     // Already in range [0, 2^(m-1)); no reduction needed.
                     return Self::wrap(v);
                 }
@@ -143,12 +144,12 @@ macro_rules! impl_f2m_naive {
                 //
                 // IMPORTANT: this is carryless (XOR-based), NOT integer multiplication.
                 // Do NOT use mul_wide here — that performs integer mul-with-carry.
-                let m = poly.bits() - 1; // degree of the irreducible
-                let rhs_bits = rhs.c.bits();
+                let m = poly.bit_len() - 1; // degree of the irreducible
+                let rhs_bits = rhs.c.bit_len();
                 let mut acc = Uint::<$DL>::ZERO;
 
                 for i in 0..rhs_bits {
-                    if rhs.c.bit(i).into() {
+                    if rhs.c.bit_at(i) {
                         // XOR self.c shifted left by i into the accumulator.
                         let shifted = wide_shl::<$L, $DL>(self.c, i);
                         acc ^= shifted;
@@ -168,15 +169,15 @@ macro_rules! impl_f2m_naive {
                 // (cross terms vanish because 2*a_i*a_j = 0 in char 2).
                 // This is implemented by spreading each bit of self.c to every other
                 // position in a Uint<2L>.
-                let m = poly.bits() - 1;
-                let self_bits = self.c.bits();
+                let m = poly.bit_len() - 1;
+                let self_bits = self.c.bit_len();
                 let mut spread = Uint::<$DL>::ZERO;
 
                 for i in 0..self_bits {
-                    if self.c.bit(i).into() {
+                    if self.c.bit_at(i) {
                         // Bit i of self maps to bit 2*i of the spread.
                         let bit_val = Uint::<$DL>::ONE;
-                        let shifted = bit_val.shl_vartime(2 * i);
+                        let shifted = bit_val.shl_bits(2 * i);
                         spread ^= shifted;
                     }
                 }
@@ -199,7 +200,7 @@ macro_rules! impl_f2m_naive {
                 let mut base = self.clone();
                 let mut e = *exp;
                 while e != Uint::<$L>::ZERO {
-                    if e.bit(0).into() {
+                    if e.bit_at(0) {
                         result = result.mul(&base, poly);
                     }
                     base = base.square(poly);
@@ -213,7 +214,7 @@ macro_rules! impl_f2m_naive {
                 //
                 // Computed by iterating Frobenius (squaring) m-1 times and XOR-summing.
                 // The result is always 0 or 1 (an element of GF(2) ⊂ GF(2^m)).
-                let m = poly.bits() - 1; // degree of the irreducible
+                let m = poly.bit_len() - 1; // degree of the irreducible
                 let mut acc = self.clone();
                 let mut cur = self.clone();
                 for _ in 1..m {
@@ -235,7 +236,7 @@ macro_rules! impl_f2m_naive {
                 // For even m: no closed-form half-trace exists.  We use brute-force
                 // search over the field.  This is correct and auditable at toy scale
                 // (m ≤ 8 in the KATs); production use should target odd-m fields.
-                let m = poly.bits() - 1; // degree of the irreducible
+                let m = poly.bit_len() - 1; // degree of the irreducible
                 if m % 2 == 1 {
                     // Odd m: half-trace formula.
                     let mut acc = c.clone(); // c^(2^0)
@@ -303,13 +304,13 @@ pub(crate) fn low_half<const L: usize, const DL: usize>(v: Uint<DL>) -> Uint<L> 
 #[inline]
 pub(crate) fn wide_shl<const L: usize, const DL: usize>(v: Uint<L>, shift: usize) -> Uint<DL> {
     let wide = wide_from_low::<L, DL>(v);
-    wide.shl_vartime(shift)
+    wide.shl_bits(shift)
 }
 
 /// Reduce a `Uint<DL>` polynomial modulo a `Uint<DL>` irreducible.
 ///
 /// `poly_wide` is the irreducible polynomial widened to `DL` limbs.
-/// `m` is the degree of the irreducible (so `poly_wide.bits() == m + 1`).
+/// `m` is the degree of the irreducible (so `poly_wide.bit_len() == m + 1`).
 ///
 /// Algorithm: while the accumulator's degree ≥ m, XOR `poly_wide` shifted
 /// to align its leading term (at bit `m`) with the accumulator's leading term
@@ -325,7 +326,7 @@ pub(crate) fn poly_reduce<const DL: usize>(mut acc: Uint<DL>, poly_wide: Uint<DL
         // Shift poly_wide so its leading bit (at position m) aligns with
         // the accumulator's leading bit (at position deg - 1).
         let shift = deg - 1 - m;
-        let shifted_poly = poly_wide.shl_vartime(shift);
+        let shifted_poly = poly_wide.shl_bits(shift);
         acc ^= shifted_poly;
     }
     acc

@@ -7,7 +7,7 @@ description = "Multi-precision helpers: batched field inversion, mp utilities"
 
 [dependencies]
 shared-field = { path = "../field" }
-crypto-bigint = { version = "0.5", features = ["rand_core"] }
+crypto-bigint = { version = "0.7", features = ["rand_core"] }
 num-bigint = "0.4"
 num-integer = "0.1"
 num-traits = "0.2"

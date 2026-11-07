@@ -30,6 +30,7 @@
 //! All `Uint<L>` values are polynomial coefficient bit-vectors (bit `i` = coeff
 //! of `x^i`).  Only XOR, shift, and bit operations are meaningful.
 
+use crate::BitLen;
 use crypto_bigint::Uint;
 
 use crate::naive::F2mNaive;
@@ -42,13 +43,13 @@ use crate::F2m;
 /// Each entry is in polynomial-basis representation.  The orbit has exactly `m`
 /// elements when `beta` is a normal element.
 ///
-/// `poly` is the irreducible polynomial defining GF(2^m); `m = poly.bits() − 1`.
+/// `poly` is the irreducible polynomial defining GF(2^m); `m = poly.bit_len() − 1`.
 #[must_use]
 pub fn frobenius_orbit<const L: usize>(beta: &Uint<L>, poly: &Uint<L>) -> Vec<Uint<L>>
 where
     F2mNaive<L>: F2m<L>,
 {
-    let m = poly.bits() - 1; // degree of the field
+    let m = poly.bit_len() - 1; // degree of the field
     let mut orbit = Vec::with_capacity(m);
     let mut cur = F2mNaive::<L>::from_uint(*beta, poly);
     for _ in 0..m {
@@ -69,13 +70,13 @@ where
 /// polynomial-basis bit-vectors, taking only the low `m` bits) has rank `m`
 /// over GF(2).
 ///
-/// `poly` is the irreducible polynomial; `m = poly.bits() − 1`.
+/// `poly` is the irreducible polynomial; `m = poly.bit_len() − 1`.
 #[must_use]
 pub fn is_normal_element<const L: usize>(beta: &Uint<L>, poly: &Uint<L>) -> bool
 where
     F2mNaive<L>: F2m<L>,
 {
-    let m = poly.bits() - 1;
+    let m = poly.bit_len() - 1;
     let orbit = frobenius_orbit(beta, poly);
     if orbit.len() != m {
         return false;
@@ -130,7 +131,7 @@ pub fn find_normal_element<const L: usize>(poly: &Uint<L>) -> Uint<L>
 where
     F2mNaive<L>: F2m<L>,
 {
-    let m = poly.bits() - 1;
+    let m = poly.bit_len() - 1;
     let field_size: u64 = 1u64 << m; // 2^m
     for v in 1u64..field_size {
         let beta = Uint::<L>::from(v);
@@ -164,14 +165,14 @@ pub fn normal_to_poly<const L: usize>(
 where
     F2mNaive<L>: F2m<L>,
 {
-    let m = poly.bits() - 1;
+    let m = poly.bit_len() - 1;
     let orbit = frobenius_orbit(beta, poly);
     debug_assert_eq!(orbit.len(), m, "normal_to_poly: beta is not a normal element");
 
     // XOR the orbit vectors corresponding to set bits in a_normal.
     let mut result = Uint::<L>::ZERO;
     for (i, &basis_vec) in orbit.iter().enumerate().take(m) {
-        if a_normal.bit(i).into() {
+        if a_normal.bit_at(i) {
             result ^= basis_vec;
         }
     }
@@ -214,7 +215,7 @@ pub fn poly_to_normal<const L: usize>(
 where
     F2mNaive<L>: F2m<L>,
 {
-    let m = poly.bits() - 1;
+    let m = poly.bit_len() - 1;
     let orbit = frobenius_orbit(beta, poly);
     debug_assert_eq!(orbit.len(), m, "poly_to_normal: beta is not a normal element");
 

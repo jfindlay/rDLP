@@ -101,8 +101,8 @@ macro_rules! impl_fp_naive {
 
             fn mul(&self, rhs: &Self, p: &Uint<$L>) -> Self {
                 // Widen to 2*L limbs for the full product, then reduce.
-                // mul_wide returns (lo, hi): value = hi * 2^(L*64) + lo.
-                let (lo, hi) = self.v.mul_wide(&rhs.v);
+                // widening_mul returns (lo, hi): value = hi * 2^(L*64) + lo.
+                let (lo, hi) = self.v.widening_mul(&rhs.v);
                 // Uint::from((lo, hi)): value = hi * 2^(L*64) + lo.
                 let wide = Uint::<$DL>::from((lo, hi));
                 // Embed p into Uint<$DL> as a low-half value.

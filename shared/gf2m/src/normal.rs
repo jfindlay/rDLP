@@ -56,6 +56,7 @@
 //! Use [`crate::convert::find_normal_element`] to obtain a valid `beta` for a
 //! given `poly`.
 
+use crate::BitLen;
 use crypto_bigint::Uint;
 
 use crate::convert::{normal_to_poly, poly_to_normal};
@@ -72,7 +73,7 @@ use crate::F2m;
 ///
 /// - `beta` must be a normal element of GF(2^m) defined by `poly`.
 /// - `c` must be a valid normal-basis coefficient vector (all bits above
-///   position `m−1` are zero, where `m = poly.bits() − 1`).
+///   position `m−1` are zero, where `m = poly.bit_len() − 1`).
 ///
 /// Use [`crate::convert::find_normal_element`] to obtain a valid `beta`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -239,7 +240,7 @@ macro_rules! impl_f2m_normal {
                 //
                 // The coefficient at position i of a² is a_{i−1 mod m}.
                 // This is a cyclic left-shift of the coefficient vector.
-                let m = poly.bits() - 1;
+                let m = poly.bit_len() - 1;
                 // Work in the low 64 bits (m ≤ 64 for all toy fields).
                 let c_bits = self.c.as_words()[0];
                 let shifted = cyclic_left_shift_m(c_bits, m);
@@ -291,7 +292,7 @@ macro_rules! impl_f2m_normal {
                 let mut base = self.clone();
                 let mut e = *exp;
                 while e != Uint::<$L>::ZERO {
-                    if e.bit(0).into() {
+                    if e.bit_at(0) {
                         result = result.mul(&base, poly);
                     }
                     base = base.square(poly);
@@ -309,7 +310,7 @@ macro_rules! impl_f2m_normal {
                 // In a normal basis, squaring is a cyclic left-shift of the
                 // coefficient vector.  The trace sums all m Frobenius conjugates.
                 // We iterate Frobenius (cyclic shift) m-1 times and XOR-accumulate.
-                let m = poly.bits() - 1;
+                let m = poly.bit_len() - 1;
                 let mut acc = self.clone();
                 let mut cur = self.clone();
                 for _ in 1..m {
@@ -326,7 +327,7 @@ macro_rules! impl_f2m_normal {
                 // Solve x² + x = c in GF(2^m).
                 // For odd m: half-trace formula (Frobenius is a cyclic shift in normal basis).
                 // For even m: convert to polynomial basis, brute-force, convert back.
-                let m = poly.bits() - 1;
+                let m = poly.bit_len() - 1;
                 if m % 2 == 1 {
                     let mut acc = c.clone();
                     let mut cur = c.clone();
@@ -409,7 +410,7 @@ mod tests {
     #[test]
     fn square_is_cyclic_shift_gf4() {
         let p = poly4();
-        let m = p.bits() - 1; // 4
+        let m = p.bit_len() - 1; // 4
         let beta = find_normal_element(&p);
 
         // For every element, verify square(a).c == cyclic_left_shift(a.c, m).

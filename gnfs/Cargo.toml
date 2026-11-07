@@ -14,7 +14,7 @@ num-bigint = { version = "0.4", features = ["serde"] }
 num-integer = "0.1"
 num-rational = "0.4"
 num-traits = "0.2"
-crypto-bigint = { version = "0.5", features = ["rand_core"] }
+crypto-bigint = { version = "0.7", features = ["rand_core"] }
 
 [dev-dependencies]
 proptest = "1"

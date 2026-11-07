@@ -63,7 +63,7 @@ pub fn glv_phi<F: Fp<4>>(pt: &AffinePoint<F>, p_modulus: &Uint<4>, beta: u64) ->
 #[inline]
 pub(crate) fn beta_mul(x: Uint<4>, p: &Uint<4>, beta: u64) -> Uint<4> {
     let beta_u = Uint::<4>::from(beta);
-    let (lo, hi) = beta_u.mul_wide(&x);
+    let (lo, hi) = beta_u.widening_mul(&x);
     let wide = crypto_bigint::Uint::<8>::from((lo, hi));
     let p8 = crypto_bigint::Uint::<8>::from((*p, Uint::<4>::ZERO));
     let nz = crypto_bigint::NonZero::new(p8).expect("p is non-zero");

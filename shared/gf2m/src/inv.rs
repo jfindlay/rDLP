@@ -36,6 +36,7 @@
 //! each power-of-2 exponentiation is a chain of Frobenius maps, and the results
 //! are combined by multiplication.
 
+use crate::BitLen;
 use crypto_bigint::Uint;
 
 use crate::naive::F2mNaive;
@@ -101,11 +102,11 @@ where
 fn poly_divmod<const L: usize>(mut a: Uint<L>, b: Uint<L>) -> (Uint<L>, Uint<L>) {
     debug_assert!(b != Uint::<L>::ZERO, "poly_divmod: divisor is zero");
 
-    let deg_b = b.bits().saturating_sub(1); // degree of b
+    let deg_b = b.bit_len().saturating_sub(1); // degree of b
     let mut q = Uint::<L>::ZERO;
 
     loop {
-        let bits_a = a.bits();
+        let bits_a = a.bit_len();
         if bits_a == 0 {
             break; // a = 0, remainder is 0
         }
@@ -115,9 +116,9 @@ fn poly_divmod<const L: usize>(mut a: Uint<L>, b: Uint<L>) -> (Uint<L>, Uint<L>)
         }
         let shift = deg_a - deg_b;
         // q += x^shift (set bit `shift` of quotient)
-        q ^= Uint::<L>::ONE.shl_vartime(shift);
+        q ^= Uint::<L>::ONE.shl_bits(shift);
         // a -= b * x^shift = a XOR (b << shift)
-        a ^= b.shl_vartime(shift);
+        a ^= b.shl_bits(shift);
     }
 
     (q, a)
@@ -134,10 +135,10 @@ fn poly_mul_reduce_wide<const L: usize>(a: Uint<L>, b: Uint<L>) -> Uint<L> {
     // Schoolbook carryless multiply: for each set bit i of b, XOR a<<i into acc.
     // The result fits in Uint<L> because the Bézout cofactor stays below degree m.
     let mut acc = Uint::<L>::ZERO;
-    let b_bits = b.bits();
+    let b_bits = b.bit_len();
     for i in 0..b_bits {
-        if b.bit(i).into() {
-            acc ^= a.shl_vartime(i);
+        if b.bit_at(i) {
+            acc ^= a.shl_bits(i);
         }
     }
     acc
@@ -173,7 +174,7 @@ where
 {
     assert!(!a.is_zero(), "itoh_tsujii_inv: zero has no multiplicative inverse");
 
-    let m = poly.bits() - 1; // degree of the irreducible = field degree
+    let m = poly.bit_len() - 1; // degree of the irreducible = field degree
 
     // Special case: GF(2^1) — only element is 1, its own inverse.
     if m == 1 {

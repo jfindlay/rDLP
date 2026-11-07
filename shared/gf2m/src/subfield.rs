@@ -7,7 +7,7 @@
 //! # Design: per-call poly threading
 //!
 //! All operations that depend on the field identity take `poly: &Uint<L>` as an explicit
-//! parameter, mirroring the C-F2m idiom.  The field degree `m = poly.bits() − 1` is
+//! parameter, mirroring the C-F2m idiom.  The field degree `m = poly.bit_len() − 1` is
 //! recovered at runtime.
 //!
 //! # Relative trace and norm
@@ -28,6 +28,7 @@
 //! `β = α^((2^m − 1)/(2^l − 1))` is a primitive element of GF(2^l) expressed in GF(2^m)
 //! (here `α` is the root of `poly`, i.e. the primitive element of GF(2^m)).
 
+use crate::BitLen;
 use crypto_bigint::Uint;
 
 use crate::naive::F2mNaive;
@@ -57,13 +58,13 @@ fn assert_l_divides_m(l: usize, m: usize) {
 ///
 /// # Panics
 ///
-/// Panics if `l` does not divide `m = poly.bits() − 1`.
+/// Panics if `l` does not divide `m = poly.bit_len() − 1`.
 #[must_use]
 pub fn is_in_subfield<const L: usize>(a: &F2mNaive<L>, l: usize, poly: &Uint<L>) -> bool
 where
     F2mNaive<L>: F2m<L>,
 {
-    let m = poly.bits() - 1;
+    let m = poly.bit_len() - 1;
     assert_l_divides_m(l, m);
     // Apply Frobenius l times: a → a^(2^l).
     let mut cur = a.clone();
@@ -86,7 +87,7 @@ where
 ///
 /// # Panics
 ///
-/// Panics if `l` does not divide `m = poly_m.bits() − 1`.
+/// Panics if `l` does not divide `m = poly_m.bit_len() − 1`.
 /// Panics if `m > 63` (see `subfield_basis`).
 #[must_use]
 pub fn embed<const L: usize>(
@@ -97,13 +98,13 @@ pub fn embed<const L: usize>(
 where
     F2mNaive<L>: F2m<L>,
 {
-    let l = poly_l.bits() - 1; // degree of GF(2^l)
+    let l = poly_l.bit_len() - 1; // degree of GF(2^l)
     let basis = subfield_basis(l, poly_m); // {1, β, β², …, β^(l−1)} in GF(2^m)
     let a_bits = a.to_uint();
     // Compute Σ aᵢ · basis[i] (XOR in char 2).
     let mut result = F2mNaive::<L>::zero();
     for (i, b) in basis.iter().enumerate().take(l) {
-        if a_bits.bit(i).into() {
+        if a_bits.bit_at(i) {
             result = result.add(b);
         }
     }
@@ -121,7 +122,7 @@ where
 ///
 /// # Panics
 ///
-/// Panics if `l` does not divide `m = poly_m.bits() − 1`.
+/// Panics if `l` does not divide `m = poly_m.bit_len() − 1`.
 /// Panics if `m > 63` (see `subfield_basis`).
 #[must_use]
 pub fn restrict<const L: usize>(
@@ -144,7 +145,7 @@ where
     // solution.  We use Gaussian elimination on the m×l augmented matrix.
     //
     // We work with the low 64 bits of each basis vector (valid for m ≤ 63).
-    let m = poly_m.bits() - 1;
+    let m = poly_m.bit_len() - 1;
     let basis = subfield_basis(l, poly_m);
     let a_bits = a.to_uint().as_words()[0];
     let basis_bits: Vec<u64> = basis.iter().map(|b| b.to_uint().as_words()[0]).collect();
@@ -205,7 +206,7 @@ where
 ///
 /// # Panics
 ///
-/// Panics if `l` does not divide `m = poly.bits() − 1`.
+/// Panics if `l` does not divide `m = poly.bit_len() − 1`.
 #[must_use]
 pub fn frobenius_subfield_orbit<const L: usize>(
     a: &F2mNaive<L>,
@@ -215,7 +216,7 @@ pub fn frobenius_subfield_orbit<const L: usize>(
 where
     F2mNaive<L>: F2m<L>,
 {
-    let m = poly.bits() - 1;
+    let m = poly.bit_len() - 1;
     assert_l_divides_m(l, m);
     let steps = m / l; // orbit length = m/l
     let mut orbit = Vec::with_capacity(steps);
@@ -242,7 +243,7 @@ where
 ///
 /// # Panics
 ///
-/// Panics if `l` does not divide `m = poly.bits() − 1`.
+/// Panics if `l` does not divide `m = poly.bit_len() − 1`.
 #[must_use]
 pub fn relative_trace<const L: usize>(
     a: &F2mNaive<L>,
@@ -271,7 +272,7 @@ where
 ///
 /// # Panics
 ///
-/// Panics if `l` does not divide `m = poly.bits() − 1`.
+/// Panics if `l` does not divide `m = poly.bit_len() − 1`.
 #[must_use]
 pub fn relative_norm<const L: usize>(
     a: &F2mNaive<L>,
@@ -303,7 +304,7 @@ where
 ///
 /// # Panics
 ///
-/// Panics if `l` does not divide `m = poly_m.bits() − 1`.
+/// Panics if `l` does not divide `m = poly_m.bit_len() − 1`.
 /// Panics if `m > 63` (the exponent `(2^m − 1)/(2^l − 1)` would overflow `u64`).
 #[must_use]
 pub fn subfield_basis<const L: usize>(
@@ -313,7 +314,7 @@ pub fn subfield_basis<const L: usize>(
 where
     F2mNaive<L>: F2m<L>,
 {
-    let m = poly_m.bits() - 1;
+    let m = poly_m.bit_len() - 1;
     assert_l_divides_m(l, m);
     assert!(
         m <= 63,

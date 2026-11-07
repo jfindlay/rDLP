@@ -29,6 +29,7 @@
 //! off-by-one in the shift, etc.).
 
 use crypto_bigint::Uint;
+use shared_gf2m::BitLen;
 use shared_gf2m::{
     ext_euclid_inv, find_normal_element, itoh_tsujii_inv, normal_to_poly, poly_to_normal, F2m,
     F2mNaive, F2mNormal, F2mOpt,
@@ -692,7 +693,7 @@ fn poly_to_normal_to_poly_round_trip_gf4() {
 #[test]
 fn squaring_is_cyclic_shift_gf4() {
     let p = poly4();
-    let m = p.bits() - 1; // 4
+    let m = p.bit_len() - 1; // 4
     assert_eq!(m, 4, "GF(2^4) should have degree 4");
 
     // For every element in GF(2^4), verify:
@@ -810,7 +811,7 @@ fn poly_to_normal_to_poly_round_trip_gf8() {
 #[test]
 fn squaring_is_cyclic_shift_gf8() {
     let p = poly8();
-    let m = p.bits() - 1; // 8
+    let m = p.bit_len() - 1; // 8
     assert_eq!(m, 8, "GF(2^8) should have degree 8");
 
     for v in 0u64..256 {

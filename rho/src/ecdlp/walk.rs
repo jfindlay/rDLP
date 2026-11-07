@@ -24,7 +24,7 @@
 //! then applies the affine addition formula to update each walk.
 
 use crypto_bigint::Uint;
-use rand::RngCore;
+use rand::Rng;
 
 use shared_field::Fp;
 use shared_bigint::batch_invert;
@@ -87,7 +87,7 @@ impl<F: Fp<4>> AddendTable<F> {
     /// * `q` — target point Q in affine form.
     /// * `n` — prime group order.
     /// * `rng` — a cryptographic-quality RNG.
-    pub fn new<R: RngCore>(
+    pub fn new<R: Rng>(
         curve: &Curve,
         g: &AffinePoint<F>,
         q: &AffinePoint<F>,
@@ -161,12 +161,12 @@ impl<F: Fp<4>> WalkState<F> {
     /// * `q` — target point Q.
     /// * `n` — prime group order.
     /// * `rng` — RNG for sampling `a₀, b₀`.
-    pub fn new_random<Rng: RngCore>(
+    pub fn new_random<R: Rng>(
         curve: &Curve,
         g: &AffinePoint<F>,
         q: &AffinePoint<F>,
         n: u64,
-        rng: &mut Rng,
+        rng: &mut R,
     ) -> Self {
         let a0 = random_nonzero_scalar(n, rng);
         let b0 = random_nonzero_scalar(n, rng);
@@ -241,12 +241,12 @@ impl<F: Fp<4>> AffineWalkState<F> {
     /// Initialise a walk from random starting scalars `a₀, b₀`.
     ///
     /// Sets `point = a₀·G + b₀·Q` and records `(a₀, b₀)`.
-    pub fn new_random<Rng: RngCore>(
+    pub fn new_random<R: Rng>(
         curve: &Curve,
         g: &AffinePoint<F>,
         q: &AffinePoint<F>,
         n: u64,
-        rng: &mut Rng,
+        rng: &mut R,
     ) -> Self {
         let a0 = random_nonzero_scalar(n, rng);
         let b0 = random_nonzero_scalar(n, rng);
@@ -400,7 +400,7 @@ impl<F: Fp<4>> BatchedWalker<F> {
 /// Sample a uniform random scalar from `[1, n)`.
 ///
 /// Rejection-samples until the value is non-zero.
-fn random_nonzero_scalar<R: RngCore>(n: u64, rng: &mut R) -> u64 {
+fn random_nonzero_scalar<R: Rng>(n: u64, rng: &mut R) -> u64 {
     loop {
         // Use next_u64; reduce modulo n; reject zero.
         let v = rng.next_u64() % n;

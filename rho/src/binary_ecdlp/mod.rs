@@ -60,7 +60,7 @@
 pub mod koblitz;
 
 use crypto_bigint::Uint;
-use rand::RngCore;
+use rand::Rng;
 use rand_chacha::ChaCha20Rng;
 use rand::SeedableRng;
 
@@ -134,7 +134,7 @@ fn inv_mod_n(a: u64, n: u64) -> Option<u64> {
 }
 
 /// Sample a uniform random scalar from `[1, n)`.
-fn random_nonzero_scalar<Rng: RngCore>(n: u64, rng: &mut Rng) -> u64 {
+fn random_nonzero_scalar<R: Rng>(n: u64, rng: &mut R) -> u64 {
     loop {
         let v = rng.next_u64() % n;
         if v != 0 {
@@ -184,12 +184,12 @@ impl<F: F2m<1>> BinaryAddendTable<F> {
     /// * `q` — target point Q in affine form.
     /// * `n` — group order (prime or composite).
     /// * `rng` — a random number generator.
-    pub fn new<Rng: RngCore>(
+    pub fn new<R: Rng>(
         curve: &BinaryCurve,
         g: &BinaryAffinePoint<F>,
         q: &BinaryAffinePoint<F>,
         n: u64,
-        rng: &mut Rng,
+        rng: &mut R,
     ) -> Self {
         let mut entries = Vec::with_capacity(R);
 
@@ -248,12 +248,12 @@ impl<F: F2m<1>> BinaryWalkState<F> {
     /// Initialise a walk from random starting scalars `a₀, b₀`.
     ///
     /// Sets `point = a₀·G + b₀·Q` and records `(a₀, b₀)`.
-    pub fn new_random<Rng: RngCore>(
+    pub fn new_random<R: Rng>(
         curve: &BinaryCurve,
         g: &BinaryAffinePoint<F>,
         q: &BinaryAffinePoint<F>,
         n: u64,
-        rng: &mut Rng,
+        rng: &mut R,
     ) -> Self {
         let a0 = random_nonzero_scalar(n, rng);
         let b0 = random_nonzero_scalar(n, rng);
