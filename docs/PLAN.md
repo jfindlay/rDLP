@@ -1554,8 +1554,19 @@ necessary filters, not square certificates or sign-selection rules.
 ### C-Dependency — checked original-row lifting and products
 
 **Enforcement:** compiler + test + prose. **Defined-in:** 11. **Consumed-by:** 12–14.
-**Status:** designed at the row-11 inflection (2026-11-07); freezes when row 11 lands. Original
-statement: matrix/context binding, sorted unique indices, provenance bounds, per-row lifted parity
+**Status:** **frozen at row 11 (commit e70fa8f, 2026-11-07)**, designed at the row-11 inflection
+(`design-confident`). Implemented field-for-field in `gnfs::sqrt::dependency` (five public items
+re-exported at `gnfs::sqrt::*`); 11 contract KATs plus one extra
+(`kat_context_accepts_characters_filled_before_or_after_filtering`) and 9 unit tests pass; every
+contract hand value re-derived independently and correct. **Implementation deviations (benign):**
+(a) `DependencyContext` derives `Debug, Clone` only, because `SparseMatrix` has no `PartialEq`;
+(b) a `None` from `layout.row_columns` for a bound relation, which the contract calls impossible,
+maps to `LayoutRelationsMismatch` instead of panicking; (c) every unreachable failure inside
+`validate` is `DependencyError::Invariant`, reached in unit tests by corrupting private state.
+Consumer notes: `DependencyContext::new` always takes a `RootCharacters` (use
+`RootCharacters::new(&checker, &[])` for K = 0); `CheckedDependency::target(limits)` is independent of
+`validate`, so a precision exhaustion appears only there. The factor-attempt/report signatures below
+remain frozen-but-unimplemented until row 13. Original statement: matrix/context binding, sorted unique indices, provenance bounds, per-row lifted parity
 and kernel membership, exact original-row products, and final checked factor-attempt/report
 signatures. KATs reject malformed contexts and verify overlap cancellation and non-monic products.
 Deduplicate pairs before building a matrix; never alter provenance indexing after validation.
@@ -1876,7 +1887,7 @@ unstaged and uncommitted.
 | 8 | Checked relations and algebraic parity | done | eba0a56 | C-CheckedRelations |
 | 9 | Elimination and XOR provenance | done | 6f304e9 | C-XorLift |
 | 10 | Individual root characters | done | 8100dd3 | C-RootCharacters |
-| 11 | Checked dependencies | pending | — | — |
+| 11 | Checked dependencies | done | e70fa8f | C-Dependency (context/validation types; factor-attempt/report signatures stay frozen for 13) |
 | 12 | Bounded kernel combinations | pending | — | — |
 | 13 | Verified factor API migration | pending | — | — |
 | 14 | Generated sieve-to-factor evidence ◆ | pending | — | — |
@@ -2062,6 +2073,25 @@ treat characters as necessary filters only; row 13 migrates callers off the lega
 `populate_qc_columns`/`select_qc_primes` norm characters; row 14 must pin `RootCharacterLimits`
 (the `Default` is not a pinned configuration) and use eight pairs as planned; fill order
 (before vs after merging) gives structurally different but identity-satisfying matrices.
+
+### 11 — 2026-11-07
+Discovery/flex: The row-11 inflection fork returned `design-confident` (committed as e32eca3 before
+dispatch, so self-cleared with no halt); the worker implemented it with no semantic deviation. The
+pinned line-sieve KAT produced 14 relations, 7 rows after singleton removal and merging, and 9
+`block_lanczos` vectors (seed 42); all 9 pass `KernelVector::verify`, validate, and have even lifted
+parity, so no discovery against rows 12–14. The overlap-cancellation fixture confirms symmetric
+difference (relations {0,1,3}, P = 225) versus a union ({0,1,2,3}, P = −1125).
+Affected: C-Dependency (frozen); consumers 12–14.
+Deferred: yes — (1) row 12 must add `gnfs/src/linalg/mod.rs` to its fileset (already in the
+session list) and emit sorted-unique row indices; validation never trusts them. (2) Row 13 implements
+the frozen factor-attempt/report interface and must take NotSquare only from
+`reconstruct_root`/`reconstruct_root_from_factors`; `NonSquareCertificate::new` stays `pub(super)`
+(settled at the inflection; the final review confirms that is acceptable). (3) Row 14 builds its
+`DependencyContext` with `RootCharacters::new(&checker, &[])` only if K = 0, but the plan pins eight
+pairs. (4) `DependencyContext` has no `PartialEq`, so row 13/14 tests compare outputs, not contexts.
+Texture: `@build` is not dispatchable as a subagent in this environment, so `@general` (Sonnet) ran the
+implementation, as the plan allows. Shell permission was rejected intermittently, including once for
+`@committer`, which committed on a plain retry (not a scope or secret refusal).
 
 ## Discoveries & risks
 
