@@ -1892,6 +1892,24 @@ does.
 ### C-FactorReport — verified dependency-to-factor boundary
 
 **Enforcement:** compiler + test + prose. **Defined-in:** 13. **Consumed-by:** 14.
+**Status:** **frozen at row 13 (commit d06032e, 2026-11-07)**. Every signature in C-Dependency's
+"Final checked factor-attempt/report interface" is implemented as written, in
+`gnfs::sqrt::{rational,algebraic,assembly}` and re-exported at `gnfs::sqrt::*` and the crate root.
+The old panic-prone, norm-mapped, fixed-prime routines and the `Option`-shaped `factor` are gone.
+`NonSquareCertificate::new(` non-test call sites remain only in `padic.rs` and `crt.rs`; `seal` has one
+production call site (`normalize.rs`). **Deviations (benign, one semantic refinement):**
+(a) `factor_from_congruence` after the N>1 and x² ≡ y² (mod N) checks returns `Trivial` when
+x ≡ ±y (mod N) and otherwise the divisor `gcd(|x−y|, N)`, which is provably proper (N | (x−y)(x+y),
+so a gcd of N means x ≡ y and a gcd of 1 means x ≡ −y); the literal "then both gcds" reading would
+report spurious divisors such as gcd(2x, N) for even N and make `TrivialCongruence` nearly
+unreachable. The signatures are unchanged. (b) Extra items beyond the list: `pub(crate) fn
+root_of_product` and a `#[cfg(test)]`-only `RationalRoot::forged` for invariant-branch unit tests.
+Consumer notes: `factor(context, &search.candidates, search.status.clone(), limits)`. Limits that
+worked in tests: precision 4096 bits, direct search `{first_candidate: 0, max_primes_examined: 100}`,
+`crt.max_primes = 1`, recombination `1<<20` for both budgets, nonresidue budget 1000; forcing the
+fallback needs a direct-search start prime that divides N or cN. `FactorError::Sqrt` and the
+`Unsupported`/`RationalNonSquare` attempt outcomes are unreachable from validated inputs, so are covered
+by Display/class tests only. Original statement:
 To be frozen at 13: fallible rational_sqrt/algebraic_sqrt, checked factor_from_congruence, and factor
 report with deterministic candidate retry. Require P>0 and exact integer square root, verified beta
 and modular image, x²=y² mod N, and proper divisor checks. Incidental gcds have distinct provenance.
@@ -1935,7 +1953,7 @@ unstaged and uncommitted.
 | 10 | Individual root characters | done | 8100dd3 | C-RootCharacters |
 | 11 | Checked dependencies | done | e70fa8f | C-Dependency (context/validation types; factor-attempt/report signatures stay frozen for 13) |
 | 12 | Bounded kernel combinations | done | 2fd9ac4 | C-KernelSearch |
-| 13 | Verified factor API migration | pending | — | — |
+| 13 | Verified factor API migration | done | d06032e | C-FactorReport |
 | 14 | Generated sieve-to-factor evidence ◆ | pending | — | — |
 
 ## Action-frame digest
@@ -2152,6 +2170,30 @@ n computed vectors, and the plan's cap of 4096 distinct combinations per configu
 `max_candidates`; pin both before discovery, since the defaults do not exist. (2) Candidates come
 basis-first in input order, so the retry loop tries each computed vector before any sum. (3) Row 13's
 `factor` takes `&KernelSearch::candidates` and `KernelSearch::status`.
+
+### 13 — 2026-11-07
+Discovery/flex: One semantic refinement of the frozen congruence step (trivial iff x ≡ ±y mod N, else
+the single gcd of x−y with N, provably proper); the driver judged it a within-contract
+clarification (no downstream contract named, types unchanged) and recorded it under C-FactorReport.
+The legacy fixture N=35, m=6, f=x²−2 was invalid (f(6)=34), and the old claims "Y = |Norm(β)| mod N" and
+"Y² ≡ Norm(γ)" were wrong; replaced by 527 (m=23), the non-monic 2x²−2x−5 at N=35 (m=5), and
+x²−12 at N=286 (m=164). Nonsquare kernel vectors are routine in the checked pipeline: exceptional
+ideals (primes dividing c·disc F) carry no matrix column, so a kernel vector with odd valuation there
+reaches `AlgebraicNonSquare` (x²−2, γ = 2+α), which is why combinations matter.
+Affected: C-FactorReport (frozen); consumer row 14.
+Deferred: yes — (1) row 14 can copy the checker-verified `relation_of`/`dependency_context` helpers
+from `factor_end_to_end_kat.rs` (they derive exponent vectors by trial division). (2) Open tested-scope
+gaps for row 14/final review: non-monic only at degree 2 and ℓ=1 (no non-monic cubic, no ℓ>1
+non-monic sign search); cross-method agreement beyond d ≤ 2 only for monic x³−2; no d ≥ 4 case at this
+layer (V4 lives in the CRT KATs); factor-bearing KATs use hand-built relation sets, so the first
+sieve-generated evidence is row 14's. (3) Incidental `MapDenominator` outcomes need a non-maximal Z[α]
+and a prime of N dividing the index, so are not expected in the demonstration; the x²−18 mod-3 case
+cannot occur with square P. (4) Doc claims: PEDAGOGY chapters 42–50, 57 and MATHEMATICS §5–6 were
+corrected; BENCHMARKS square-root timings are marked not re-measured. (5) The legacy norm-character helpers
+`select_qc_primes`/`populate_qc_columns` stay public in `gnfs::linalg`; with the old algebraic path
+gone they are used only by their own tests and re-exports (grep-verified). Removing them was not
+enrolled; the final review may flag them as a dead legacy surface.
+Texture: the committer's first shell call was permission-denied again and succeeded on plain retry.
 
 ## Discoveries & risks
 
