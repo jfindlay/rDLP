@@ -9,6 +9,9 @@
 //!   Entry point: [`algebraic::algebraic_sqrt`].
 //! - [`assembly`] — final assembly: combine X and Y, compute gcd(X − Y, N) to extract a
 //!   non-trivial factor. Entry points: [`assembly::factor_from_congruence`], [`assembly::factor`].
+//! - [`context`] — checked polynomial/map context ([`SqrtContext`]), the relation-factor input
+//!   boundary ([`RelationFactors`]), non-forgeable root witnesses ([`VerifiedRoot`]), failure
+//!   classes, and resource limits for the algebraic square root.
 //!
 //! # Background
 //!
@@ -29,8 +32,16 @@
 
 pub mod algebraic;
 pub mod assembly;
+pub mod context;
 pub mod rational;
 
 pub use algebraic::algebraic_sqrt;
 pub use assembly::{factor, factor_from_congruence};
+pub use context::{
+    AlgebraicSqrtOutcome, CrtLimits, DirectLimits, FailureClass, IncidentalFactor,
+    IncidentalSource, InputRejection, InvalidInput, InvariantViolation, NonSquareCertificate,
+    NonSquareEvidence, PrecisionLimits, PrimeSearchLimits, RecombinationLimits,
+    ReconstructionMethod, RelationFactors, ResourceExhaustion, ResourceKind, SqrtContext,
+    SqrtError, SqrtLimits, UnsupportedDomain, VerifiedRoot,
+};
 pub use rational::rational_sqrt;

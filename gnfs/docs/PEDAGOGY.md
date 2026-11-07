@@ -3487,6 +3487,94 @@ mathematical fact each one verifies.
 
 ---
 
+## The Checked Square-Root Context
+
+The square-root stage is correct only under algebraic preconditions that the legacy path never
+checks. `gnfs::sqrt::context` makes those preconditions a type: a value of `SqrtContext` is a proof
+that they held when it was built, so later code can rely on them without re-checking.
+
+### What a context certifies
+
+Given `f` of degree `d ≥ 1`, an integer `m`, and `N`, `SqrtContext::new` accepts exactly when
+
+1. `N > 1`;
+2. `f(m) ≡ 0 (mod N)`;
+3. the leading coefficient `c` is nonzero and `gcd(c, N) = 1`;
+4. the monic polynomial `F(t) = c^(d−1) f(t/c)` is squarefree, i.e. `disc(F) ≠ 0`.
+
+`F` has coefficient `f_k · c^(d−1−k)` below the leading term and is monic, so `θ = c·α` is an
+algebraic integer. Because `F(c·m) = c^(d−1) f(m) ≡ 0 (mod N)`, sending `θ ↦ c·m` is a ring
+homomorphism from `Z[θ]` to `Z/N`, which is how an algebraic root is carried back to a residue
+modulo `N`. The context stores `f` as given (so `c` can be negative) and `m` unreduced, because the
+rational product `Π(a − b·m)` is taken over the integers.
+
+Squarefree `F` does not make `A = Q[t]/(F)` a field. For `x² − 1` at `m = 4`, `N = 15`, `A ≅ Q × Q`.
+The context accepts that case and makes no irreducibility claim; a demonstration that needs a field
+must certify irreducibility separately.
+
+### Failure is classified, not collapsed
+
+The checks run in a fixed order and stop at the first failure: `N > 1` is first, so nothing is
+reduced modulo zero; malformed input (constant `f`, wrong root, repeated factor) precedes the domain
+checks, so a bad input is never reported as luck. A proper `gcd(c, N)` is an *incidental factor of
+`N`*, reported with its provenance and never treated as a reconstruction result. `N | c` is an
+unsupported domain: the unscaled map does not exist. `SqrtError` carries invalid input and violated
+internal invariants, which are never retried as nonsquares; `AlgebraicSqrtOutcome` carries
+mathematical and resource results. Only `NotSquare` certifies that no root exists; resource
+exhaustion is never evidence.
+
+### Relation factors must be units
+
+A factor `a − b·α` enters the product `γ = Π(a − b·α)`. Its scaled form `c·a − b·θ` has norm
+
+    Π_j (c·a − b·θ_j) = b^d F(c·a/b) = c^(d−1) · f_hom(a, b),   f_hom(a, b) = Σ f_i a^i b^(d−i),
+
+so the factor is a unit of `A` exactly when `f_hom(a, b) ≠ 0`. A zero `f_hom` means the factor
+vanishes at some root of `F`: it is a zero divisor (or the zero element, always so when `d = 1`),
+and no prime would ever make that component invertible, so searching for one would not terminate.
+`RelationFactors::new` therefore checks every pair against the context before any prime search. In
+`Q[t]/(t² − 1)` the pair `(1, 1)` gives `f_hom = 1 − 1 = 0`: the factor `1 − θ` kills the root
+`θ = 1`. For `f = x − 5` the pair `(5, 1)` gives the zero element of `A = Q`.
+
+### Why `VerifiedRoot` cannot be forged
+
+`VerifiedRoot` has private fields and one private constructor, `seal`. Rust private items are
+visible only in their module and its descendants, so every module outside the `sqrt::context`
+subtree, and every other crate, is excluded by the compiler from creating one. The module that
+performs the exact check `β² = γ` over `Q` and `y² ≡ Π(a − b·m) (mod N)` is meant to be a child of
+`context`, which is why it can call `seal` while sibling modules such as the reconstruction code
+cannot. A sibling module would need `pub(super)` visibility on the constructor, which would also be
+visible to every other module under `sqrt`. Two `compile_fail` doctests on `VerifiedRoot` pin this
+property. `NonSquareCertificate` is weaker: its constructor is `pub(super)`, so only the compiler
+protects it from outside `gnfs::sqrt`.
+
+### Resource options
+
+`PrimeSearchLimits`, `PrecisionLimits`, `DirectLimits`, `CrtLimits`, `RecombinationLimits`, and
+`SqrtLimits` are plain `Copy` structs with no `Default`: a caller must state its budgets. A prime
+search examines primes `p ≥ max(first_candidate, 3)` in ascending order and every prime examined
+counts, including primes skipped later. Reaching a limit yields a `ResourceExhaustion` naming the
+resource, the amount consumed, and the limit.
+
+### KAT summary
+
+| Test file | Test | Mathematical fact verified |
+|-----------|------|---------------------------|
+| `sqrt_context_kat.rs` | `kat_context_accepts_monic_and_non_monic` | `x²−2` (`N=527`) and `2x²−1` (`N=7`) give `F=t²−2`, `disc 8`, `θ ↦ c·m mod N` |
+| `sqrt_context_kat.rs` | `kat_context_rejects_modulus_le_one` | `N ∈ {1, 0, −5}` is rejected first, without division |
+| `sqrt_context_kat.rs` | `kat_context_rejects_constant_and_zero_polynomial` | Degree `< 1` is invalid |
+| `sqrt_context_kat.rs` | `kat_context_rejects_root_mismatch` | `x²−2` at `m=6`, `N=35` has `f(m)=34` |
+| `sqrt_context_kat.rs` | `kat_from_poly_pair_rejects_degree_field_and_rational_poly` | A literal pair is checked without panicking, including `N=0` |
+| `sqrt_context_kat.rs` | `kat_context_rejects_repeated_factor` | `(x−3)²` and `(2x−1)²` have `disc 0` |
+| `sqrt_context_kat.rs` | `kat_context_incidental_leading_coefficient_factor` | A proper `gcd(c, N)` is an incidental factor with provenance |
+| `sqrt_context_kat.rs` | `kat_context_invalid_precedes_incidental` | Malformed input is never reported as an incidental factor |
+| `sqrt_context_kat.rs` | `kat_context_leading_coefficient_not_unit_unsupported` | `N \| c` is an unsupported domain |
+| `sqrt_context_kat.rs` | `kat_context_reducible_squarefree_accepted` | `x²−1` is accepted; `A` is not a field |
+| `sqrt_context_kat.rs` | `kat_relation_factors_boundary` | Empty set, zero factors, zero divisors, `d=1`, and first-failing index |
+| `sqrt_context_kat.rs` | `kat_failure_classes_distinct` | Each condition maps to its own `FailureClass` |
+
+---
+
 ## 51. What Comes Next
 
 The square-root and assembly stage is the final stage of the GNFS factoring pipeline. The
