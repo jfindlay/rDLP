@@ -1216,7 +1216,7 @@ unstaged and uncommitted.
 | 4 | Normalized targets and bounds | done | e636477 | C-NormalizedTarget |
 | 5 | Direct p-adic reconstruction | done | 7898119 | C-DirectRoot |
 | 6 | Split-prime local contributions | done | 5da4883 | C-SplitContributions; manifest edge gnfs -> shared-padic |
-| 7 | CRT recombination and dispatch ◆ | done | 01e1907 | C-VerifiedRoot (boundary review pending) |
+| 7 | CRT recombination and dispatch ◆ | done | 01e1907 | C-VerifiedRoot (boundary: still-on-intent; anneal clean) |
 | 8 | Checked relations and algebraic parity | pending | — | — |
 | 9 | Elimination and XOR provenance | pending | — | — |
 | 10 | Individual root characters | pending | — | — |
@@ -1327,6 +1327,37 @@ Deferred: yes — rows 13/14 must pin `max_primes = 1` (list size 2^ceil((ℓd�
 fixture runs through the dispatcher fallback; certificates other than success remain
 sibling-forgeable inside the crate (the boundary review should confirm that is acceptable);
 `crt.rs`/`padic.rs` still duplicate small private helpers (consolidation candidate, unenrolled).
+
+### 7 ◆ boundary — 2026-11-07
+Discovery/flex: Anneal gate (driver, mechanical): the plan's denylist over `gnfs/src/sqrt`,
+`shared/numfield/{src,tests}` and `gnfs/tests/sqrt_*_kat.rs` gave zero hits; the two PEDAGOGY files
+have three hits, all predating the run (git blame, June 2026: gnfs PEDAGOGY "of a frozen contract",
+numfield PEDAGOGY "frozen in G.A ... sub-tracks" and "sub-track"), left as unrelated historical text.
+Boundary fork (run mode default self-continue; the plan had recommended `halt-at-boundaries`)
+returned `still-on-intent`: both methods follow the canonical design and share one bound/verifier;
+NotSquare is issued only at four places (inert local nonresidue, split local nonresidue,
+`DirectBoundExhausted`, `SignSearchExhausted` after complete search); budgets give
+`ResourceExhausted`; `VerifiedRoot` has one production `seal` call site (normalize.rs); the V4
+quartic exhausts direct's 50-prime budget and is solved only by the fallback.
+Affected: C-VerifiedRoot, C-SqrtContext.
+Deferred: yes — (1) rows 13/14: keep `max_primes = 1`; the precision limit bounds bits(2B+1), not the
+working modulus, which can be ~ℓ·bits(p) larger (padic up to +bits(p)), so pin precision with
+headroom. (2) Row 13 must correct legacy text still saying "Y = |Norm(β)| mod N" and "Couveignes'
+CRT algorithm" (`gnfs/src/sqrt/mod.rs` background; legacy PEDAGOGY around lines 2905, 3044–3480,
+4447–4624) and state which entry points use verified reconstruction. (3) Row 11 inflection decides
+whether to tighten `NonSquareCertificate::new` (pub(super)); until then the invariant is that
+production callers stay in `padic.rs` and `crt.rs`, and row 13's retry loop takes `NotSquare` only
+from `reconstruct_root`/`reconstruct_root_from_factors`. A forged certificate can only cause a false
+negative, never a false root. (4) Tested-scope gaps for row 14 / final review to close or name: no
+non-monic (c ≠ 1) fixture through split primes and sign recombination; cross-method agreement only
+at d ≤ 2; no reducible squarefree F through sign recombination; V4 and (−5,0) match counts are
+observed regression values cross-checked only against brute force built on the code's own
+`assemble`. (5) NOTES' fixture `t²−3`, first 14 has zero matches, so the all-rejected case uses
+`x²−2`, (−5,0). (6) `crt.rs`/`padic.rs` duplicate `PrimeCursor`, `centered` and the exponent search
+(consolidation candidate, unenrolled). (7) One unnecessary-text gap: nothing yet states that
+`factor`/`algebraic_sqrt` do not use the new code (row 13 owns it).
+Texture: the plan had recommended `halt-at-boundaries` for the first run; the user chose default
+self-continue, so this first ◆ passed without a human review stop.
 
 ## Discoveries & risks
 
