@@ -1457,7 +1457,38 @@ KATs stay unedited and green; that is the preservation evidence.
 ### C-XorLift — kernel-preserving elimination
 
 **Enforcement:** test + prose. **Defined-in:** 9. **Consumed-by:** 10, 11, 14.
-To be frozen at 9: for incident rows r0,r1,r2, replace with r0 XOR r1 and r0 XOR r2; apply symmetric
+**Status:** **frozen at row 9 (commit 6f304e9, 2026-11-07)**; 12 new KATs in
+`gnfs/tests/merge_kat.rs` (all 4×4 and 5×3 matrices exhaustively against brute-force Gray-code
+kernels, sampled 8×7 and 10×8, three-identical-rows, overlapping provenance, pruning loss
+2^19 of 2^20, checked-matrix output with an empty row and omitted columns). Public API after the
+change (module `gnfs::filter::merge` and `gnfs::filter::matrix`; the new items are NOT re-exported
+from `filter/mod.rs` because that file was outside the row's fileset — use the module paths):
+
+    // matrix.rs
+    MatrixRow::xor_merge        // now symmetric difference of cols AND provenance (was union)
+    SparseMatrix::lift_dependency(&self, selected: &[usize]) -> Option<Vec<usize>>
+        // sorted XOR of selected rows' provenance; repeats cancel; None if an index is out of range
+    // merge.rs
+    pub fn merge_columns(SparseMatrix) -> SparseMatrix;          // signature unchanged
+    pub fn prune_cliques(SparseMatrix) -> SparseMatrix;          // unchanged; delegates below
+    pub fn prune_cliques_reported(SparseMatrix) -> (SparseMatrix, PruneReport);
+    pub struct PruneReport { pub removed: Vec<MatrixRow>, pub excess_before: isize,
+        pub excess_after: isize }  // + is_lossless()
+    pub fn eliminate_column(&mut SparseMatrix, col: usize) -> Result<(), EliminationRefusal>;
+    pub enum EliminationRefusal { OutOfRange, Obstruction, UnsupportedWeight(u32),
+        InconsistentWeights }    // Display + Error; the matrix is unchanged on refusal
+
+Rules: weight two → the two rows become r0⊕r1; weight three → the pivot is the lightest incident
+row (lowest index on ties) and the replacements are p⊕a then p⊕b with a, b ascending; replacements
+are appended; `col_weights` equals the true weights after every step; obstruction columns are never
+eliminated; omitted zero columns have weight 0 and are never touched; `merge_columns` runs a
+weight-2 pass then a weight-3 pass in ascending column order and is not a fixpoint. Each reduced
+row equals the XOR of the original rows its provenance names, in every column including character
+columns, so row 10 may fill characters after filtering by XOR over complete provenance and row 11
+lifts with `lift_dependency`. Lifting is a bijection onto the kernel of the starting matrix
+restricted to surviving rows; pruning and singleton removal only drop rows. `linalg/kernel.rs`
+already XORs provenance. Anything that unions provenance would now be wrong. Original statement:
+for incident rows r0,r1,r2, replace with r0 XOR r1 and r0 XOR r2; apply symmetric
 difference to columns and provenance. Exact lifted dependencies are preserved in the restricted
 kernel. Pruning is separately reported candidate loss. KATs exhaust small kernels and overlapping
 provenance, including the three-identical-rows counterexample and column-weight consistency.
@@ -1524,7 +1555,7 @@ unstaged and uncommitted.
 | 6 | Split-prime local contributions | done | 5da4883 | C-SplitContributions; manifest edge gnfs -> shared-padic |
 | 7 | CRT recombination and dispatch ◆ | done | 01e1907 | C-VerifiedRoot (boundary: still-on-intent; anneal clean) |
 | 8 | Checked relations and algebraic parity | done | eba0a56 | C-CheckedRelations |
-| 9 | Elimination and XOR provenance | pending | — | — |
+| 9 | Elimination and XOR provenance | done | 6f304e9 | C-XorLift |
 | 10 | Individual root characters | pending | — | — |
 | 11 | Checked dependencies | pending | — | — |
 | 12 | Bounded kernel combinations | pending | — | — |
@@ -1682,6 +1713,22 @@ reuse the {(2,1),(5,2)} fixture as one where exact verification must reject a ke
 the sibling-forgeable `NonSquareCertificate` question moves to the row-11 inflection as already
 recorded.
 Texture: the committer was given a verbatim title and body this time and kept both.
+
+### 9 — 2026-11-07
+Discovery/flex: Clean dispatch; the discovered bug was in the legacy merge itself — weight-three
+elimination replaced three rows by their total XOR (three identical rows lost two dependencies) and
+provenance merged by union, so overlapping provenance did not cancel. Both are fixed; the existing
+merge tests' assertions needed no change (disjoint-provenance results are unchanged); one scratch
+doc comment narrating the wrong rule was replaced. The worker added API beyond the minimum
+(`lift_dependency`, `PruneReport`, `eliminate_column`) as hooks for rows 10, 11 and 14, and fixed
+stale `SparseMatrix` field docs in the linear-algebra chapter (a small spill within the same
+PEDAGOGY file). New items are reachable only through `gnfs::filter::merge::*` and
+`gnfs::filter::matrix::*` since `filter/mod.rs` was out of fileset.
+Affected: C-XorLift (frozen); consumers 10, 11, 14.
+Deferred: yes — row 10 fills character columns by XOR over complete provenance after filtering and
+reuses `classify_prime`; row 11 lifts dependencies with `lift_dependency` and must not union
+provenance anywhere; row 13/14 should not depend on `merge_columns` being a fixpoint; any later
+row wanting crate-level re-exports of the new merge items needs `filter/mod.rs` in its fileset.
 
 ## Discoveries & risks
 
