@@ -11,6 +11,8 @@
 //! - [`DedekindResult`] — result type for `dedekind_factor_extended`.
 //! - [`discriminant`] — discriminant of a monic polynomial f ∈ ℤ[x].
 //! - [`is_bad_prime`] — test whether p | disc(f).
+//! - [`FpPoly`] — polynomials over a proved-prime field F_p, with gcd, `pow_mod`, an exact
+//!   irreducibility test, and budgeted root enumeration (see [`fp_poly`]).
 //!
 //! # Design
 //!
@@ -27,6 +29,7 @@
 
 pub mod dedekind;
 pub mod element;
+pub mod fp_poly;
 pub mod ideal;
 pub mod poly;
 pub mod resultant;
@@ -35,6 +38,10 @@ pub use dedekind::{
     dedekind_factor, dedekind_factor_extended, discriminant, is_bad_prime, DedekindResult,
 };
 pub use element::{NumberField, NumberFieldElement};
+pub use fp_poly::{
+    ExtendedGcd, FpPoly, FpPolyError, PrimeModulus, RootEnumeration, RootSearchLimits,
+    is_prime_u64,
+};
 pub use ideal::Ideal;
 pub use poly::{IntPoly, RatPoly};
 pub use resultant::{resultant, subresultant_gcd};

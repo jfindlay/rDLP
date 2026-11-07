@@ -722,6 +722,87 @@ each one verifies. All tests are in `shared/numfield/tests/`.
 | `kat7_is_bad_prime` | `dedekind_kat.rs` | 2 | disc(x²−2) = 8 (bad); 3 ∤ 8 (good) |
 | `kat8_bad_prime_extended` | `dedekind_kat.rs` | p=2 is bad for x²−2 but index_divisible=false; ℤ[√2] is maximal order |
 | `kat9_good_prime_extended` | `dedekind_kat.rs` | p=7 is good for x²−2; extended interface agrees with basic interface |
+| `kat_prime_modulus_accepts_small_and_boundary_primes` | `fp_poly_kat.rs` | 2, 3, 5, 7, 2³¹−1, 2⁶¹−1 and 2⁶⁴−59 are accepted as moduli |
+| `kat_prime_modulus_rejects_units_and_composites` | `fp_poly_kat.rs` | 0, 1, 4, 9, 561 and 2⁶⁴−1 are rejected with `NotPrime` |
+| `kat_prime_modulus_rejects_strong_pseudoprimes` | `fp_poly_kat.rs` | each listed strong pseudoprime equals an explicit product of factors, so it is composite independently of Miller–Rabin |
+| `kat_is_prime_u64_matches_trial_division_below_100000` | `fp_poly_kat.rs` | `is_prime_u64` agrees with a sieve of Eratosthenes on every n < 100000 |
+| `kat_scalar_arithmetic_near_u64_max` | `fp_poly_kat.rs` | p = 2⁶⁴−59: (p−1)+(p−1), (p−1)², inverses, Fermat, `i64::MIN` and negative `BigInt` reduction do not overflow |
+| `kat_canonical_representation` | `fp_poly_kat.rs` | reduction, trimming, least nonnegative residues, degree drop of 2x²+x+1 mod 2, modulus-sensitive equality |
+| `kat_modulus_mismatch_is_error` | `fp_poly_kat.rs` | every binary operation on different moduli returns `ModulusMismatch` |
+| `kat_div_rem_identity_and_degree` | `fp_poly_kat.rs` | a = q·b + r with r = 0 or deg r < deg b; division by zero is an error |
+| `kat_gcd_and_extended_gcd` | `fp_poly_kat.rs` | gcd((x−1)(x−2),(x−1)(x−3)) = x−1 mod 7; gcd(0,0) = 0; s·a + t·b = gcd exactly |
+| `kat_pow_mod_matches_repeated_multiplication_and_frobenius` | `fp_poly_kat.rs` | x^(p^d) ≡ x mod an irreducible f; a > 2⁶⁴ exponent reduces mod p^d−1 |
+| `kat_derivative_characteristic_p` | `fp_poly_kat.rs` | d/dx x^p = 0; p·x^(p−1) vanishes mod p |
+| `kat_irreducible_fixtures` | `fp_poly_kat.rs` | Rabin's test accepts independently irreducible quadratics, cubics, GF(16) and GF(64) moduli, and linear polynomials |
+| `kat_reducible_fixtures_without_roots` | `fp_poly_kat.rs` | products of two irreducibles (no roots) are squarefree but not irreducible |
+| `kat_repeated_factor_fixtures` | `fp_poly_kat.rs` | squares, cubes and p-th powers are not squarefree and not irreducible |
+| `kat_reducible_with_roots` | `fp_poly_kat.rs` | x²+1 mod 5, x³−x−1 mod 5 and x²+1 mod 2⁶⁴−59 are reducible with the stated root counts |
+| `kat_degree_and_zero_handling` | `fp_poly_kat.rs` | zero and unit polynomials are not irreducible; zero has no root count |
+| `kat_distinct_root_count` | `fp_poly_kat.rs` | deg gcd(f, x^p−x) counts distinct roots, including repeated and root-free cases |
+| `kat_root_enumeration_complete` | `fp_poly_kat.rs` | ascending complete enumeration with exact evaluation counts; agrees with brute force over small fields |
+| `kat_root_enumeration_truncated` | `fp_poly_kat.rs` | a spent budget returns the exact root count and exactly the roots found so far |
+
+---
+
+## 12. Polynomials over a Prime Field
+
+`fp_poly` is the characteristic-p counterpart of `IntPoly`. It supplies the arithmetic that residue
+fields F_p[x]/(f) and root-based prime searches are built on. Its design choices are about making
+wrong answers unrepresentable rather than about speed.
+
+### Canonical values and checked operations
+
+`PrimeModulus` can only be built from a prime: `PrimeModulus::new` runs `is_prime_u64` and returns
+`NotPrime` otherwise, so downstream code never re-validates. `FpPoly` stores `(modulus, coeffs)` with
+private fields. Coefficients are least-significant first, each in `[0, p)`, trailing zeros trimmed,
+and the zero polynomial is the empty slice. Every constructor reduces its input (negative integers
+take their least nonnegative residue), so structural equality is mathematical equality, and
+equality includes the modulus. Reducing a non-monic integer polynomial can lower its degree
+(2x²+x+1 is x+1 over F₂), so a caller that needs a degree preserved checks `degree()`.
+
+Operations return `Result`: mixed moduli give `ModulusMismatch`, a zero divisor or modulus gives
+`DivisionByZero`, and nothing panics. These are invalid-input signals, never mathematical
+certificates.
+
+### Overflow safety
+
+The moduli range over every prime below 2⁶⁴, so a product of two residues needs 128 bits. Scalar
+sums and products widen to `u128` and reduce at once. Polynomial products reduce after every
+multiply-add instead of accumulating unreduced sums. The tests exercise p = 2⁶⁴−59 (the largest
+prime below 2⁶⁴), where (p−1)·(p−1) and (p−1)+(p−1) both overflow `u64`.
+
+### Deterministic primality
+
+`is_prime_u64` is a proof, not probable primality. After trial division by 2, 3, …, 37 it applies
+the strong-probable-prime test to the first twelve primes as bases. The smallest composite that
+passes all twelve bases is ψ₁₂ = 318665857834031151167461 (Sorenson and Webster, 2017), which exceeds
+2⁶⁴, so no `u64` composite passes. Eleven bases are not enough: 3825123056546413051 < 2⁶⁴ is a
+strong pseudoprime to the first nine, ten and eleven prime bases (Jiang and Deng, 2014). The
+pseudoprime tests pin that boundary from the composite side by factoring each listed number
+explicitly. `numth::prime` carries the same table for `Uint<4>`; calling it from here would add a
+dependency to this crate, so the small `u64` version is duplicated deliberately.
+
+### Irreducibility and root counting
+
+Rabin's test decides irreducibility exactly. For monic g of degree n over F_p, g is irreducible iff
+x^(pⁿ) ≡ x (mod g) and gcd(x^(p^(n/r)) − x, g) = 1 for every prime r dividing n. The powers are n
+successive p-th powers modulo g. The first condition rejects repeated factors because x^(pⁿ) − x is
+squarefree. A root search never replaces this test: a reducible quartic like (x²+1)(x²+x+2) over F₃
+has no roots at all.
+
+`distinct_root_count` is deg gcd(f, x^p − x), since x^p − x is the product of (x − a) over F_p. It
+costs O(log p) polynomial products regardless of p, so it is exact and unbudgeted. A polynomial
+splits completely into distinct linear factors iff it is squarefree and its count equals its degree.
+Consumers decide splitting that way and never from an enumerated root list.
+
+### Budgeted enumeration
+
+`roots` evaluates candidates 0, 1, 2, … in order, one evaluation each, and stops at the count-th
+root or at the budget. The outcome is a `RootEnumeration`: `Complete` carries all roots and
+`Truncated` carries exactly the roots below the evaluations performed, together with the exact
+count. Exhausting the budget is a resource outcome, never evidence that roots are absent, and there
+is no resume: retry with a larger budget. For primes near 2⁶⁴ the budget turns an O(p) scan into a
+reported resource limit instead of a hang.
 
 ---
 
