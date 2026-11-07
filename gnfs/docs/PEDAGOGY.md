@@ -3781,6 +3781,112 @@ square is `169`, so `3⁴ = 81` is required.
 
 ---
 
+## Split-Prime Local Contributions
+
+A field such as `Q(√2, √3)`, with `F = t⁴ − 10t² + 1` and Galois group `V4`, has no inert prime, so
+the direct method of the previous section never finds one. `gnfs::sqrt::crt::split_contributions`
+uses the opposite kind of prime: one at which `F` splits into `d` distinct linear factors. It
+builds, for a `NormalizedTarget`, the local data of every square root of the target `H` and leaves
+the choice among those roots to a later step. It never returns a verified root: only
+`NormalizedTarget::verify_candidate` can do that, and `ContributionSet::assemble` merely produces a
+candidate for it.
+
+### Why a split prime gives one sign per root
+
+Let `p` be odd, coprime to `c·N`, with `F ≡ Π(t − r_j) (mod p)` and the `r_j` distinct, and
+`H(r_j) ≢ 0`. Each root lifts by Hensel's lemma to `R_j` modulo `Q = p^e` with `F(R_j) ≡ 0` and
+`R_j ≡ r_j`; the root is simple because `F` is squarefree modulo `p`. Then `H(R_j)` is a unit, and
+if it is a square modulo `p` it has exactly two square roots `±s_j` modulo `Q` (a second root `s'`
+gives `(s'/s)² = 1`, and `1` has only the two unit square roots `±1` in `Z/p^e` for odd `p`).
+
+Any `z` with `z² ≡ H (mod F)` over `Z` has `z(R_j)² ≡ H(R_j) (mod Q)`, hence `z(R_j) ≡ ε_j s_j`
+for some sign `ε_j`. Because `F ≡ Π(t − R_j) (mod Q)`, the polynomial `z` of degree `< d` is
+determined modulo `Q` by those `d` values, through the Lagrange basis
+
+    L_j(t) = Π_{k≠j}(t − R_k) · (Π_{k≠j}(R_j − R_k))⁻¹   (mod Q),
+
+whose denominators are units because the `r_j` are distinct modulo `p`. Using several primes
+`p_i` with a common exponent, `M = Π Q_i` and the Chinese-remainder weights
+`W_i = (M/Q_i)·((M/Q_i)⁻¹ mod Q_i) mod M` (so `W_i ≡ 1 mod Q_i` and `W_i ≡ 0 mod Q_k`, `k ≠ i`),
+
+    z ≡ Σ_ij ε_ij · W_i · s_ij · L_ij   (mod M).
+
+At `M > 2B`, where `B` is the certified coefficient bound, the centered residue is `z` exactly. The
+terms `C_ij = W_i s_ij L_ij mod M` are the *contributions*, and the `ε_ij` are the unknown signs.
+The identities `L_ij(R_ik) ≡ δ_jk`, `Σ_j L_ij ≡ 1`, `W_i² ≡ W_i` and `Σ W_i ≡ 1` are checked at
+run time; a failure is an `Err(Invariant)`, a defect, never a nonsquare.
+
+Every one of the `2^n` sign vectors (`n = ℓ·d`) assembles to a square root of `H` modulo `(F, M)`,
+not only the vector that matches a global root, so a local square at every root is not evidence of
+a global square. `F = t² − 3` with `γ = 2 + θ` is the fixture: modulo 23 the roots 7 and 16 give
+`H ≡ 16, 9`, both squares, yet `2 + θ` is a nonsquare unit of `Q(√3)` and every candidate is
+rejected by the verifier. Choosing the signs, by matching their sums against the coefficient
+bounds, is a separate step.
+
+### What is certified, and what is only a budget
+
+A root `r` at which `H(r)` has no square root modulo `p` is a true obstruction: a global `z ∈ Z[t]`
+would give `z(r)² ≡ H(r) (mod p)`. This holds even when the quotient `A` is not a field, so it
+yields `SplitLocalNonresidue { prime, root }`. In `F = t² − 3`, `H = 24 + 12θ`, the primes 3 (not
+squarefree), 5 and 7 (inert) are skipped and at 11 the root 5 has `H(5) ≡ 7`, a nonresidue.
+
+Running out of primes, of root-search evaluations, or of nonresidue candidates is a resource
+outcome and certifies nothing. A prime is skipped, not reported, when it is even, divides `c·N`,
+leaves `F` with a repeated factor or fewer than `d` roots, or makes `H(r) ≡ 0` at a root. Splitting
+is decided from `is_squarefree()` together with `distinct_root_count() == d`, never from a list;
+only then is the exhaustive root enumeration run, and a truncated enumeration is not proof that
+roots are absent. When the prime budget ends after at least one usable prime, the primes found so
+far are used (a smaller `ℓ`) and no exhaustion is recorded; exhaustion is reported only when no
+prime was usable.
+
+### Exponent, order, and arbitrary precision
+
+The exponent `e` is the least value with `(Π p_i)^e ≥ 2B + 1`; a single `e` serves all primes, so
+`M = (Π p_i)^e`. Lifting reuses the scalar `shared_padic::hensel_lift` for `F` and for
+`x² − H(R)`. The lifted values, interpolation, and weights are all `BigInt`; nothing is limited to
+a machine word. With `a = 10²⁰` and `F = t² − 2`, `M` has 71 bits at `ℓ = 1` (`7²⁵`) and 74 bits at
+`ℓ = 2` (`161¹⁰`), while each `Q_i` at `ℓ = 2` still fits in 64 bits.
+
+Contributions are ordered by ascending prime and then ascending root `r`. That order is part of
+the contract: a sign-matching step can pin the first contribution's sign to remove the irrelevant
+global `±`, and every other sign stays free. `d = 1` degenerates cleanly: `F = t − c·m`, `L = 1`,
+and one contribution per prime.
+
+### Fixtures
+
+- `x² − 2`, `N = 527`, relation `(3, −2)`, `z = 4 + 2θ`: at `p = 7`, `e = 2`, `R = 10, 39`,
+  `L_0 = 27t + 25`, `L_1 = 22t + 25`, `s = ±24, ±16`, and signs `(+, −)` give `z`. At `ℓ = 2` with
+  primes 7 and 23, `W = (92, 70)` and `M = 161`.
+- `F = t⁴ − 10t² + 1`, `N = 97`, relation `(1, −1)` twice: `β = 1 + θ`,
+  `z = −4 − 20θ + 20θ² + 4θ³`. For odd `p ≠ 3`, at least one of 2, 3, 6 is a square modulo `p`, and
+  `t⁴ − 10t² + 1` factors as `(t² − 1)² − 8t²`, `(t² + 1)² − 12t²` or `(t² − 5)² − 24`, so no
+  prime is inert. The first completely split prime is 23 (roots 2, 11, 12, 21), with `e = 4`.
+- `x − 5`, `N = 21`, relation `(169, 0)`: primes 5, 11, 17, `W = (561, 595, 715)`, `M = 935`.
+- `x² − 2`, `N = 527`, relation `(3, 1)` twice: 7 splits but `H(3) = 0`, so it is skipped.
+
+### KAT summary
+
+| Test file | Test | Mathematical fact verified |
+|-----------|------|---------------------------|
+| `sqrt_crt_kat.rs` | `kat_split_selection_skips_unusable_primes` | Inert, dividing, and examined-but-unused primes; ordering and partial `ℓ` |
+| `sqrt_crt_kat.rs` | `kat_lifted_roots_satisfy_polynomial_mod_prime_power` | `R = 10, 39` modulo 49 and `F(R) ≡ 0`; the least common exponent |
+| `sqrt_crt_kat.rs` | `kat_local_roots_satisfy_target_identity` | `s² ≡ H(R)` for both signs of every local root |
+| `sqrt_crt_kat.rs` | `kat_lagrange_basis_identities` | `L(R_k) ≡ δ`, `Σ L ≡ 1`, degree exactly `d − 1`; `d = 1` gives `L = 1` |
+| `sqrt_crt_kat.rs` | `kat_crt_idempotents` | `W_i ≡ δ_ik`, `W² ≡ W`, `Σ W ≡ 1`; `W = 1` for one prime |
+| `sqrt_crt_kat.rs` | `kat_every_sign_vector_is_a_local_square` | All `2^n` assemblies satisfy `z² ≡ H` modulo `(F, M)` |
+| `sqrt_crt_kat.rs` | `kat_no_sign_is_selected` | Flipping every sign negates the candidate; `−s` negates `C` |
+| `sqrt_crt_kat.rs` | `kat_known_root_sign_vector_assembles` | Signs from `z(R) ≡ ±s` assemble `±z`, which the verifier accepts (`x² − 2`, `V4`, `d = 1`) |
+| `sqrt_crt_kat.rs` | `kat_arbitrary_precision_moduli_beyond_u64` | `M` of 71 and 74 bits, all identities, and a verified root |
+| `sqrt_crt_kat.rs` | `kat_local_nonresidue_certifies_not_square` | A nonresidue at root 5 of prime 11; `p \| N` is skipped |
+| `sqrt_crt_kat.rs` | `kat_local_false_positive_is_not_a_certificate` | Squares at 7 and 16 modulo 23 for a nonsquare unit; every candidate is rejected |
+| `sqrt_crt_kat.rs` | `kat_split_resource_outcomes` | Prime budget, `max_primes = 0`, machine-prime range, root-search truncation, nonresidue budget |
+| `sqrt_crt_kat.rs` | `kat_skipped_primes_are_divisors_and_zero_target_values` | `H(r) ≡ 0` and `p \| N` skip a prime that splits |
+| `sqrt_crt_kat.rs` | `kat_degree_one_every_prime_splits` | `L = 1`, `n = ℓ`, and the exponent for `d = 1` |
+| `sqrt_crt_kat.rs` | `kat_assemble_rejects_wrong_sign_count` | A sign vector of the wrong length is an invariant error |
+| `crt.rs` unit tests | `prime_cursor_*`, `least_exponent_*`, `modular_inverse_*`, `*_checks_reject_*` | Prime accounting, least exponent and its cap, inverses, and corrupted identities are errors |
+
+---
+
 ## 51. What Comes Next
 
 The square-root and assembly stage is the final stage of the GNFS factoring pipeline. The

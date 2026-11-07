@@ -14,6 +14,9 @@
 //!   classes, and resource limits for the algebraic square root.
 //! - [`padic`] — direct reconstruction of the algebraic square root by inverse-square-root Newton
 //!   lifting at one inert prime. Entry point: [`padic::direct_root`].
+//! - [`crt`] — signed local contributions of a square root at completely split primes, lifted to
+//!   a common prime power with Lagrange interpolation and Chinese-remainder weights. Entry point:
+//!   [`crt::split_contributions`].
 //!
 //! # Background
 //!
@@ -35,6 +38,7 @@
 pub mod algebraic;
 pub mod assembly;
 pub mod context;
+pub mod crt;
 pub mod padic;
 pub mod rational;
 
@@ -49,6 +53,9 @@ pub use context::{
     NonSquareEvidence, PrecisionLimits, PrimeSearchLimits, RecombinationLimits,
     ReconstructionMethod, RelationFactors, ResourceExhaustion, ResourceKind, SqrtContext,
     SqrtError, SqrtLimits, UnsupportedDomain, VerifiedRoot,
+};
+pub use crt::{
+    Contribution, ContributionSet, ContributionSign, LocalPrime, SplitOutcome, split_contributions,
 };
 pub use padic::direct_root;
 pub use rational::rational_sqrt;

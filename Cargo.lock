@@ -537,6 +537,7 @@ dependencies = [
  "shared-field",
  "shared-numfield",
  "shared-numth",
+ "shared-padic",
 ]
 
 [[package]]
