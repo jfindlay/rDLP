@@ -56,7 +56,7 @@ the named paths, not permission to edit an entire directory. New paths are ident
 | 1 | Add checked finite-field polynomial arithmetic — @architect | A | T1 + T0 design | C-Design | `shared/numfield/src/{fp_poly,lib}.rs`, `shared/numfield/tests/fp_poly_kat.rs`, `shared/numfield/docs/PEDAGOGY.md` |
 | 2 | Add square roots in irreducible residue fields | B | T1 | C-Design, C-FpPoly | `shared/numfield/src/{residue_field,lib}.rs`, `shared/numfield/tests/residue_field_kat.rs`, `shared/numfield/docs/PEDAGOGY.md` |
 | 3 | Define checked square-root contexts and outcomes — @architect | A | T1 + T0 design | C-Design | `gnfs/src/sqrt/{context,mod}.rs`, `gnfs/tests/sqrt_context_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
-| 4 | Construct normalized targets and certified bounds | B | T1 | C-Design, C-SqrtContext | `gnfs/src/sqrt/{normalize,mod}.rs`, `gnfs/tests/sqrt_normalize_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
+| 4 | Construct normalized targets and certified bounds | B | T1 | C-Design, C-SqrtContext | `gnfs/src/sqrt/context/normalize.rs`, `gnfs/src/sqrt/{context,mod}.rs`, `gnfs/tests/sqrt_normalize_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 5 | Reconstruct algebraic roots by p-adic Newton lifting | B | T1 | C-Design, C-FpPoly, C-ResidueField, C-SqrtContext, C-NormalizedTarget | `gnfs/src/sqrt/{padic,mod}.rs`, `gnfs/tests/sqrt_padic_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 6 | Construct lifted split-prime root contributions — @architect | A | T1 + T0 design | C-Design, C-FpPoly, C-ResidueField, C-SqrtContext, C-NormalizedTarget | `gnfs/src/sqrt/{crt,mod}.rs`, `gnfs/tests/sqrt_crt_kat.rs`, `gnfs/Cargo.toml`, `Cargo.lock`, `gnfs/docs/PEDAGOGY.md` |
 | 7 | Recombine CRT signs and dispatch verified roots ◆ | I | T1; T0 boundary | C-Design, C-SqrtContext, C-NormalizedTarget, C-DirectRoot, C-SplitContributions | `gnfs/src/sqrt/{crt,mod}.rs`, `gnfs/tests/sqrt_crt_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
@@ -110,7 +110,10 @@ normalization/verifier interface before rows 4–7. Final checked dependency sig
 
 ### 4 — Normalization, bounds, and exact verification (G.2c, arithmetic half)
 
-New: `gnfs/src/sqrt/normalize.rs`, `gnfs/tests/sqrt_normalize_kat.rs`.
+New: `gnfs/src/sqrt/context/normalize.rs` (child module of the context module, per the row-3
+non-forgeability design; fileset refined at the row-3 inflection, 2026-11-07),
+`gnfs/tests/sqrt_normalize_kat.rs`. `gnfs/src/sqrt/context.rs` is edited only to declare the child
+module and drop the success seal's dead-code allowance.
 Deliver: gamma/eta/H construction, certified integer coefficient bounds, exact z and beta identity
 checks, verified derivative inverse, and normalized-denominator modular mapping. Reject zero/unit
 violations before prime search. Accept the NOTES non-monic odd-cardinality and outside-order
@@ -538,11 +541,253 @@ never evidence about the input.
 ### C-SqrtContext — owned context, outcomes, and limits
 
 **Enforcement:** compiler + test + prose. **Defined-in:** 3. **Consumed-by:** 4–8, 11, 13.
-To be frozen at 3: polynomial/map context, private-success owned witness representation, typed errors
-and reports, resource options, and normalization/verifier interface. Preserve C-Design's failure
-classes; no borrowed temporary field escapes. Bound prime search, polynomial-root search, coefficient
-sizes/precision, and recombination before expensive work. KATs cover invalid N/f(m), leading
-coefficient gcd provenance, repeated factors, and distinction of domains from invalid input.
+**Status:** **frozen at row 3 (commit e82b2eb, 2026-11-07)**, designed at the row-3 inflection.
+Implemented field-for-field; 15 KATs (12 named plus 3 extras), two `compile_fail` doctests and unit
+tests pass. **Implementation deviations (benign):** (a) `NonSquareCertificate::new` carries a second
+`#[allow(dead_code)]` with a why-comment (no non-test caller until reconstruction lands; the first
+caller can drop it if its fileset includes `context.rs`, otherwise it may stay); (b) limit structs
+derive `Debug, Clone, Copy, PartialEq, Eq` but not `Hash` because `shared_numfield::RootSearchLimits`
+lacks `Hash`; (c) the pair (0,0) always yields `ZeroRationalFactor` (rational check runs first), so
+only degree 1 triggers `ZeroAlgebraicFactor`. The planned row 4–7 surface below is binding intent
+for those rows; each freezes its own part. Final checked dependency signatures freeze at 11.
+
+**Fileset.** Row 3 keeps its fileset exactly. `gnfs/src/sqrt/mod.rs` adds `pub mod context;`,
+re-exports every public item below at `gnfs::sqrt::*`, and adds one module-list bullet. Legacy
+claims are not rewritten (row 13). `gnfs/src/lib.rs` is untouched, so no crate-root re-export
+exists until row 13. No `Cargo.toml` edit is needed. gnfs already depends on `shared-numfield`,
+`shared-bigint`, `num-bigint`, `num-integer`, `num-rational`, and `num-traits`. No `thiserror`, so
+`Display` and `Error` are hand-written. **Row 4 refinement, which the driver must apply to the
+session list:** the verifier becomes the *child* module `sqrt::context::normalize` in
+`gnfs/src/sqrt/context/normalize.rs`, not `gnfs/src/sqrt/normalize.rs`. Row 4 edits
+`gnfs/src/sqrt/context.rs` only to declare `pub mod normalize;` and drop the seal's `dead_code`
+allowance. Its other files are unchanged. Rows 5–7 are unchanged.
+
+**Why the nesting (non-forgeability).** Rust private items are visible only in their module and its
+descendants. `VerifiedRoot` has private fields and a private `seal`. The compiler therefore excludes
+every module outside the `sqrt::context` subtree from minting success. That includes
+`sqrt::{padic,crt,assembly,algebraic}` and all external crates and tests. Within the subtree, the
+review rule is that only `NormalizedTarget::verify_candidate` calls `seal`. That one call site is
+greppable. A sibling `normalize.rs` would need `pub(super)` visibility, which `padic`/`crt` could
+also forge. Rejected alternative: `#[path = "normalize.rs"]` would keep the planned path, but it is
+unidiomatic. Cost of the chosen design: the trusted kernel (context and normalize) shares private
+access, and the module tree is one level deeper.
+
+Signatures (row 3 implements everything in this block; bodies elided; rustdoc with `# Errors`):
+
+    // ── classification vocabulary (C-Design failure classes) ──
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum FailureClass { InvalidInput, InvariantViolation, RationalNonSquare,
+        AlgebraicNonSquare, Unsupported, IncidentalFactor, ResourceExhausted, TrivialCongruence }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum InvalidInput {
+        ModulusNotGreaterThanOne { n: BigInt },
+        ConstantPolynomial,                                  // f zero or degree 0
+        DegreeFieldMismatch { field_degree: usize, poly_degree: usize },   // PolyPair only
+        RationalPolyNotLinear { expected: IntPoly, actual: IntPoly },      // g != x - m
+        RootMismatch { f_of_m_mod_n: BigInt },               // least nonnegative, nonzero
+        RepeatedFactor,                                      // disc(F) = 0
+        EmptyRelationSet,
+        ZeroRationalFactor { index: usize },                 // a - b m = 0
+        ZeroAlgebraicFactor { index: usize },                // a - b theta/c = 0 in A
+    }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum UnsupportedDomain {
+        LeadingCoefficientNotUnit,                           // gcd(c, N) = N
+        ZeroDivisorFactor { index: usize },                  // nonzero nonunit relation factor
+        MapDenominatorNotUnit,                               // produced by row 4 only
+    }
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum IncidentalSource { LeadingCoefficient, MapDenominator }   // rows 11/13 may add
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct IncidentalFactor { /* private: divisor, cofactor: BigInt, source */ }
+    impl IncidentalFactor {
+        pub fn new(n: &BigInt, divisor: BigInt, source: IncidentalSource) -> Option<Self>;
+        pub fn divisor(&self) -> &BigInt;  pub fn cofactor(&self) -> &BigInt;
+        pub fn source(&self) -> IncidentalSource;
+    }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum InputRejection { Invalid(InvalidInput), Unsupported(UnsupportedDomain),
+        Incidental(IncidentalFactor) }
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct InvariantViolation { pub what: &'static str }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum SqrtError { Invalid(InvalidInput), Invariant(InvariantViolation) }
+    // `class(&self) -> FailureClass` on InputRejection, SqrtError; Display + Error on all errors.
+
+    // ── checked polynomial/map context ──
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct SqrtContext { /* private: n, m, f, c, monic F, degree, theta_image, disc(F) */ }
+    impl SqrtContext {
+        pub fn new(f: &IntPoly, m: &BigInt, n: &BigInt) -> Result<Self, InputRejection>;
+        pub fn from_poly_pair(pair: &PolyPair) -> Result<Self, InputRejection>;
+        pub fn modulus(&self) -> &BigInt;          pub fn root(&self) -> &BigInt;      // m, exact
+        pub fn algebraic_poly(&self) -> &IntPoly;  pub fn leading_coeff(&self) -> &BigInt;
+        pub fn monic_poly(&self) -> &IntPoly;      pub fn degree(&self) -> usize;
+        pub fn theta_image(&self) -> &BigInt;      // c·m mod N in [0, N)
+        pub fn discriminant(&self) -> &BigInt;     // disc(F), nonzero
+    }
+
+    // ── relation-factor input boundary ──
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct RelationFactors { /* private: context: SqrtContext, pairs: Vec<(BigInt, BigInt)> */ }
+    impl RelationFactors {
+        pub fn new(ctx: &SqrtContext, pairs: &[(BigInt, BigInt)]) -> Result<Self, InputRejection>;
+        pub fn context(&self) -> &SqrtContext;  pub fn pairs(&self) -> &[(BigInt, BigInt)];
+        pub fn relation_count(&self) -> usize;  // k >= 1
+    }
+
+    // ── resource options (all Copy, plain pub fields, deliberately no Default) ──
+    pub struct PrimeSearchLimits { pub first_candidate: u64, pub max_primes_examined: u64 }
+    pub struct PrecisionLimits { pub max_modulus_bits: u64 }
+    pub struct DirectLimits { pub prime_search: PrimeSearchLimits,
+        pub nonresidue_search: NonresidueSearchLimits }
+    pub struct CrtLimits { pub prime_search: PrimeSearchLimits, pub max_primes: u32,
+        pub root_search: RootSearchLimits, pub nonresidue_search: NonresidueSearchLimits }
+    pub struct RecombinationLimits { pub max_list_entries: u64, pub max_matches: u64 }
+    pub struct SqrtLimits { pub precision: PrecisionLimits, pub direct: DirectLimits,
+        pub crt: CrtLimits, pub recombination: RecombinationLimits }
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum ResourceKind { InertPrimeSearch, SplitPrimeSearch, MachinePrimeRange, RootSearch,
+        NonresidueSearch, Precision, RecombinationList, RecombinationMatches }
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct ResourceExhaustion { pub kind: ResourceKind, pub consumed: u64, pub limit: u64 }
+
+    // ── owned outcomes and witnesses ──
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum ReconstructionMethod { DirectNewton { prime: u64, exponent: u32 },
+        SplitPrimeCrt { primes: Vec<u64>, exponent: u32 } }  // row-6 inflection may refine fields
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum NonSquareEvidence {
+        InertLocalNonresidue { prime: u64 },                 // row 5
+        DirectBoundExhausted { prime: u64, exponent: u32 },  // row 5: ±z at M > 2B rejected
+        SplitLocalNonresidue { prime: u64, root: u64 },      // row 6
+        SignSearchExhausted { primes: Vec<u64>, exponent: u32 },   // row 7: complete matching
+    }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct NonSquareCertificate { /* private: NonSquareEvidence */ }
+    impl NonSquareCertificate {
+        pub(super) fn new(evidence: NonSquareEvidence) -> Self;   // sqrt-module-internal
+        pub fn evidence(&self) -> &NonSquareEvidence;
+    }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct VerifiedRoot { /* private: context, relation_count, rational_product P,
+        integral_root z: IntPoly, beta: RatPoly, image y: BigInt, method */ }
+    impl VerifiedRoot {
+        fn seal(parts: RootParts) -> Self;   // private; RootParts is a private plain struct
+        pub fn context(&self) -> &SqrtContext;     pub fn relation_count(&self) -> usize;
+        pub fn rational_product(&self) -> &BigInt; // P = product(a - b m) over Z, exact m
+        pub fn integral_root(&self) -> &IntPoly;   // z, deg < d, z² ≡ H mod F
+        pub fn beta(&self) -> &RatPoly;            // theta-basis, deg < d, beta² = gamma
+        pub fn modular_image(&self) -> &BigInt;    // y = beta(cm) mod N in [0, N)
+        pub fn method(&self) -> &ReconstructionMethod;
+    }
+    #[must_use]
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum AlgebraicSqrtOutcome {
+        Verified(VerifiedRoot), NotSquare(NonSquareCertificate), Unsupported(UnsupportedDomain),
+        Incidental(IncidentalFactor), ResourceExhausted(Vec<ResourceExhaustion>),  // non-empty
+    }
+    // AlgebraicSqrtOutcome::class(&self) -> Option<FailureClass> (None for Verified).
+
+Semantics consumers may rely on:
+
+- **Validation order.** Checks stop at the first failure, in this order. (1) N>1. This check comes
+  first and never reaches legacy `PolyPair::verify`, which panics for N=0 through `%`. (2) deg f ≥ 1.
+  (3) For `from_poly_pair` only: the degree field, then g = x − m. (4) f(m) mod N = 0, using
+  `mod_floor` after (1). (5) F squarefree, exactly when `shared_numfield::discriminant(F) != 0`; F
+  is monic, so this is exact. (6) g0 = gcd(|c|, N): 1 → accept; 1<g0<N → `Incidental` with
+  `LeadingCoefficient`; g0 = N → `Unsupported(LeadingCoefficientNotUnit)`. All invalid-input checks
+  precede domain checks, so a malformed input is never reported as an incidental factor.
+  `from_poly_pair` reads the pair's public fields and never calls `verify`, `new`,
+  `number_field`, or `monic_f`. The context computes F = c^(d−1) f(t/c) itself.
+- **Context meaning.** f is stored as given; no sign normalization is applied, so c may be negative,
+  while F is monic regardless. m is exact, not reduced mod N, because P needs the integer m.
+  Reducible squarefree F is accepted, and docs call it the quotient algebra A, not a field. The
+  context makes no irreducibility claim. `PolyPair::number_field` is untouched.
+- **Relation boundary.** Every factor is validated before any prime search. An empty list →
+  `EmptyRelationSet`. For each index in order: a − b·m = 0 → `ZeroRationalFactor`. If
+  f_hom(a,b) = Σ f_i a^i b^(d−i) = 0, then ca − bθ vanishes at a root of F, so it is not a unit in
+  A. That gives `ZeroAlgebraicFactor` when the factor is the zero element: (a,b)=(0,0), or d=1.
+  Otherwise it is `ZeroDivisorFactor`. The pairs form a multiset; uniqueness belongs to row 11.
+  Negative and zero b are allowed. `RelationFactors` owns a clone of its context, so the binding
+  cannot be mismatched.
+- **Ownership.** No public type has a lifetime parameter, and none borrows `NumberField`. Witnesses,
+  targets, and outcomes own `IntPoly`/`RatPoly`/`BigInt` data plus a cloned `SqrtContext`.
+  `VerifiedRoot` may be cloned, which is not forgery. It has no `Default`, no public constructor,
+  and no deserialization. `NonSquareCertificate` is minted only inside `gnfs::sqrt`. Its guarantee
+  is crate-external, not compiler-enforced against sibling modules; rows 5–7 mint only the evidence
+  their contracts name. `IncidentalFactor::new` is public because it is self-certifying: it returns
+  `None` unless 1 < divisor < N and divisor | N.
+- **Error vs outcome.** `Err(SqrtError)` is invalid input or an internal invariant violation, which
+  is never retried as a nonsquare. `Ok(outcome)` carries mathematical/resource results. Only
+  `NotSquare` certifies that no square root exists. `ResourceExhausted` and every truncated search
+  are never evidence. `ResourceExhaustion` lists are chronological, so the row-7 dispatcher reports
+  primary and fallback exhaustion together.
+- **Resource accounting.** Prime search examines primes p ≥ max(`first_candidate`, 3) in ascending
+  order, using `is_prime_u64`, deterministically. Every prime examined counts, including primes
+  skipped because p | cN, F is not irreducible or not completely split mod p, or H ≡ 0. The u64 end
+  → `MachinePrimeRange`. `max_primes` is ℓ's upper bound (≥ 1; ℓ = 1 allowed). Row 6 selects ℓ.
+  Precision: row 4 returns `ResourceExhausted{Precision, consumed: bits(2B+1), limit}` before any
+  prime search when bits(2B+1) > `max_modulus_bits`. Rows 5/6 lift to the least e with p^e > 2B.
+  Newton uses the ceil-halving precision chain, so the lifting modulus has at most
+  bits(2B+1)+bits(p) bits. Root and nonresidue budgets pass through unchanged to C-FpPoly and
+  C-ResidueField. Row 14 pins one `SqrtLimits` value before discovery.
+- **Limits routing.** Row 4 receives `PrecisionLimits`, row 5 `DirectLimits`, row 6 `CrtLimits`,
+  row 7 `RecombinationLimits`, and the row-7 dispatcher the whole `SqrtLimits`. All are passed by
+  value.
+
+**Planned verifier interface (row 4 implements and freezes in C-NormalizedTarget), in
+`gnfs::sqrt::context::normalize`, re-exported at `gnfs::sqrt::*`:**
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct NormalizedTarget { /* private: factors (owning context), k, h, P, gamma: RatPoly,
+        eta: IntPoly, H: IntPoly, F': IntPoly, verified inverse of F': RatPoly, B_i, B */ }
+    #[must_use] pub enum TargetOutcome { Ready(NormalizedTarget), ResourceExhausted(ResourceExhaustion) }
+    #[must_use] pub enum CandidateVerdict { Verified(VerifiedRoot), Rejected(CandidateRejection),
+        Incidental(IncidentalFactor), Unsupported(UnsupportedDomain) }
+    pub enum CandidateRejection { DegreeTooHigh, CoefficientOutOfBound { index: usize },
+        NotSquareRootOfTarget }   // a candidate rejection is never itself a certificate
+    impl NormalizedTarget {
+        pub fn new(factors: RelationFactors, limits: PrecisionLimits)
+            -> Result<TargetOutcome, SqrtError>;
+        pub fn verify_candidate(&self, z: &IntPoly, method: ReconstructionMethod)
+            -> Result<CandidateVerdict, SqrtError>;   // the only caller of VerifiedRoot::seal
+        // accessors: context, relation_count, half_count, rational_product, gamma, eta,
+        // target (H), derivative, derivative_inverse, coefficient_bounds, bound, minimum_modulus
+    }
+
+`verify_candidate` checks in this order. (1) deg z < d. (2) |z_i| ≤ B_i. (3) z² ≡ H mod F over Z.
+These three are rejections. (4) β = z·(c^h F')^(−1), using the verified inverse; β² = γ over Q
+exactly. (5) Every reduced denominator of β is a unit mod N. A proper gcd gives `Incidental` with
+`MapDenominator`; gcd = N gives `Unsupported(MapDenominatorNotUnit)`. Both of those mean a root
+exists but the map fails. (6) y = β(cm) mod N. (7) y² ≡ P mod N. Failure at (4) or (7) after (3)
+passed is `Err(Invariant)`, never a rejection. Rows 5–7 propose centered z, call `verify_candidate`,
+and wrap `Verified` into `AlgebraicSqrtOutcome::Verified`. Row 5: at an inert prime, a rejected
+centered root at M > 2B yields `DirectBoundExhausted`. Planned, and frozen at the rows themselves:
+`sqrt::padic::direct_root(&NormalizedTarget, DirectLimits)` and the row-7
+`sqrt::reconstruct_root(&NormalizedTarget, SqrtLimits)`. Both return
+`Result<AlgebraicSqrtOutcome, SqrtError>`. Row 6's contribution/outcome types are designed at its
+inflection. The row-13 rational root should take `root.rational_product()` directly, so x and y
+are bound to the same P.
+
+KATs in `gnfs/tests/sqrt_context_kat.rs`, each with an independent arithmetic comment:
+`kat_context_accepts_monic_and_non_monic` (x²−2, m=23, N=527; 2x²−1, m=2, N=7 → F=t²−2,
+θ↦4, disc 8); `kat_context_rejects_modulus_le_one` (N = 1, 0, −5, no panic);
+`kat_context_rejects_constant_and_zero_polynomial`; `kat_context_rejects_root_mismatch`
+(x²−2, m=6, N=35, f(m)=34); `kat_from_poly_pair_rejects_degree_field_and_rational_poly`
+(literal PolyPair, including N=0, no panic); `kat_context_rejects_repeated_factor` ((x−3)², m=3, N=7;
+non-monic (2x−1)², m=4, N=7); `kat_context_incidental_leading_coefficient_factor` (proper gcd(c,N),
+divisor·cofactor = N, source LeadingCoefficient); `kat_context_invalid_precedes_incidental` (proper
+gcd(c,N) but f(m) ≢ 0 → Invalid); `kat_context_leading_coefficient_not_unit_unsupported`
+(5x²+x, m=5, N=5: f(5)=130, F=t²+t, gcd(5,5)=N);
+`kat_context_reducible_squarefree_accepted` (x²−1, m=4, N=15);
+`kat_relation_factors_boundary` (empty; a−bm=0; (1,1) on x²−1 → ZeroDivisorFactor; degree-1
+zero element, for example f=x−5, m=12, N=7, pair (5,1) → ZeroAlgebraicFactor; first failing index
+reported); `kat_failure_classes_distinct` (class() mapping). Add a `compile_fail` rustdoc example
+on `VerifiedRoot` that shows external construction fails, and a `context.rs` unit test exercising
+`seal` and the accessors. Row 3 adds no reconstruction body, so no `VerifiedRoot` is produced
+outside that unit test until row 4.
 
 ### C-NormalizedTarget — exact target, bound, verifier, and map
 
@@ -655,7 +900,7 @@ unstaged and uncommitted.
 |---|---------|--------|--------|-------|
 | 1 | Checked finite-field polynomials | done | a5e168b | C-FpPoly |
 | 2 | Residue-field square roots | done | 237d353 | C-ResidueField |
-| 3 | Checked square-root contexts | pending | — | — |
+| 3 | Checked square-root contexts | done | e82b2eb | C-SqrtContext (dependency signatures freeze at 11) |
 | 4 | Normalized targets and bounds | pending | — | — |
 | 5 | Direct p-adic reconstruction | pending | — | — |
 | 6 | Split-prime local contributions | pending | — | — |
@@ -693,6 +938,22 @@ a nonresidue per call (cost, not correctness).
 Texture: the human edited `.cargo/config.toml` again (RUST_TEST_THREADS 4→2) during the run;
 committer first refused as scope drift in exact mode and succeeded after the mode was restated.
 `.cargo/config.toml` remains dirty and unstaged.
+
+### 3 — 2026-11-07
+Discovery/flex: Inflection fork returned `design-confident`. It refined row 4's fileset so the
+verifier is the child module `gnfs/src/sqrt/context/normalize.rs` (plus a one-line edit of
+`context.rs`): success (`VerifiedRoot`) is non-forgeable only to modules inside the `sqrt::context`
+subtree, enforced by the compiler and pinned by two `compile_fail` doctests. Session list and row-4
+detail were updated by the driver. `NonSquareCertificate` is forgeable from sibling modules inside
+the crate (weaker than success); only the crate boundary protects it.
+Affected: C-SqrtContext (frozen), C-NormalizedTarget (row 4 fileset refined).
+Deferred: yes — row 4 must declare `pub mod normalize;` in `context.rs`, drop the seal's
+`dead_code` allowance, and be the only `seal` caller (greppable invariant: only
+`NormalizedTarget::verify_candidate`); row 5's fileset excludes `context.rs`, so the second
+`dead_code` allowance on `NonSquareCertificate::new` may remain; the juncture re-examines the
+sibling-forgeable certificate at row 7/11 boundaries; row 11 freezes final dependency signatures.
+Texture: the human committed their `.cargo/config.toml` edit (79b9531) after the second surfacing; no
+dirty files remain besides PLAN's own edits.
 
 ## Discoveries & risks
 
