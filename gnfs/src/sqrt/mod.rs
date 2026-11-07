@@ -1,14 +1,18 @@
-//! Square root stage for GNFS: rational and algebraic square roots, and final assembly.
+//! Square root stage for GNFS: checked dependencies, verified rational and algebraic square
+//! roots, and congruence assembly into a divisor of `N`.
 //!
 //! This module is the entry point for the `gnfs::sqrt` sub-crate. It provides:
 //!
-//! - [`rational`] — rational square root: given a `KernelVector`, recover the relation index
-//!   set S via `expand_provenance`, form the product ∏(a − bm) over ℤ, extract its integer
-//!   square root X via `isqrt`, and reduce X mod N. Entry point: [`rational::rational_sqrt`].
-//! - [`algebraic`] — algebraic square root via Couveignes' CRT algorithm in ℤ[α].
-//!   Entry point: [`algebraic::algebraic_sqrt`].
-//! - [`assembly`] — final assembly: combine X and Y, compute gcd(X − Y, N) to extract a
-//!   non-trivial factor. Entry points: [`assembly::factor_from_congruence`], [`assembly::factor`].
+//! - [`rational`] — the rational square root of a [`CheckedDependency`]: the exact integer
+//!   product `P = ∏(a − b·m)` is required to be positive and a perfect square, and its root
+//!   `x₀` is reduced modulo `N`. Entry point: [`rational::rational_sqrt`].
+//! - [`algebraic`] — the verified algebraic square root of a [`CheckedDependency`]: exactly
+//!   [`reconstruct_root_from_factors`] on its relation factors. Entry point:
+//!   [`algebraic::algebraic_sqrt`].
+//! - [`assembly`] — congruence assembly and the checked driver: `x² ≡ y² (mod N)` is checked
+//!   before any gcd, one dependency is run to a typed [`AttemptOutcome`], and a bounded candidate
+//!   list is retried into a [`FactorReport`]. Entry points: [`assembly::factor_from_congruence`],
+//!   [`assembly::attempt_factor`], [`assembly::factor`].
 //! - [`context`] — checked polynomial/map context ([`SqrtContext`]), the relation-factor input
 //!   boundary ([`RelationFactors`]), non-forgeable root witnesses ([`VerifiedRoot`]), failure
 //!   classes, and resource limits for the algebraic square root.
@@ -29,19 +33,33 @@
 //! # Background
 //!
 //! The square root stage is the terminal stage of the GNFS factoring pipeline. A `KernelVector`
-//! from the linear algebra step encodes a subset S of relations whose combined rational
-//! and algebraic norms are each perfect squares. This module recovers the original (a, b) pairs
-//! through the filtering provenance map and computes:
+//! from the linear algebra step selects filtered-matrix rows, and [`DependencyContext`] lifts the
+//! selection to a set S of original relations by symmetric difference of provenance. The parity
+//! and character columns make the product of S a *candidate* for a square: they are necessary
+//! filters, so exact verification decides. For the lifted relations the stage computes:
 //!
-//! 1. **Rational square root X**: X² ≡ ∏_{i ∈ S}(a_i − b_i·m) (mod N).
-//! 2. **Algebraic square root Y**: Y = |Norm(β)| mod N where β² = ∏_{i ∈ S}(a_i − b_i·α).
-//! 3. **Assembly**: gcd(X − Y, N) is a non-trivial factor of N when X ≢ ±Y (mod N).
+//! 1. **Rational square root x**: `x₀² = P = ∏_{i ∈ S}(a_i − b_i·m)` exactly over `ℤ`, with
+//!    `P > 0` and `P` a perfect square checked here, and `x = x₀ mod N`.
+//! 2. **Algebraic square root y**: a root `β` with `β² = γ = ∏_{i ∈ S}(a_i − b_i·α)` in
+//!    `ℚ[α]/(f)`, reconstructed by direct Newton lifting at an inert prime or by split-prime
+//!    lifting with exact sign recombination, and *verified* exactly. The image is
+//!    `y = β(c·m) mod N`, the normalized root evaluated at `θ = c·m` with denominators checked
+//!    modulo `N`. It satisfies `y² ≡ P (mod N)`; it is not `Norm(β)`.
+//! 3. **Assembly**: `x² ≡ y² (mod N)` is checked, and `gcd(x − y, N)` is a proper factor of `N`
+//!    when `x ≢ ±y (mod N)`.
+//!
+//! Every entry point that produces `y` (including [`algebraic::algebraic_sqrt`],
+//! [`attempt_factor`], and [`factor`]) goes through verified reconstruction; no unverified root
+//! and no real-embedding sign heuristic is used. A product that is not a square is reported by a
+//! typed outcome, and only a nonsquare certificate from the reconstruction says that `γ` is not a
+//! square.
 //!
 //! # Linear algebra → square root seam
 //!
-//! `KernelVector::expand_provenance` is the linear algebra → square root seam, over-specified
-//! at the linear algebra substrate precisely for this consumer. The rational square root step
-//! is its first real client.
+//! Candidates are untrusted at this seam. [`DependencyContext::validate_kernel_vector`] re-derives
+//! kernel membership and lifted parity from the original relations and never trusts a
+//! candidate's own claims. Linear combinations of computed kernel vectors are tried in a
+//! bounded, deterministic order by [`factor`].
 
 pub mod algebraic;
 pub mod assembly;
@@ -52,7 +70,10 @@ pub mod padic;
 pub mod rational;
 
 pub use algebraic::algebraic_sqrt;
-pub use assembly::{factor, factor_from_congruence};
+pub use assembly::{
+    AttemptOutcome, AttemptRecord, CongruenceError, CongruenceOutcome, FactorError, FactorOutcome,
+    FactorReport, VerifiedFactor, attempt_factor, factor, factor_from_congruence,
+};
 pub use context::normalize::{
     CandidateRejection, CandidateVerdict, NormalizedTarget, TargetOutcome,
 };
@@ -72,7 +93,7 @@ pub use dependency::{
     DependencyRejection,
 };
 pub use padic::direct_root;
-pub use rational::rational_sqrt;
+pub use rational::{RationalRoot, RationalSqrtOutcome, rational_sqrt};
 
 /// Reconstruct a verified algebraic square root with bounded primary-to-fallback dispatch.
 ///

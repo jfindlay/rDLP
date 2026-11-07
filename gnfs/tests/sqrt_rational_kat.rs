@@ -1,265 +1,235 @@
-//! Known-answer tests (KATs) for the rational square root from a kernel vector.
+//! Known-answer tests for the rational square root of a checked dependency.
 //!
-//! Three KATs:
+//! The rational root of a dependency is the exact integer `x₀` with `x₀² = P`, where
+//! `P = ∏(a − b·m)` over the lifted relations, reduced modulo `N`. `P > 0` and `P` a perfect
+//! square are checked by `rational_sqrt` itself.
 //!
-//! - **KAT (a) — Algebraic correctness**: for a hand-built relation set whose rational-norm
-//!   product is a known perfect square, the recovered X satisfies X² ≡ product (mod N).
+//! **Fixtures.** Every relation set is built through the checked pipeline (factor base, checked
+//! relations, `build_checked_matrix`, `DependencyContext`), and each dependency is a validated
+//! kernel selection, so the sign and rational-prime columns already force `P` to be a positive
+//! square. A non-square `P` is therefore not reachable through a validated dependency; the
+//! non-square, zero, and negative branches are exercised on the exact-root routine itself by unit
+//! tests beside `rational_sqrt`.
 //!
-//! - **KAT (b) — Correct index set S**: the product is computed over the correct S, matching
-//!   a hand-traced `expand_provenance` on a small SparseMatrix with known provenance.
+//! - **T** (non-monic): `f = 3x² + x − 1`, `m = 3`, `N = 29`, factor base `FB(7, 17)`; relations
+//!   (4,1), (7,1), (2,1), (−3,2), (−9,2), (5,2) as rows 0–5. Rational norms `a − 3b`: 1, 4, −1,
+//!   −9, −15, −1. Its kernel is spanned by rows {1,2,3} and {2,5} (the third nonzero vector is
+//!   {1,3,5}).
+//! - **S** (seam): `f = x² − 2`, `m = 23`, `N = 527 = 17·31` (`f(23) = 527`), relation (3,−2):
+//!   `a − 23b = 3 + 46 = 49`.
+//! - **R** (eight relations on `x² − 2`, `m = 23`, `N = 527`, `FB(13, 13)`): (10,−1), (−3,2),
+//!   (−2,−1), (−2,1), (4,3), (2,−1), (10,1), (1,0) as rows 0–7. Rational norms `a − 23b`: 33,
+//!   −49, 21, −25, −65, 25, −13, 1.
 //!
-//! - **KAT (c) — Non-square triggers panic**: a deliberately non-square product triggers the
-//!   `isqrt = None` upstream-bug path (verified via `#[should_panic]`).
-//!
-//! # Toy setup
-//!
-//! All KATs use N = 35, m = 6. Relations are constructed directly (bypassing smoothness checks)
-//! using the `Relation` struct fields. The SparseMatrix is built by hand with explicit provenance.
-//!
-//! ## KAT (a) scenario
-//!
-//! Relations:
-//! - rel[0]: (a=4, b=0) → rational factor = 4 − 0·6 = 4
-//! - rel[1]: (a=9, b=0) → rational factor = 9 − 0·6 = 9
-//!
-//! Product = 4 · 9 = 36 = 6².
-//! X = isqrt(36) = 6.
-//! X mod 35 = 6.
-//! X² mod 35 = 36 mod 35 = 1.
-//! product mod 35 = 36 mod 35 = 1. ✓
-//!
-//! ## KAT (b) scenario
-//!
-//! SparseMatrix with 2 rows:
-//! - row 0: provenance = [0]
-//! - row 1: provenance = [1]
-//!
-//! KernelVector with row_indices = [0, 1].
-//! expand_provenance gives symmetric difference of {0} and {1} = {0, 1}.
-//! So S = [0, 1] — both relations are used.
-//!
-//! ## KAT (c) scenario
-//!
-//! Relations:
-//! - rel[0]: (a=2, b=0) → rational factor = 2 (not a perfect square alone)
-//! - rel[1]: (a=3, b=0) → rational factor = 3
-//!
-//! Product = 2 · 3 = 6 (not a perfect square). `rational_sqrt` must panic.
+//! Hand values were recomputed with an independent exact-arithmetic script (Python `fractions`,
+//! no Rust), and the arithmetic is written beside each use.
 
-use gnfs::{
-    ExponentVector, PolyPair, Relation,
-    filter::{MatrixRow, SparseMatrix},
-    linalg::KernelVector,
-    sqrt::rational_sqrt,
+use gnfs::filter::build_checked_matrix;
+use gnfs::linalg::{
+    KernelSearchLimits, KernelSearchStatus, KernelVector, RootCharacters, search_kernel_combinations,
 };
+use gnfs::sieve::{
+    CheckedRelations, ExponentVector, FactorBase, Relation, RelationChecker,
+};
+use gnfs::sqrt::{CheckedDependency, DependencyContext, RationalSqrtOutcome, SqrtContext};
+use gnfs::{RationalRoot, rational_sqrt};
 use num_bigint::BigInt;
+use num_traits::{Signed, Zero};
 use shared_numfield::IntPoly;
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-fn bi(n: i64) -> BigInt {
-    BigInt::from(n)
+fn big(v: i64) -> BigInt {
+    BigInt::from(v)
 }
 
-/// Construct a `Relation` directly from field values (bypasses smoothness checks).
-fn make_relation(a: i64, b: i64, rational_sign: bool) -> Relation {
+fn poly(coeffs: &[i64]) -> IntPoly {
+    IntPoly::from_coeffs(coeffs.iter().map(|&c| big(c)).collect())
+}
+
+/// Divide every power of `p` out of `n` and return the exponent.
+fn strip(n: &mut BigInt, p: u64) -> u32 {
+    let p = BigInt::from(p);
+    let mut e = 0;
+    while !n.is_zero() && (&*n % &p).is_zero() {
+        *n /= &p;
+        e += 1;
+    }
+    e
+}
+
+/// The relation `(a, b)` with exponent vectors read off its two norms by trial division over the
+/// factor base; the checker re-verifies every norm, so a wrong factorization cannot pass.
+fn relation_of(fb: &FactorBase, f: &IntPoly, m: i64, a: i64, b: i64) -> Relation {
+    let (a_big, b_big) = (big(a), big(b));
+    let mut rational_norm = &a_big - &b_big * big(m);
+    let rational_sign = rational_norm.is_negative();
+    rational_norm = rational_norm.abs();
+    let rational: Vec<(usize, u32)> = fb
+        .rational_primes
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &p)| {
+            let e = strip(&mut rational_norm, p);
+            (e > 0).then_some((i, e))
+        })
+        .collect();
+    assert_eq!(rational_norm, big(1), "the rational norm of ({a},{b}) is smooth over the base");
+
+    let d = f.coeffs.len() - 1;
+    let mut algebraic_norm = BigInt::zero();
+    for (i, c) in f.coeffs.iter().enumerate() {
+        algebraic_norm += c * a_big.pow(i as u32) * b_big.pow((d - i) as u32);
+    }
+    algebraic_norm = algebraic_norm.abs();
+    let algebraic: Vec<(usize, u32)> = fb
+        .algebraic_ideals
+        .iter()
+        .filter_map(|ideal| {
+            let label = (&a_big - &b_big * big(ideal.r as i64)) % BigInt::from(ideal.p);
+            if !label.is_zero() {
+                return None;
+            }
+            let e = strip(&mut algebraic_norm, ideal.p);
+            (e > 0).then_some((ideal.index, e))
+        })
+        .collect();
+    assert_eq!(algebraic_norm, big(1), "the algebraic norm of ({a},{b}) is smooth over the base");
+
     Relation {
-        a: bi(a),
-        b: bi(b),
-        rational_exponents: ExponentVector { entries: vec![] },
-        algebraic_exponents: ExponentVector { entries: vec![] },
+        a: a_big,
+        b: b_big,
+        rational_exponents: ExponentVector { entries: rational },
+        algebraic_exponents: ExponentVector { entries: algebraic },
         rational_sign,
     }
 }
 
-/// Build a `PolyPair` with N = 35, m = 6.
-///
-/// Uses f(x) = x − 6 (degree 1, coeffs [−6, 1]) as a placeholder algebraic polynomial.
-/// The KATs only read `poly.m` and `poly.n`; the polynomial itself is not evaluated.
-fn make_poly_pair(n: i64, m: i64) -> PolyPair {
-    // f(x) = x − m (degree 1): coeffs [−m, 1] least-significant first.
-    let f = IntPoly::from_coeffs(vec![bi(-m), bi(1)]);
-    // g(x) = x − m: same form.
-    let g = IntPoly::from_coeffs(vec![bi(-m), bi(1)]);
-    PolyPair::new(f, g, bi(m), bi(n))
+/// A dependency context over genuine checked relations, with no root-character columns.
+fn dependency_context(
+    f: &[i64],
+    m: i64,
+    n: i64,
+    bounds: (u64, u64),
+    pairs: &[(i64, i64)],
+) -> DependencyContext {
+    let f = poly(f);
+    let ctx = SqrtContext::new(&f, &big(m), &big(n)).expect("valid context");
+    let fb = FactorBase::new(&f, bounds.0, bounds.1);
+    let checker = RelationChecker::new(&ctx, &fb).expect("valid factor base");
+    let relations: Vec<Relation> =
+        pairs.iter().map(|&(a, b)| relation_of(&fb, &f, m, a, b)).collect();
+    let checked = CheckedRelations::new(&checker, &relations).expect("valid relations");
+    let (matrix, layout) = build_checked_matrix(&checked, 0).expect("column count fits");
+    let characters = RootCharacters::new(checked.checker(), &[]).expect("no characters");
+    DependencyContext::new(checked, matrix, layout, characters).expect("genuine parts")
 }
 
-/// Build a `SparseMatrix` with the given rows (cols, provenance) and num_cols.
-fn make_matrix(rows: Vec<(Vec<usize>, Vec<usize>)>, num_cols: usize) -> SparseMatrix {
-    SparseMatrix {
-        rows: rows
-            .into_iter()
-            .map(|(cols, provenance)| MatrixRow { cols, provenance })
-            .collect(),
-        num_cols,
-        obstruction_col_start: num_cols,
-        obstruction_count: 0,
-        col_weights: vec![0u32; num_cols],
+fn context_t() -> DependencyContext {
+    dependency_context(
+        &[-1, 1, 3],
+        3,
+        29,
+        (7, 17),
+        &[(4, 1), (7, 1), (2, 1), (-3, 2), (-9, 2), (5, 2)],
+    )
+}
+
+fn context_s() -> DependencyContext {
+    dependency_context(&[-2, 0, 1], 23, 527, (13, 13), &[(3, -2)])
+}
+
+fn context_r() -> DependencyContext {
+    dependency_context(
+        &[-2, 0, 1],
+        23,
+        527,
+        (13, 13),
+        &[(10, -1), (-3, 2), (-2, -1), (-2, 1), (4, 3), (2, -1), (10, 1), (1, 0)],
+    )
+}
+
+fn validated(context: &DependencyContext, rows: &[usize]) -> CheckedDependency {
+    context.validate(rows).unwrap_or_else(|e| panic!("{rows:?} is not a dependency: {e}"))
+}
+
+fn root_of(dependency: &CheckedDependency) -> RationalRoot {
+    match rational_sqrt(dependency) {
+        RationalSqrtOutcome::Root(root) => root,
+        other => panic!("expected a rational root, got {other:?}"),
     }
 }
 
-// ─── KAT (a): Algebraic correctness ──────────────────────────────────────────
-
-/// KAT (a): X² ≡ product (mod N) for a hand-built perfect-square product.
-///
-/// Relations: (a=4, b=0) and (a=9, b=0).
-/// Product = 4 · 9 = 36 = 6². X = 6. X² mod 35 = 36 mod 35 = 1 = product mod 35.
 #[test]
-fn kat_a_x_squared_congruent_to_product_mod_n() {
-    let poly = make_poly_pair(35, 6);
-    let relations = vec![
-        make_relation(4, 0, false), // factor = 4 − 0·6 = 4 (positive)
-        make_relation(9, 0, false), // factor = 9 − 0·6 = 9 (positive)
-    ];
-    // Matrix: 2 rows, each with provenance pointing to its own relation.
-    // KernelVector selects both rows → S = {0, 1}.
-    let matrix = make_matrix(
-        vec![
-            (vec![0], vec![0]), // row 0: col 0, provenance [0]
-            (vec![0], vec![1]), // row 1: col 0, provenance [1]
-        ],
-        1,
-    );
-    // KernelVector: both rows selected (their GF(2) XOR is {0} XOR {0} = {} — valid nullspace).
-    let kv = KernelVector::new(vec![0, 1]);
+fn kat_rational_root_is_the_exact_square_root_of_the_product() {
+    // T rows {2,5}: P = (2 − 3)(5 − 6) = (−1)(−1) = 1, so x₀ = 1.
+    let t = context_t();
+    let root = root_of(&validated(&t, &[2, 5]));
+    assert_eq!(root.product(), &big(1));
+    assert_eq!(root.root(), &big(1));
+    assert_eq!(root.modular_image(), &big(1));
 
-    let x = rational_sqrt(&kv, &matrix, &relations, &poly);
+    // T rows {1,2,3}: P = (7−3)(2−3)(−3−6) = 4·(−1)·(−9) = 36, so x₀ = 6 and 6 < 29.
+    let root = root_of(&validated(&t, &[1, 2, 3]));
+    assert_eq!((root.product(), root.root(), root.modular_image()), (&big(36), &big(6), &big(6)));
 
-    // X should be 6 (isqrt(36) = 6, 6 mod 35 = 6).
-    assert_eq!(x, bi(6), "X = isqrt(36) mod 35 should be 6");
+    // T rows {1,3,5}, the third nonzero kernel vector: P = 4·(−9)·(−1) = 36 as well.
+    let root = root_of(&validated(&t, &[1, 3, 5]));
+    assert_eq!((root.product(), root.root()), (&big(36), &big(6)));
 
-    // Verify X² ≡ product (mod N).
-    let product = bi(36);
-    let n = bi(35);
-    let x_sq_mod_n = (&x * &x) % &n;
-    let product_mod_n = &product % &n;
-    assert_eq!(
-        x_sq_mod_n, product_mod_n,
-        "X² mod N should equal product mod N: {} ≡ {} (mod {})",
-        x_sq_mod_n, product_mod_n, n
-    );
+    // S: P = 3 − (−2)·23 = 49 = 7², so x₀ = 7.
+    let root = root_of(&validated(&context_s(), &[0]));
+    assert_eq!((root.product(), root.root(), root.modular_image()), (&big(49), &big(7), &big(7)));
+
+    // R rows {1,3,5}: P = (−49)(−25)(25) = 30625 = 175², and 175 < 527.
+    let r = context_r();
+    let root = root_of(&validated(&r, &[1, 3, 5]));
+    assert_eq!(root.product(), &big(30_625));
+    assert_eq!(root.root(), &big(175));
+    assert_eq!(root.modular_image(), &big(175));
+
+    // R row {7} is (1,0): P = 1, a unit product.
+    let root = root_of(&validated(&r, &[7]));
+    assert_eq!((root.product(), root.root()), (&big(1), &big(1)));
 }
 
-// ─── KAT (b): Correct index set S ────────────────────────────────────────────
-
-/// KAT (b): the product is computed over the correct S from `expand_provenance`.
-///
-/// Uses a matrix with explicit provenance and verifies that only the correct relations
-/// contribute to the product.
-///
-/// Setup:
-/// - 3 relations: rel[0] factor=4, rel[1] factor=9, rel[2] factor=25.
-/// - Matrix row 0 has provenance [0, 2] (covers rel[0] and rel[2]).
-/// - Matrix row 1 has provenance [1, 2] (covers rel[1] and rel[2]).
-/// - KernelVector selects rows [0, 1].
-/// - expand_provenance: symmetric diff of {0,2} and {1,2} = {0, 1} (2 cancels).
-/// - So S = {0, 1}: product = 4 · 9 = 36. rel[2] (factor=25) is NOT included.
 #[test]
-fn kat_b_correct_index_set_from_expand_provenance() {
-    let poly = make_poly_pair(35, 6);
-    let relations = vec![
-        make_relation(4, 0, false),  // rel[0]: factor = 4
-        make_relation(9, 0, false),  // rel[1]: factor = 9
-        make_relation(25, 0, false), // rel[2]: factor = 25 (should NOT be included)
-    ];
-    // Matrix: 2 rows with overlapping provenance.
-    // Row 0: provenance [0, 2] — covers rel[0] and rel[2].
-    // Row 1: provenance [1, 2] — covers rel[1] and rel[2].
-    // Symmetric difference: {0,2} XOR {1,2} = {0,1} (2 cancels).
-    let matrix = make_matrix(
-        vec![
-            (vec![0], vec![0, 2]), // row 0: col 0, provenance [0, 2]
-            (vec![0], vec![1, 2]), // row 1: col 0, provenance [1, 2]
-        ],
-        1,
-    );
-    let kv = KernelVector::new(vec![0, 1]);
-
-    // Verify expand_provenance gives {0, 1} (not {0, 1, 2}).
-    let s = kv.expand_provenance(&matrix);
-    assert_eq!(s, vec![0, 1], "expand_provenance should give {{0, 1}} (rel[2] cancels)");
-
-    // Compute rational_sqrt: product = 4 · 9 = 36 (rel[2] excluded), X = 6.
-    let x = rational_sqrt(&kv, &matrix, &relations, &poly);
-    assert_eq!(x, bi(6), "X should be 6 (product = 4·9 = 36, not 4·9·25 = 900)");
-
-    // Cross-check: if rel[2] were included, product = 4·9·25 = 900, X = 30.
-    // Verify we did NOT get 30 (which would indicate rel[2] was wrongly included).
-    assert_ne!(x, bi(30), "X must not be 30 (that would mean rel[2] was wrongly included)");
+fn kat_rational_root_binds_to_the_dependency_product() {
+    // The root is computed from the product the dependency carries, so the same P is available
+    // to the algebraic side: x₀² = P exactly, x₀ > 0, and the image is x₀ mod N in [0, N).
+    let r = context_r();
+    for rows in [&[1usize, 3][..], &[5], &[1, 3, 5], &[7]] {
+        let dependency = validated(&r, rows);
+        let root = root_of(&dependency);
+        assert_eq!(root.product(), dependency.rational_product());
+        assert_eq!(&(root.root() * root.root()), root.product());
+        assert!(root.root().is_positive());
+        let n = dependency.context().modulus();
+        assert_eq!(root.modular_image(), &(root.root() % n));
+        assert!(!root.modular_image().is_negative() && root.modular_image() < n);
+    }
 }
 
-// ─── KAT (c): Non-square product triggers panic ───────────────────────────────
-
-/// KAT (c): a deliberately non-square product triggers the `isqrt = None` upstream-bug path.
-///
-/// Relations: (a=2, b=0) and (a=3, b=0).
-/// Product = 2 · 3 = 6 (not a perfect square).
-/// `rational_sqrt` must panic with a clear message.
 #[test]
-#[should_panic(expected = "rational norm product is not a perfect square")]
-fn kat_c_non_square_product_panics() {
-    let poly = make_poly_pair(35, 6);
-    let relations = vec![
-        make_relation(2, 0, false), // factor = 2
-        make_relation(3, 0, false), // factor = 3
-    ];
-    let matrix = make_matrix(
-        vec![
-            (vec![0], vec![0]), // row 0: provenance [0]
-            (vec![0], vec![1]), // row 1: provenance [1]
-        ],
-        1,
-    );
-    let kv = KernelVector::new(vec![0, 1]);
-
-    // Product = 2 · 3 = 6, not a perfect square. This must panic.
-    let _ = rational_sqrt(&kv, &matrix, &relations, &poly);
-}
-
-// ─── Bonus: single-relation perfect square ────────────────────────────────────
-
-/// Bonus: a single relation with a perfect-square factor works correctly.
-///
-/// rel[0]: (a=25, b=0) → factor = 25 = 5². X = 5. X mod 35 = 5.
-#[test]
-fn single_relation_perfect_square() {
-    let poly = make_poly_pair(35, 6);
-    let relations = vec![
-        make_relation(25, 0, false), // factor = 25 = 5²
-    ];
-    let matrix = make_matrix(vec![(vec![0], vec![0])], 1);
-    let kv = KernelVector::new(vec![0]);
-
-    let x = rational_sqrt(&kv, &matrix, &relations, &poly);
-    assert_eq!(x, bi(5), "X = isqrt(25) mod 35 = 5");
-
-    let n = bi(35);
-    let x_sq_mod_n = (&x * &x) % &n;
-    let product_mod_n = bi(25) % &n;
-    assert_eq!(x_sq_mod_n, product_mod_n, "X² mod N = product mod N");
-}
-
-// ─── Bonus: m-dependent factors ──────────────────────────────────────────────
-
-/// Bonus: relations with b ≠ 0 use the correct m-dependent factor a − b·m.
-///
-/// N = 35, m = 6.
-/// rel[0]: (a=10, b=1) → factor = 10 − 1·6 = 4.
-/// rel[1]: (a=15, b=1) → factor = 15 − 1·6 = 9.
-/// Product = 4 · 9 = 36 = 6². X = 6.
-#[test]
-fn m_dependent_factors_correct() {
-    let poly = make_poly_pair(35, 6);
-    let relations = vec![
-        make_relation(10, 1, false), // factor = 10 − 1·6 = 4
-        make_relation(15, 1, false), // factor = 15 − 1·6 = 9
-    ];
-    let matrix = make_matrix(
-        vec![(vec![0], vec![0]), (vec![0], vec![1])],
-        1,
-    );
-    let kv = KernelVector::new(vec![0, 1]);
-
-    let x = rational_sqrt(&kv, &matrix, &relations, &poly);
-    assert_eq!(x, bi(6), "X = isqrt((10−6)·(15−6)) = isqrt(36) mod 35 = 6");
+fn kat_validated_dependencies_never_give_a_rational_nonsquare() {
+    // Positive control for the module note: over every nonzero kernel combination of T (rank 2)
+    // and R (rank 3), the rational root exists. T's kernel is spanned by {1,2,3} and {2,5}; R's
+    // by {1,3}, {5} and {7}.
+    let limits = KernelSearchLimits { max_xor_operations: 1 << 20, max_candidates: 1 << 20 };
+    for (context, basis, expected) in [
+        (context_t(), vec![vec![1, 2, 3], vec![2, 5]], 3usize),
+        (context_r(), vec![vec![1, 3], vec![5], vec![7]], 7),
+    ] {
+        let vectors: Vec<KernelVector> =
+            basis.into_iter().map(|row_indices| KernelVector { row_indices }).collect();
+        for vector in &vectors {
+            assert!(vector.verify(context.matrix()), "{vector:?} is a kernel vector");
+        }
+        let search = search_kernel_combinations(&vectors, limits);
+        assert_eq!(search.status, KernelSearchStatus::Complete);
+        assert_eq!(search.candidates.len(), expected);
+        for candidate in &search.candidates {
+            let dependency = context.validate_kernel_vector(candidate).unwrap();
+            let root = root_of(&dependency);
+            assert_eq!(&(root.root() * root.root()), dependency.rational_product());
+        }
+    }
 }

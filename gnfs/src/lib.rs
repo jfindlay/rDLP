@@ -14,10 +14,11 @@
 //! - [`filter`] — filtering substrate: sparse GF(2) matrix construction, relation-provenance
 //!   map, and singleton removal. Entry points: [`filter::build_matrix`],
 //!   [`filter::remove_singletons`].
-//! - [`sqrt`] — square root stage: rational square root from a kernel vector; Couveignes CRT
-//!   algebraic square root — form γ, split-prime CRT lift, Garner reconstruction, real-embedding
-//!   sign resolution; final GCD assembly and top-level `factor` driver. Entry points:
-//!   [`sqrt::rational_sqrt`], [`sqrt::algebraic_sqrt`], [`sqrt::factor`].
+//! - [`sqrt`] — square root stage: checked dependencies; the exact rational square root of the
+//!   rational product; the verified algebraic square root (direct Newton lifting at an inert prime,
+//!   split-prime lifting with exact sign recombination); checked congruence assembly and the
+//!   bounded-retry `factor` driver with typed reports. Entry points: [`sqrt::rational_sqrt`],
+//!   [`sqrt::algebraic_sqrt`], [`sqrt::attempt_factor`], [`sqrt::factor`].
 //!
 //! # Pedagogical intent
 //!
@@ -55,7 +56,11 @@ pub use filter::{
     prune_cliques, merge_columns,
 };
 
-pub use sqrt::{algebraic_sqrt, factor, factor_from_congruence, rational_sqrt};
+pub use sqrt::{
+    AttemptOutcome, AttemptRecord, CongruenceError, CongruenceOutcome, FactorError, FactorOutcome,
+    FactorReport, RationalRoot, RationalSqrtOutcome, VerifiedFactor, algebraic_sqrt,
+    attempt_factor, factor, factor_from_congruence, rational_sqrt,
+};
 
 pub use dl::{
     compute_schirokauer, DLRelation, PrimeIdeal, SchirokauerError,

@@ -434,8 +434,8 @@ $$\mathbb{Z}/M\mathbb{Z} \xrightarrow{\;\sim\;} \mathbb{Z}/m_1\mathbb{Z} \times 
 *Proof.* The map $x \mapsto (x \bmod m_1, \ldots, x \bmod m_k)$ is a ring homomorphism. Injectivity
 follows from $\gcd(m_i, m_j) = 1$; surjectivity follows from Bézout's identity. $\square$
 
-**Why this matters.** CRT is used in the GNFS square-root step (Couveignes' algorithm computes the
-algebraic square root modulo many primes and lifts via CRT), in Pohlig–Hellman (reducing ECDLP in
+**Why this matters.** CRT is used in the GNFS square-root step (the split-prime method computes the
+algebraic square root modulo several primes and lifts via CRT), in Pohlig–Hellman (reducing ECDLP in
 a group of composite order to ECDLP in prime-order subgroups), and in the construction of
 deterministic Miller–Rabin witness sets.
 
@@ -1676,15 +1676,17 @@ $$\chi_{q,s}(a, b) = \left(\frac{a - bs}{q}\right) \in \{+1, -1\}.$$
 
 The product $\prod_{(a,b) \in S} \chi_{q,s}(a, b)$ must equal $+1$ for the product
 $\prod_{(a,b) \in S} (a - b\alpha)$ to be a square in $\mathbb{Z}[\alpha]$ (not just a square
-times a unit). Adding one QC column per quadratic character to the matrix $M$ enforces this
-condition.
+times a unit). Adding one QC column per quadratic character to the matrix $M$ imposes this
+condition. It is a *necessary* condition: finitely many characters filter candidates, and none
+of them proves that the product is a square, so the square-root step must verify.
 
 **The sign column.** The rational product $\prod_{(a,b) \in S} (a + bm)$ must be positive for
 $X$ to be well-defined as a square root. The *sign column* (or $-1$ column) encodes the sign of
 each rational norm: a relation with $a + bm < 0$ has a $1$ in the sign column. The dependency
 condition forces an even number of negative norms in $S$, ensuring the product is positive.
 
-In practice, one or two QC columns suffice to eliminate the sign ambiguity with high probability.
+The QC columns raise the probability that a dependency yields an algebraic square, but they do
+not make it certain; the square-root step reports a nonsquare candidate and moves to the next one.
 The code realisation is described in `gnfs/docs/PEDAGOGY.md` §56.
 
 ---
@@ -1695,59 +1697,68 @@ The code realisation is described in `gnfs/docs/PEDAGOGY.md` §56.
 
 Given a dependency $S$, the rational square root is straightforward: compute
 
-$$X = \prod_{(a,b) \in S} (a + bm) \in \mathbb{Z},$$
+$$P = \prod_{(a,b) \in S} (a - bm) \in \mathbb{Z},$$
 
-then compute $x = \sqrt{X} \in \mathbb{Z}$ by integer square root. The dependency condition
-guarantees that $X$ is a perfect square, so this is exact.
+then compute $x_0 = \sqrt{P} \in \mathbb{Z}$ by exact integer square root. For a dependency of the
+checked matrix the rational-prime and sign columns make $P$ a positive perfect square, and the
+implementation *checks* $P > 0$ and that $P$ is an exact square rather than assuming it; a failure
+is a typed outcome, never a panic.
 
 ### The algebraic square root
 
-The algebraic square root is more subtle. We need to compute
+The algebraic side is more subtle. With $\gamma = \prod_{(a,b) \in S} (a - b\alpha) \in K =
+\mathbb{Q}(\alpha)$ we need $\beta \in K$ with $\beta^2 = \gamma$, and we must also be able to
+report that none exists. The parity and character columns are necessary filters, not proofs, so
+$\gamma$ is only a *candidate* square: a unit, a class-group element, or an ideal the matrix does
+not constrain can obstruct. Only an exact verification, or a local obstruction or exhaustive
+search within a proved bound, decides.
 
-$$\beta = \sqrt{\prod_{(a,b) \in S} (a - b\alpha)} \in \mathbb{Z}[\alpha],$$
+**Normalization.** Let $c$ be the leading coefficient of $f$, $\theta = c\alpha$ and $F(t) =
+c^{d-1} f(t/c)$, monic, so $\theta$ is an algebraic integer. For $k = |S|$ relations let $h =
+\lceil k/2 \rceil$, $\eta = c^{2h-k} \prod (ca - b\theta)$ and $H = F'(\theta)^2 \eta$. A root
+$z$ of $H$ in $\mathbb{Z}[\theta]$ (that is, $z^2 = H$) gives
+$\beta = z / (c^h F'(\theta))$ over $\mathbb{Q}$, and $\beta^2 = \gamma$ is then verified
+exactly. A certified bound $B$ on the coefficients of $z$ (computed from $F$ and $\eta$) makes any
+modulus $M > 2B$ determine $z$ up to sign from its residue.
 
-i.e. find $\beta \in \mathbb{Z}[\alpha]$ such that $\beta^2 = \prod_{(a,b) \in S} (a - b\alpha)$.
-The dependency condition (with QC columns) guarantees that such a $\beta$ exists, but computing it
-requires working in the number field $K = \mathbb{Q}(\alpha)$.
+**Reconstruction.** Two methods produce candidates for $z$, and both pass through the same exact
+verifier.
 
-**The Couveignes CRT method (proof-sketch depth).** The standard approach, due to Couveignes
-(1993) and independently Montgomery, computes $\beta$ modulo many small primes and then lifts via
-the Chinese Remainder Theorem.
+- *Direct.* At a prime $p$ where $F$ is irreducible, $\mathbb{F}_p[t]/F$ is a field
+  $\mathbb{F}_{p^d}$ in which a square root of $H$ exists or not; Tonelli–Shanks in the finite
+  extension followed by inverse-square-root Newton lifting gives $z \bmod p^e$ with $p^e > 2B$,
+  and the centered residue is the candidate. A local nonresidue is a certificate of nonsquare.
+- *Split-prime fallback* (after Thomé). At completely split primes the algebra decomposes into
+  copies of $\mathbb{F}_p$, each root of $F$ giving $\pm$ a local square root; the roots are lifted
+  and interpolated, combined by CRT, and the sign pattern is found by an exact
+  meet-in-the-middle search with only one global sign fixed. Only a complete matching search at
+  the proved bound certifies a nonsquare.
 
-*Step 1: Reduction modulo a prime $q$.* For a prime $q$ not dividing the discriminant of $f$,
-the ring $\mathbb{Z}[\alpha] / q\mathbb{Z}[\alpha] \cong \mathbb{F}_q[x] / f(x)$ decomposes as a
-product of fields $\prod_i \mathbb{F}_q[x] / f_i(x)$, where $f = \prod_i f_i$ is the factorisation
-of $f$ modulo $q$. In each component $\mathbb{F}_q[x] / f_i(x)$, the product
-$\prod_{(a,b) \in S} (a - b\alpha)$ reduces to a known element, and its square root can be
-computed using Tonelli–Shanks (§Prerequisites, §α-Substrate).
+Neither a real embedding nor a norm is used. Both $\pm z$ verify, so the global sign is
+immaterial, and a real root of $f$ need not exist. The classical method of Couveignes assumes odd
+degree and inert primes with a known norm to select signs, and is not the method implemented.
 
-*Step 2: CRT lift.* After computing $\beta \bmod q$ for sufficiently many primes $q_1, \ldots,
-q_t$ (enough that $\prod q_i > 2 \|\beta\|_\infty$, where $\|\beta\|_\infty$ is the coefficient
-norm of $\beta$), the CRT (§Prerequisites) lifts the residues to the unique $\beta \in
-\mathbb{Z}[\alpha]$ with small coefficients.
+### The modular image and congruence assembly
 
-*Step 3: Sign choice.* At each prime $q$, there are two square roots $\pm\beta_q$. The correct
-sign is determined by the quadratic characters: the product $\prod_{(a,b) \in S} \chi_{q,s}(a,b)$
-must equal $+1$, which pins down the sign of $\beta_q$ at each prime.
+The image of the verified root under the homomorphism $\mathbb{Z}[\alpha] \to \mathbb{Z}/N$,
+$\alpha \mapsto m$ (well defined because $f(m) \equiv 0 \pmod N$) is the normalized root evaluated
+at $\theta = c\,m$ with denominators checked modulo $N$:
 
-**Correctness.** The Couveignes method is correct because the CRT lift is unique (given the bound
-on $\|\beta\|_\infty$) and the sign choices are consistent (enforced by the QC columns). The
-bound on $\|\beta\|_\infty$ follows from the fact that $\beta^2 = \prod_{(a,b) \in S} (a - b\alpha)$
-has bounded coefficients (controlled by the sieve parameters).
+$$y = \beta(c\,m) \bmod N \in \mathbb{Z}/N\mathbb{Z},\qquad y^2 \equiv \gamma(m) = P \pmod N.$$
 
-### Embedding and GCD assembly
+So $y^2 \equiv P$ where $P$ is the *rational* product; it is **not** $\mathrm{Norm}(\beta)$, and
+$y^2$ is not $\mathrm{Norm}(\gamma)$. (Example: $f = x^2 - 2$, $m = 23$, $N = 527$, relation
+$(3, -2)$: $\gamma = 3 + 2\alpha = (1 + \alpha)^2$ and $\mathrm{Norm}(1 + \alpha) = -1$, while
+$P = 49$ and $y = 1 + 23 = 24$ with $24^2 = 576 \equiv 49 \pmod{527}$.) If a denominator of $\beta$
+shares a factor with $N$ the map is undefined at that factor, and the factor is reported as an
+incidental divisor; if all of $N$ divides it, the map is unsupported.
 
-Once $\beta \in \mathbb{Z}[\alpha]$ is known, its image under the algebraic map $\phi_\alpha$ is
-
-$$y = \phi_\alpha(\beta) = \beta(m) \bmod N \in \mathbb{Z}/N\mathbb{Z}.$$
-
-Now $x^2 \equiv y^2 \pmod{N}$ (where $x$ is the rational square root), so
-
-$$\gcd(x - y, N) \quad \text{and} \quad \gcd(x + y, N)$$
-
-are non-trivial factors of $N$ with probability $1/2$ each (§2). If both GCDs are trivial (i.e.
-equal to $1$ or $N$), the dependency $S$ was *trivial* — a rare event that is handled by trying
-the next dependency vector from the null space.
+Now $x^2 \equiv y^2 \pmod{N}$ with $x = x_0 \bmod N$, so $N \mid (x - y)(x + y)$. The congruence
+is checked, not assumed. If $x \equiv \pm y \pmod N$ it is trivial; otherwise $\gcd(x - y, N)$ is a
+proper factor (it is neither $1$ nor $N$). A random dependency is nontrivial with probability about
+$1/2$ for a semiprime (§2). A trivial congruence, a nonsquare candidate, and an exhausted resource
+budget are each reported distinctly, and the next candidate from the null space (including bounded
+XOR combinations of computed kernel vectors) is tried.
 
 ---
 

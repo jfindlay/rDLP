@@ -352,80 +352,73 @@ identifies them as kernel candidates. This phenomenon is fully exposed at toy sc
 | `tests/lanczos_kat.rs` | 6 (+1 ignored) | Self-orthogonality path, single dependency, full-rank, determinism, multiple dependencies; CADO oracle (ignored) |
 | `tests/wiedemann_kat.rs` | 9 | Cross-validation with Lanczos, full-rank, empty matrix, single dependency, determinism, BM Fibonacci, BM period-4, BM all-ones, all-zero rows, multiple dependencies |
 
-## G.F — Square root and assembly: rational sqrt, Couveignes CRT, GCD assembly
+## G.F — Square root and assembly: exact rational root, verified algebraic root, checked assembly
 
-Toy semiprime: N = 35 = 5 × 7 (~6-bit). K = ℚ(√2), f(x) = x² − 2, m = 6. Relations:
-(a=4, b=0) and (a=9, b=0). Kernel vector selects both relations. All timings are wall-clock
-from a single run in unoptimized debug builds (`cargo test`, no `--release`). At toy scale,
-all three stages (rational sqrt, Couveignes CRT, GCD assembly) complete in under 1 ms — the
-dominant cost is the `NumberFieldElement::mul` calls in `form_gamma` and the Lagrange
-interpolation in `per_prime_beta`.
+Toy semiprime: N = 527 = 17 × 31 (~10-bit). K = ℚ(√2), f(x) = x² − 2, m = 23 (f(23) = 527 = N).
+One relation with nonconstant b: (a, b) = (3, −2). Entry points that produce the algebraic root
+(`algebraic_sqrt`, `attempt_factor`, `factor`) use verified reconstruction: the root is
+reconstructed by direct inverse-square-root Newton lifting at an inert prime (or by split-prime
+lifting with exact sign recombination) and accepted only through the exact verifier. No unverified
+root, norm map, real-embedding sign rule, or fixed prime set is used. Wall-clock timings from the
+earlier routine do not apply to the verified path and have not been re-measured; at this size the
+KATs complete in milliseconds in unoptimized debug builds (`cargo test`, no `--release`).
 
-**Toy-scale factoring result (N = 35, 1 kernel vector tried):**
+**Toy-scale factoring result (N = 527, one candidate tried):**
 
-| Stage | Input | Output | Wall time (debug) | Notes |
-|-------|-------|--------|-------------------|-------|
-| Rational sqrt | ∏(a_i − b_i·m) = 4 × 9 = 36 | X = 6 (mod 35) | < 1 ms | isqrt(36) = 6; trivial at toy scale |
-| Algebraic sqrt (Couveignes) | γ = 36 in K = ℚ(√2) | Y = 1 (mod 35) | < 1 ms | 10 CRT primes; Norm(6) = 36; 36 mod 35 = 1 |
-| GCD assembly | X = 6, Y = 1, N = 35 | factor = **5** | < 1 ms | gcd(6 − 1, 35) = gcd(5, 35) = 5 |
+| Stage | Input | Output | Notes |
+|-------|-------|--------|-------|
+| Rational root | P = ∏(a − b·m) = 3 + 46 = 49 | x = 7 (mod 527) | exact isqrt(49) = 7, P > 0 checked |
+| Algebraic root | γ = 3 + 2α = (1 + α)² | y = β(23) = 24 (up to sign) | y² = 576 ≡ 49 = P (mod 527); not Norm(β) = −1 |
+| Congruence assembly | x = 7, y = 24, N = 527 | factor = **17** (cofactor 31) | gcd(7 − 24, 527) = gcd(17, 527) |
 
-**Factor recovered: 5 from N = 35 = 5 × 7. Kernel vectors tried: 1.**
+**Interpretation.** The algebraic image is the normalized root evaluated at θ = c·m modulo N, so
+y² ≡ P (mod N), the same P as the rational side; it is not |Norm(β)| mod N. A product that is not
+a square is reported by a typed outcome (the rational side by `RationalNonSquare`, the algebraic
+side only with a nonsquare certificate), not by a panic.
 
-**Interpretation.** At toy scale (N = 35, 6-bit), all three stages are instantaneous. The
-dominant cost in `algebraic_sqrt` is the `form_gamma` product (2 `NumberFieldElement::mul`
-calls) and the `per_prime_beta` Lagrange interpolation (10 primes × 2 roots each). In release
-mode all stages complete in microseconds.
+**Science↔engineering note (principle 4).** Scale-dependent phenomena under-exposed at toy
+scale:
 
-**Science↔engineering note (principle 4).** Two scale-dependent phenomena are under-exposed
-at toy scale:
+1. **Precision and prime count.** The lifting modulus must exceed twice the certified coefficient
+   bound. At this size a prime power below a machine word suffices; at NFS scale the bound has
+   thousands of bits, and the split-prime fallback also pays an exponential sign search in the
+   number of primes. Both are resource limits, reported rather than treated as evidence.
 
-1. **CRT prime count.** At toy scale (|S| = 2, coefficients ~ 4 bits, d = 2), 10 CRT primes
-   is massive overkill — 2–3 primes would suffice. At NFS scale (|S| ~ 10⁵, coefficients ~
-   100 bits, d ~ 5), the prime count grows as O(coefficient_bits / 64) and the CRT lift
-   dominates the algebraic sqrt cost. The prime count is the scale knob; the algorithm is
-   identical at all scales.
-
-2. **Trivial-GCD probability.** At toy scale, the first kernel vector yields a non-trivial
-   GCD (5 from N = 35). In general, ~50% of kernel vectors yield trivial GCDs for a semiprime
-   N = p × q; the retry loop is the safety net. At NFS scale, the linear algebra step produces
-   many kernel vectors (the nullspace dimension grows with the excess), so the retry loop
-   terminates quickly.
-
-**Embedding-sign resolution (not a scale artifact).** The sign resolution via the real
-embedding (Newton's method from m^{1/d}, evaluate β(θ), negate if < 0) is a correctness
-obligation at all scales, not a scale artifact. At toy scale it is exercised by the KAT; at
-NFS scale it is the same algorithm. The G.F.3 review juncture identified this as the
-silent-failure locus: a wrong-sign β produces a trivial GCD, not a red test.
+2. **Trivial-congruence probability.** In general ~50% of dependencies give x ≡ ±y (mod N) for a
+   semiprime N = p × q, and some candidates have a nonsquare γ. The bounded retry over candidates
+   (including XOR combinations of computed kernel vectors) is the safety net.
 
 ### Test coverage added (G.F)
 
-| Test file | Tests | Scope |
-|-----------|-------|-------|
-| `tests/sqrt_rational_kat.rs` | 5 | Rational sqrt correctness, index set, non-square panic, m-dependent factors |
-| `tests/sqrt_algebraic_kat.rs` | 7 | Couveignes correctness (known-square γ), congruence X²≡Y² (mod N), determinism, degree-2 two-relation case |
-| `tests/factor_end_to_end_kat.rs` | 6 (+1 ignored) | factor_from_congruence known values, full driver (N=35→5), trivial-GCD path, retry loop, all-trivial returns None; oracle KAT (ignored) |
+| Test file | Scope |
+|-----------|-------|
+| `tests/sqrt_rational_kat.rs` | Exact rational root on non-monic, seam, and multi-relation dependencies; binding to the dependency's P |
+| `tests/sqrt_algebraic_kat.rs` | Verified algebraic root; image is the normalized map, not the norm; totally imaginary field; nonsquare certificate; precision exhaustion; non-monic direct and split-prime roots; cubic cross-method agreement |
+| `tests/factor_end_to_end_kat.rs` | Checked congruence; seam (N = 527) and non-monic (N = 35) factors; nonsquare-to-success retry; factor only in a combination; trivial congruence; incidental provenance; complete vs resource-limited exhaustion; invalid candidates (+1 ignored oracle KAT) |
 
 ## G.W — End-to-end pipeline: polynomial selection → sieving → filtering → linear algebra → square root
 
-Toy semiprime: N = 35 = 5 × 7 (~6-bit). K = ℚ(√2), f(x) = x² − 2, m = 6. This is the
-smallest non-trivial semiprime exercised by the end-to-end KAT (`factor_end_to_end_kat.rs`).
-The pipeline is exercised with a hand-built `PolyPair` and `Vec<Relation>` (bypassing the
-sieve for the end-to-end KAT; the sieve is exercised separately in G.C). All timings are
-wall-clock from a single run in unoptimized debug builds (`cargo test`, no `--release`).
+Toy semiprime: N = 527 = 17 × 31. K = ℚ(√2), f(x) = x² − 2, m = 23 (f(23) = 527). The earlier
+N = 35, m = 6 setup is not used: f(6) = 34 is not ≡ 0 (mod 35), so it violated f(m) ≡ 0 (mod N).
+The end-to-end KAT (`factor_end_to_end_kat.rs`) starts from checked relations and a genuine
+checked matrix (bypassing the sieve; the sieve is exercised separately in G.C), and covers the
+square-root stage only, not a generated sieve-to-factor run. Timings below are from the
+earlier hand-built run in unoptimized debug builds (`cargo test`, no `--release`) and apply to the
+earlier stages only; the square-root rows are not re-measured.
 
-**Pipeline-wide result (N = 35, 6-bit semiprime):**
+**Square-root stage result (N = 527, 1 candidate tried):**
 
 | Stage | Input | Output | Wall time (debug) | Notes |
 |-------|-------|--------|-------------------|-------|
-| Polynomial selection (G.B) | N = 35, d = 2 | f(x) = x² − 2, m = 6 | < 1 ms | base-m expansion; f(6) = 34 ≡ −1 ≡ 34 (mod 35); KAT uses hand-built pair |
-| Sieving (G.C) | f, m, B_rat = B_alg = 30 | 2 relations: (4,0), (9,0) | < 1 ms | hand-built relations in end-to-end KAT; G.C KAT finds 14 relations for f = x³−x−1 |
-| Filtering (G.D) | 2 relations | SparseMatrix (2 rows × 10 cols) | < 1 ms | no singletons; no pruning needed; provenance = {0}, {1} |
-| Linear algebra (G.E) | 2×10 matrix | KernelVector {0, 1} | < 1 ms | both rows selected; QC columns populated |
-| Rational sqrt (G.F.2) | ∏(a_i − b_i·m) = 4 × 9 = 36 | X = 6 (mod 35) | < 1 ms | isqrt(36) = 6 |
-| Algebraic sqrt (G.F.3) | γ = 36 in K = ℚ(√2) | Y = 1 (mod 35) | < 1 ms | Couveignes CRT; Norm(6) = 36; 36 mod 35 = 1 |
-| GCD assembly (G.F.4) | X = 6, Y = 1, N = 35 | factor = **5** | < 1 ms | gcd(6 − 1, 35) = gcd(5, 35) = 5 |
+| Polynomial selection (G.B) | N = 527, d = 2 | f(x) = x² − 2, m = 23 | not re-measured | f(23) = 527 = N; KAT uses a hand-built pair |
+| Sieving (G.C) | f, m, FB | 1 relation: (3, −2) | not re-measured | hand-built relation; G.C KAT finds 14 relations for f = x³−x−1 |
+| Filtering (G.D) | 1 relation | SparseMatrix (1 row, empty) | not re-measured | the row is empty, so it is itself a dependency |
+| Linear algebra (G.E) | checked matrix | candidate {0} | not re-measured | |
+| Rational root (G.F) | P = 3 + 46 = 49 | x = 7 (mod 527) | not re-measured | exact isqrt(49) = 7 |
+| Algebraic root (G.F) | γ = 3 + 2α = (1 + α)² | y = 24 (up to sign) | not re-measured | verified reconstruction; y² = 576 ≡ 49 = P |
+| Congruence assembly (G.F) | x = 7, y = 24, N = 527 | factor = **17** | not re-measured | gcd(7 − 24, 527) = 17 |
 
-**Factor recovered: 5 from N = 35 = 5 × 7. Kernel vectors tried: 1.**
+**Factor recovered: 17 from N = 527 = 17 × 31. Candidates tried: 1.**
 
 **Total pipeline wall time (debug, unoptimized): < 10 ms** (dominated by the Dickman-ρ table
 construction in Murphy-E scoring, ~30 ms per `score()` call in debug mode; the end-to-end KAT
@@ -433,11 +426,11 @@ bypasses scoring and uses a hand-built polynomial pair, so the actual KAT time i
 
 **Timing note.** No Criterion benchmark exists for the full end-to-end pipeline at this stage.
 Per-stage timings are from the individual stage KATs (G.B–G.F above). For release-mode
-timings, run `cargo bench` in the `gnfs` crate. At toy scale (N = 35, 6-bit), all stages
-complete in microseconds in release mode; the dominant cost is the Dickman-ρ table construction
-in Murphy-E scoring (~30 ms debug, < 1 ms release).
+timings, run `cargo bench` in the `gnfs` crate. The dominant measured cost is the Dickman-ρ table
+construction in Murphy-E scoring (~30 ms debug, < 1 ms release); the square-root stage was not
+re-measured.
 
-**Science↔engineering note (principle 4).** The toy semiprime N = 35 is far below the scale
+**Science↔engineering note (principle 4).** The toy semiprime N = 527 is far below the scale
 at which the GNFS complexity $L_N[1/3, (64/9)^{1/3}]$ is meaningful. At toy scale, the
 pipeline is correct but the asymptotic win is not observable. The end-to-end KAT verifies
 correctness; the L-notation complexity analysis (see `gnfs/docs/PEDAGOGY.md` §60) explains
@@ -450,7 +443,7 @@ implementation). The pipeline-level verification is provided by the existing end
 
 | Test file | Tests | Scope |
 |-----------|-------|-------|
-| `tests/factor_end_to_end_kat.rs` | 6 (+1 ignored) | Full pipeline: N=35→5, congruence identity, trivial-GCD path, retry loop, all-trivial returns None; oracle KAT (ignored) |
+| `tests/factor_end_to_end_kat.rs` | 16 (+1 ignored) | Square-root stage from checked relations: N=527→17·31, non-monic N=35, checked congruence, trivial/incidental/nonsquare attempts, bounded retry; oracle KAT (ignored) |
 
 ## E.W — Cross-attack ECDLP benchmark harness
 

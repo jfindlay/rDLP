@@ -1,111 +1,136 @@
-//! Rational square root from a kernel vector.
+//! Rational square root of a checked dependency's rational product.
 //!
-//! Given a `KernelVector` and the original `Vec<Relation>` + `PolyPair`, computes X such that
-//! X² ≡ ∏_{i ∈ S}(a_i − b_i·m) (mod N), where S is the relation index set recovered from the
-//! kernel vector via `expand_provenance`.
-//!
-//! # Algorithm
-//!
-//! 1. Call `kv.expand_provenance(matrix)` to recover the relation index set S.
-//! 2. Form the product P = ∏_{i ∈ S}(a_i − b_i·m) over ℤ.
-//! 3. Assert P > 0 (the sign column in the linear algebra step guarantees an even count of
-//!    negative rational norms; a negative P is an upstream kernel/sign-column bug, surfaced
-//!    with a clear panic).
-//! 4. Call `isqrt(&P)` (from `shared_bigint`). If `None`, panic: the product is not a perfect
-//!    square, indicating an upstream kernel/sign-column bug.
-//! 5. Reduce X = isqrt_result mod N and return X.
-//!
-//! # Sign invariant
-//!
-//! The `rational_sign` field on each `Relation` records whether `a − b·m < 0`. The linear
-//! algebra step (via the sign/obstruction column) selects only subsets S where the count of
-//! negative rational norms is even, so P = ∏(a_i − b_i·m) is guaranteed positive. A negative P
-//! means the sign column was not honoured — an upstream linear algebra bug, not a normal path.
+//! A checked dependency fixes the exact integer product `P = ∏(a − b·m)` of its relations. The
+//! rational side of the congruence of squares is an integer `x₀` with `x₀² = P`, taken modulo `N`.
+//! This module checks both preconditions itself, `P > 0` and `P` an exact integer square, rather
+//! than trusting the sign and factor-base columns that selected the dependency: those columns make
+//! the condition expected, not certain, and a failure is reported as a typed outcome, never a
+//! panic.
 
 use num_bigint::BigInt;
-use num_traits::{Signed, Zero};
+use num_integer::Integer;
+use num_traits::Signed;
 use shared_bigint::isqrt;
 
-use crate::filter::SparseMatrix;
-use crate::linalg::KernelVector;
-use crate::polyselect::PolyPair;
-use crate::sieve::Relation;
+use crate::sqrt::context::SqrtContext;
+use crate::sqrt::dependency::CheckedDependency;
 
-/// Compute the rational square root X such that X² ≡ ∏_{i ∈ S}(a_i − b_i·m) (mod N).
+/// An exact integer square root `x₀` of the rational product `P`, with its image modulo `N`.
 ///
-/// Recovers the relation index set S from `kv` via `expand_provenance`, forms the integer
-/// product P = ∏_{i ∈ S}(a_i − b_i·m), extracts its integer square root via `isqrt`, and
-/// reduces the result mod N.
-///
-/// # Panics
-///
-/// - If P is negative: the sign column guarantees an even count of negative rational norms;
-///   a negative product is an upstream kernel/sign-column bug.
-/// - If `isqrt(&P)` returns `None`: P is not a perfect square, indicating an upstream
-///   kernel/sign-column bug.
-///
-/// # Parameters
-///
-/// - `kv`: The kernel vector (a subset of filtered-matrix rows whose GF(2) sum is zero).
-/// - `matrix`: The filtered sparse GF(2) matrix (carries the provenance map).
-/// - `relations`: The original relation list (indexed by the provenance map).
-/// - `poly`: The polynomial pair (provides `m` and `n`).
-///
-/// # Returns
-///
-/// X = isqrt(∏_{i ∈ S}(a_i − b_i·m)) mod N as a `BigInt`.
-pub fn rational_sqrt(
-    kv: &KernelVector,
-    matrix: &SparseMatrix,
-    relations: &[Relation],
-    poly: &PolyPair,
-) -> BigInt {
-    // Step 1: recover the relation index set S.
-    let s = kv.expand_provenance(matrix);
+/// Invariants: `P > 0`, `x₀ > 0`, `x₀² = P` exactly, and the image is `x₀ mod N` in `[0, N)`. The
+/// fields are private; the only constructor is [`rational_sqrt`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RationalRoot {
+    product: BigInt,
+    root: BigInt,
+    image: BigInt,
+}
 
-    // Step 2: form the product P = ∏_{i ∈ S}(a_i − b_i·m).
-    let m = &poly.m;
-    let mut product = BigInt::from(1i64);
-    for &i in &s {
-        let rel = &relations[i];
-        // Rational norm factor: a_i − b_i·m.
-        let factor = &rel.a - &rel.b * m;
-        product *= factor;
+impl RationalRoot {
+    /// The rational product `P = ∏(a − b·m)` over `Z`.
+    #[must_use]
+    pub fn product(&self) -> &BigInt {
+        &self.product
     }
 
-    // Step 3: assert P > 0. A negative product is an upstream linear algebra bug (sign column
-    // not honoured).
-    if product.is_negative() {
-        panic!(
-            "rational_sqrt: rational norm product is negative — upstream kernel/sign-column bug \
-             (the sign column in the linear algebra step must guarantee an even count of negative \
-             rational norms; product = {product})"
-        );
+    /// The exact positive root `x₀` with `x₀² = P`.
+    #[must_use]
+    pub fn root(&self) -> &BigInt {
+        &self.root
     }
 
-    // Handle the degenerate case: empty S gives product = 1 (the empty product), which is fine.
-    // isqrt(1) = Some(1), so this path is correct.
-
-    // Step 4: extract the integer square root.
-    let x = isqrt(&product).unwrap_or_else(|| {
-        panic!(
-            "rational_sqrt: rational norm product is not a perfect square — upstream \
-             kernel/sign-column bug (product = {product})"
-        )
-    });
-
-    // Step 5: reduce X mod N.
-    let n = &poly.n;
-    if n.is_zero() {
-        // Degenerate: N = 0 means no modular reduction is meaningful; return x as-is.
-        // This should not arise in practice but avoids a division-by-zero panic.
-        return x;
+    /// The image `x = x₀ mod N`, in `[0, N)`.
+    #[must_use]
+    pub fn modular_image(&self) -> &BigInt {
+        &self.image
     }
-    let x_mod_n = x % n;
-    // Ensure the result is in [0, N).
-    if x_mod_n.is_negative() {
-        x_mod_n + n
-    } else {
-        x_mod_n
+}
+
+/// The result of the rational square root.
+#[must_use]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RationalSqrtOutcome {
+    /// `P` is a positive exact square.
+    Root(RationalRoot),
+    /// `P` is not a positive exact square: it is negative, zero, or not a perfect square.
+    NonSquare {
+        /// The rational product that failed.
+        product: BigInt,
+    },
+}
+
+/// The exact square root of the rational product of a checked dependency.
+///
+/// The product `P` is `dependency.rational_product()`. A root is returned only when `P > 0` and
+/// `P = x₀²` for an integer `x₀`; the image is reduced modulo the dependency's `N`. For a
+/// validated dependency the sign and rational-prime columns make `NonSquare` unreachable, so it
+/// is a typed report of an inconsistency in the input and never a certificate about the algebraic
+/// side.
+pub fn rational_sqrt(dependency: &CheckedDependency) -> RationalSqrtOutcome {
+    root_of_product(dependency.rational_product(), dependency.context())
+}
+
+/// The root of `product` reduced modulo the context's `N`, or the offending product.
+pub(crate) fn root_of_product(product: &BigInt, context: &SqrtContext) -> RationalSqrtOutcome {
+    let root = if product.is_positive() { isqrt(product) } else { None };
+    match root {
+        Some(root) => RationalSqrtOutcome::Root(RationalRoot {
+            product: product.clone(),
+            image: root.mod_floor(context.modulus()),
+            root,
+        }),
+        None => RationalSqrtOutcome::NonSquare { product: product.clone() },
+    }
+}
+
+#[cfg(test)]
+impl RationalRoot {
+    /// A root with arbitrary parts, only to test that consumers re-check what they are given.
+    pub(crate) fn forged(product: BigInt, root: BigInt, image: BigInt) -> Self {
+        Self { product, root, image }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use shared_numfield::IntPoly;
+
+    use super::*;
+
+    fn big(v: i64) -> BigInt {
+        BigInt::from(v)
+    }
+
+    /// x² − 2 at m = 23 modulo 527: f(23) = 529 − 2 = 527.
+    fn context() -> SqrtContext {
+        let f = IntPoly::from_coeffs(vec![big(-2), big(0), big(1)]);
+        SqrtContext::new(&f, &big(23), &big(527)).unwrap()
+    }
+
+    #[test]
+    fn positive_square_gives_root_and_reduced_image() {
+        // 49 = 7² and 7 < 527. 360000 = 600² and 600 = 527 + 73, so the image of x₀ = 600 is 73.
+        let ctx = context();
+        let RationalSqrtOutcome::Root(root) = root_of_product(&big(49), &ctx) else {
+            panic!("49 is a square");
+        };
+        assert_eq!((root.product(), root.root(), root.modular_image()), (&big(49), &big(7), &big(7)));
+        let RationalSqrtOutcome::Root(root) = root_of_product(&big(360_000), &ctx) else {
+            panic!("360000 is a square");
+        };
+        assert_eq!(root.root(), &big(600));
+        assert_eq!(root.modular_image(), &big(73));
+    }
+
+    #[test]
+    fn nonpositive_and_nonsquare_products_are_reported() {
+        let ctx = context();
+        for product in [big(50), big(2), big(0), big(-49), big(-1)] {
+            assert_eq!(
+                root_of_product(&product, &ctx),
+                RationalSqrtOutcome::NonSquare { product: product.clone() },
+                "{product}"
+            );
+        }
     }
 }
