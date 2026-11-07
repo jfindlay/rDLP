@@ -12,6 +12,8 @@
 //! - [`context`] — checked polynomial/map context ([`SqrtContext`]), the relation-factor input
 //!   boundary ([`RelationFactors`]), non-forgeable root witnesses ([`VerifiedRoot`]), failure
 //!   classes, and resource limits for the algebraic square root.
+//! - [`padic`] — direct reconstruction of the algebraic square root by inverse-square-root Newton
+//!   lifting at one inert prime. Entry point: [`padic::direct_root`].
 //!
 //! # Background
 //!
@@ -33,6 +35,7 @@
 pub mod algebraic;
 pub mod assembly;
 pub mod context;
+pub mod padic;
 pub mod rational;
 
 pub use algebraic::algebraic_sqrt;
@@ -47,4 +50,5 @@ pub use context::{
     ReconstructionMethod, RelationFactors, ResourceExhaustion, ResourceKind, SqrtContext,
     SqrtError, SqrtLimits, UnsupportedDomain, VerifiedRoot,
 };
+pub use padic::direct_root;
 pub use rational::rational_sqrt;

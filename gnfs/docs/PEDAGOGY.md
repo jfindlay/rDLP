@@ -3675,6 +3675,112 @@ For `f = 2x² − 1`, `m = 2`, `N = 7` and the factor `(3, −4)`: `θ = 2α`, `
 
 ---
 
+## Direct p-Adic Reconstruction
+
+`gnfs::sqrt::padic::direct_root` finds the algebraic square root at a single inert prime. It takes a
+`NormalizedTarget` and `DirectLimits` and returns an `AlgebraicSqrtOutcome`. It proposes an integer
+polynomial `z` and never trusts it: success exists only through `verify_candidate`.
+
+### Why an inert prime makes the root unique up to sign
+
+Take an odd prime `p` that does not divide `c·N`, for which `F` is irreducible modulo `p`, and with
+`H ≢ 0 (mod p)`. Then `(Z/p^e)[t]/(F)` is a local ring with residue field `F_(p^d)`, and `H` is a
+unit. A unit square root is unique up to sign, because a second root `z'` would give
+`(z/z')² = 1` with `z/z' ≡ ±1` modulo the maximal ideal, and Hensel's lemma lifts only those two
+signs. So the only choice the algorithm faces is a global `±`, and both signs pass the exact
+verifier identically. There is no real-sign convention and no fixed number of primes, which is why
+a totally imaginary field such as `Q(i)` needs no special handling.
+
+The prime is found by ascending search from `max(first_candidate, 3)`. Each prime is classified: it
+is skipped when it is even, divides `c` or `N`, leaves `F` reducible (the Rabin test also rejects a
+repeated factor), or makes `H ≡ 0`. Every prime examined counts against `max_primes_examined`,
+including skipped ones. `H ≡ 0` is rejected before any square root is taken, because zero has no
+inverse square root. Running out of budget, or of machine primes below `2^64`, is a resource
+outcome: it does not prove that an inert prime is absent. For `F = t⁴ − 10t² + 1`, whose Galois group
+is `V4`, no inert prime exists at all, and the search ends only by budget.
+
+For `d ≥ 2` a prime dividing `N` or `c` already leaves `F` with a root, so the divisibility guard
+changes the outcome only for `d = 1`, where `F = t − c·m` is irreducible at every prime.
+
+### Seed and Newton step
+
+In the residue field a Tonelli–Shanks square root `s` of `H` gives the seed `u₀ = s⁻¹`, with
+`H·u₀² ≡ 1 (mod p)`. The lift is
+
+    u ← u·(3 − H·u²)/2
+
+and if `H·u² = 1 + ε` the new value satisfies `H·u'² = 1 − (3/4)ε² + ε³/4`. The error is squared, so
+each step doubles the precision. Division by 2 multiplies by `(M + 1)/2`, which is valid because
+`M = p^e` is odd. The precision runs through the ceiling-halving chain of the final exponent
+(`5 → 3 → 2 → 1`), so a step never more than doubles. Each step checks `H·u² ≡ 1` at the precision it
+starts from, and the last result is checked at the final precision. A failed check is an
+`Err(Invariant)`, never a nonsquare.
+
+The ring arithmetic is private to this module. An element is `d` coefficients in `[0, p^e)`;
+multiplication is the schoolbook product followed by elimination of `t^(2d−2), …, t^d` through
+`t^d = −(F_0 + … + F_(d−1)t^(d−1))`. Moduli are `BigInt`, never limited to a machine word. The
+existing scalar `Zp` type is not this ring: it is not a quotient by `F`.
+
+### Centering and the bound
+
+`z = H·u` satisfies `z² = H²u² = H` modulo `(F, p^e)`. Choose the least `e` with `p^e > 2B`, where
+`B` is the certified coefficient bound of the target. Every true root has `|z_i| ≤ B ≤ (M − 1)/2`,
+so its centered residues are its coefficients exactly. Since `p^(e−1) ≤ 2B`, we have
+`p^e < p·(2B + 1)`, so the modulus has at most `bits(2B + 1) + bits(p)` bits. The precision budget
+is enforced on `2B + 1` when the target is built, so `direct_root` takes no precision argument. The boundary is sharp in both directions. For `F = t − 5` and `H = 169 = 13²`
+(`B = 13`) the least modulus `3³ = 27 = 2B + 1` works, with the root `13` exactly on the bound. For
+`H = 196 = 14²` (`B = 14`) `3³ = 27 < 2B + 1`: `14 ≡ −13 (mod 27)` would reconstruct `−13`, whose
+square is `169`, so `3⁴ = 81` is required.
+
+### What is certified
+
+- **Local obstruction.** `H` is a nonresidue in `F_(p^d)`. By the Euler criterion this holds
+  exactly when `H^((q−1)/2) ≠ 1`. Over `F = t² − 2` at `p = 3`, `8(1 − θ) ≡ 2 + θ` has norm
+  `2 ≡ −1`: a nonresidue, with no lifting at all. The certificate is `InertLocalNonresidue`.
+- **Full-bound failure.** `H` is a square modulo `p^e` but the centered `z` is rejected at
+  `M > 2B`. Since a real root would equal `±z`, none exists. For `3 − θ` over `t² − 2` the norm is
+  `7`, not a rational square, yet `H ≡ θ` is a square in `F_9`; only the lift and the exact check
+  expose it. The certificate is `DirectBoundExhausted`.
+- **Not certified.** Exhausted prime, machine-prime, or nonresidue budgets are resource outcomes.
+  An incidental factor or an unsupported map denominator means that a root exists, so they are not
+  nonsquare results either.
+
+### Fixtures
+
+- `x² − 2`, `N = 527`, relation `(3, −2)`: `z = 4 + 2θ`, `p = 3`, `e = 4` (`B = 18`, `37 ≤ 81`).
+- Non-monic `2x² − 1`, `N = 7`, relation `(3, −4)`: `z = 8 + 4θ`.
+- `x⁴ + x − 1`, `N = 17`, relation `(1, −1)` twice: `z = 5 − 3θ + 4θ³` at `p = 3`, `e = 5`.
+- `x² + 1`, `N = 5`, relation `(3, −4)`: no real embedding, `z = −2 + 4θ`.
+- `x² − 8`: the root `β = θ/2` is outside `Z[θ]`, yet `z = 8`.
+- `x² + x + 1` is irreducible modulo 2 but 2 is excluded, reducible modulo 3 (`(t − 1)²`), and
+  inert at 5.
+
+### KAT summary
+
+| Test file | Test | Mathematical fact verified |
+|-----------|------|---------------------------|
+| `sqrt_padic_kat.rs` | `kat_nonconstant_root_monic_quadratic` | `z = 4 + 2θ`, `p = 3`, `e = 4`, `y = 24` for `x² − 2` |
+| `sqrt_padic_kat.rs` | `kat_non_monic_root` | `c = 2`: `z = 8 + 4θ`, `β = 1 + θ` |
+| `sqrt_padic_kat.rs` | `kat_even_degree_quartic_root` | `d = 4`, `p = 3`, `e = 5`, `z = 5 − 3θ + 4θ³` |
+| `sqrt_padic_kat.rs` | `kat_totally_imaginary_root` | `Q(i)` needs no real-sign convention |
+| `sqrt_padic_kat.rs` | `kat_root_outside_the_power_basis_order` | `β = θ/2 ∉ Z[θ]` still gives `z = 8` |
+| `sqrt_padic_kat.rs` | `kat_precision_boundary_just_above_and_below_twice_the_bound` | `M = 2B + 1` suffices, `M = 2B − 1` would reconstruct the wrong sign |
+| `sqrt_padic_kat.rs` | `kat_local_nonsquare_certificate` | Nonresidue in `F_9`: `InertLocalNonresidue` |
+| `sqrt_padic_kat.rs` | `kat_global_nonsquare_certificate_after_full_bound` | Local square, global nonsquare: `DirectBoundExhausted` |
+| `sqrt_padic_kat.rs` | `kat_prime_search_exhaustion_is_a_resource_outcome` | `V4` field has no inert prime; budget end is not a certificate |
+| `sqrt_padic_kat.rs` | `kat_machine_prime_range_end_is_a_resource_outcome` | No prime above `2^64 − 59` |
+| `sqrt_padic_kat.rs` | `kat_machine_prime_near_u64_max_reconstructs` | The largest `u64` prime works as an inert prime |
+| `sqrt_padic_kat.rs` | `kat_nonresidue_budget_exhaustion_is_a_resource_outcome` | A zero nonresidue budget is a resource outcome |
+| `sqrt_padic_kat.rs` | `kat_precision_limit_exhaustion_is_a_resource_outcome` | `bits(2B + 1)` over budget is refused before prime search |
+| `sqrt_padic_kat.rs` | `kat_two_is_never_examined` | `p = 2` is excluded and never counted |
+| `sqrt_padic_kat.rs` | `kat_primes_dividing_the_modulus_or_leading_coefficient_are_excluded` | `p \| N` and `p \| c` are skipped (`d = 1`) |
+| `sqrt_padic_kat.rs` | `kat_zero_residue_target_prime_is_skipped` | `H ≡ 0 (mod 3)` skips to `p = 5` |
+| `sqrt_padic_kat.rs` | `kat_reconstruction_agrees_with_an_independently_built_square` | `β = ±(1 + θ)` and `gcd(7 ∓ 24, 527) = 17, 31` |
+| `padic.rs` unit tests | `newton_doubles_precision_keeping_unit_square_invariant` | `H·u² ≡ 1` modulo `3, 9, 27, 243` and the root `±(4 + 2θ)` |
+| `padic.rs` unit tests | `exponent_chain_*`, `lifting_exponent_*`, `centered_*`, `prime_cursor_*`, `screen_*` | Precision chain, least exponent, symmetric range, prime accounting, and prime classification |
+
+---
+
 ## 51. What Comes Next
 
 The square-root and assembly stage is the final stage of the GNFS factoring pipeline. The
