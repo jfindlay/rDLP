@@ -1099,7 +1099,41 @@ algebra comment.
 ### C-VerifiedRoot — bounded canonical dispatch and exact sign matching
 
 **Enforcement:** compiler + test + prose. **Defined-in:** 7. **Consumed-by:** 13, 14.
-To be frozen at 7: primary-to-fallback dispatch through the common exact verifier. Match
+**Status:** **frozen at row 7 (commit 01e1907, 2026-11-07)**; 30 integration KATs in
+`sqrt_crt_kat.rs` (15 from row 6, 15 new) plus 15 unit tests in `crt.rs`. Public surface, all
+re-exported at `gnfs::sqrt::*`, owned values:
+
+    // crt.rs
+    pub fn recombine_signs(set: &ContributionSet, limits: RecombinationLimits)
+        -> Result<AlgebraicSqrtOutcome, SqrtError>;
+    pub fn split_prime_root(target: &NormalizedTarget, crt: CrtLimits,
+        recombination: RecombinationLimits) -> Result<AlgebraicSqrtOutcome, SqrtError>;
+    // mod.rs
+    pub fn reconstruct_root(target: &NormalizedTarget, limits: SqrtLimits)
+        -> Result<AlgebraicSqrtOutcome, SqrtError>;
+    pub fn reconstruct_root_from_factors(factors: RelationFactors, limits: SqrtLimits)
+        -> Result<AlgebraicSqrtOutcome, SqrtError>;   // addition over the plan: builds the target
+                                                      // under limits.precision, then dispatches
+
+Semantics: matching is on kappa = argmin B_i (lowest index on ties); the only sign normalisation is
+eps_0 = Plus; the left half is indices `1..=floor((n-1)/2)`, the left list is indexed by mask and the
+right list sorted by (residue, mask); a wrapped modular interval is scanned as the two exact ranges
+`[lo, M-1]` and `[0, hi]` by binary search; list size `2^ceil((n-1)/2)` is checked before allocation
+(saturating, `try_reserve`) and matches are counted before examining match `max_matches+1`; every
+match is assembled and passed through `NormalizedTarget::verify_candidate`; `Incidental` and
+`Unsupported` return from the first match that yields them; `Rejected(DegreeTooHigh)` is an
+invariant error; `NotSquare(SignSearchExhausted{primes, exponent})` only after a complete search
+with every match rejected (a zero-match complete search counts, even with `max_matches = 0`);
+list/match exhaustion is `ResourceExhausted`. Dispatcher: `direct_root` first; the split-prime
+method runs ONLY if direct returns `ResourceExhausted` consisting solely of
+`InertPrimeSearch`/`MachinePrimeRange`; `NotSquare`, `Incidental`, `Unsupported` and
+`NonresidueSearch`/`Precision` exhaustion pass through unchanged; if both are exhausted the lists
+are concatenated primary-first; `limits.precision` is checked against bits(2B+1) before any search.
+Consumer notes: cost is `2^ceil((l*d-1)/2)` list entries so pinned limits should keep
+`max_primes = 1`; the order of matches depends on the stored sign of each local root, so KATs pin
+match counts, not order. Row 7 also dropped the stale dead-code allowance on
+`NonSquareCertificate::new` and fixed the `CrtLimits` doc in `context.rs`. Original statement:
+primary-to-fallback dispatch through the common exact verifier. Match
 sum epsilon_ij W_i s_ij L_ij modulo M using exact modular intervals and meet-in-the-middle lists.
 Fix only one global sign; no independent cross-prime sign normalization. Bound lists and matches.
 Absent a local obstruction, only complete matching-branch exhaustion at the certified bound proves
@@ -1182,7 +1216,7 @@ unstaged and uncommitted.
 | 4 | Normalized targets and bounds | done | e636477 | C-NormalizedTarget |
 | 5 | Direct p-adic reconstruction | done | 7898119 | C-DirectRoot |
 | 6 | Split-prime local contributions | done | 5da4883 | C-SplitContributions; manifest edge gnfs -> shared-padic |
-| 7 | CRT recombination and dispatch ◆ | pending | — | — |
+| 7 | CRT recombination and dispatch ◆ | done | 01e1907 | C-VerifiedRoot (boundary review pending) |
 | 8 | Checked relations and algebraic parity | pending | — | — |
 | 9 | Elimination and XOR provenance | pending | — | — |
 | 10 | Individual root characters | pending | — | — |
@@ -1277,6 +1311,22 @@ examination certifies NotSquare.
 Texture: the committer wrote its own commit body and it reads "contributions are kept unsigned
 here", which loosely contradicts "signed contributions" (meaning: the records carry a ± slot applied
 at assembly; no global sign is chosen). Left unamended: unpushed, wording is imprecise not false.
+
+### 7 — 2026-11-07
+Discovery/flex: Implemented per the planned interface with one additive public function,
+`reconstruct_root_from_factors` (the plan's dispatcher takes a prebuilt target, but the dispatch
+brief builds it under the precision limits), and the module header of `crt.rs` was rewritten because
+it formerly said the module never chooses signs. The explicit fileset refinement (adding
+`context.rs`) was used exactly as scoped: stale dead-code allowance dropped, `CrtLimits` doc fixed.
+The worker found NOTES' false-positive fixture (`t²−3`, first 14) has zero matches rather than
+rejected ones, so it used a second fixture `x²−2`, relation (−5,0) (1 match at ℓ=1, 2 at ℓ=2, all
+rejected) for the all-matches-rejected case; a mutation check (dropping half the wrapped interval)
+failed four KATs. Both methods agree up to sign (cross-method KAT).
+Affected: C-VerifiedRoot (frozen); consumers 13, 14.
+Deferred: yes — rows 13/14 must pin `max_primes = 1` (list size 2^ceil((ℓd−1)/2)); the V4 quartic
+fixture runs through the dispatcher fallback; certificates other than success remain
+sibling-forgeable inside the crate (the boundary review should confirm that is acceptable);
+`crt.rs`/`padic.rs` still duplicate small private helpers (consolidation candidate, unenrolled).
 
 ## Discoveries & risks
 
