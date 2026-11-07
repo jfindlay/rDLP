@@ -1922,7 +1922,46 @@ freezes this contract with its KAT evidence.
 ### C-PipelineEvidence — generated sieve-to-factor evidence
 
 **Enforcement:** test + prose. **Defined-in:** 14. **Consumed-by:** final independent review.
-To be frozen at 14: one qualifying deterministic ordinary KAT satisfying every discovery/closure
+**Status:** **frozen at row 14 (commit 95f63c9, 2026-11-07)**. Winning configuration: seed 1
+(N=45113=197·229, m=31, f=x³+15x²+29x+8; f(m)=N asserted exactly, irreducible mod 3, certified by the
+crate's test and by an independent sympy script) at profile 1 (B_rat 30, B_alg 90, A 400, b 1..41);
+`gnfs/tests/factor_pipeline_kat.rs`, three tests: `kat_fixture_is_exact_and_irreducible`,
+`kat_pipeline_factors_from_generated_relations`,
+`kat_pipeline_factor_is_rederived_from_the_raw_relations`.
+**Pinned options (set before any run, unchanged):** direct `{prime_search{first_candidate 0,
+max_primes_examined 100}, nonresidue 1000}`; fallback `CrtLimits{prime_search{0, 200}, max_primes 1,
+root_search 100_000, nonresidue 1000}`; precision `max_modulus_bits = 65536`; recombination
+`{1<<20, 1<<20}`; eight root-character pairs from `select_root_characters` with
+`RootCharacterLimits{prime_search{first_candidate 3, max_primes_examined 1000}, root_search 100_000}`,
+filled after filtering by XOR over complete provenance; filter = `remove_singletons`,
+`prune_cliques_reported` (library `EXCESS_FLOOR` 20), `merge_columns`; `block_lanczos` seeds 42, 43, 44
+(verified vectors pooled); `KernelSearchLimits{max_xor_operations 1<<20, max_candidates 4096}`.
+**Configuration record.** Attempted: S1/P1 only, which succeeded (32,841 of 10^6 lattice points,
+1 of 6 configurations, about 0.61 s of 30 min; no limit exhausted). Unattempted: S2/P1, S1/P2, S2/P2,
+S1/P3, S2/P3 (would have cost 32,841, 98,482, 98,482, 204,928 and 204,928 points). Yield: 60 relations
+(0 duplicates, 0 validation failures); matrix 60×39 with 0 omitted columns; after pruning 50 rows
+(10 removed, excess 30→20), after merge 47; characters (q, root) (97,28), (101,87), (103,47), (107,4),
+(107,8), (107,80), (113,108), (139,33), 19 candidate pairs refused because a relation vanishes on
+them, 109 exceptional (disc 44581 = 109·409); `block_lanczos` returned 12, 12, 20 vectors, all 44
+verified, rank 18; `search_kernel_combinations` stopped at the 4096 candidate bound
+(`ResourceLimited{Candidates, Enumeration, xor_operations 11465}`; 2^18−1 combinations exist).
+Attempts: one, candidate 0, `Factor`; reconstruction `DirectNewton{prime 3, exponent 48}`.
+**Factor provenance.** Candidate 0 is a single computed kernel vector (not a combination); it lifts to
+22 original relations (2, 3, 9, 12, 16, 17, 19, 20, 21, 23, 26, 30, 33, 38, 44, 45, 47, 51, 53, 55,
+56, 58), all with b ≥ 1. The test recomputes Π(a−bα) mod f from the raw pairs and checks β² equal to
+it; a control with every b = 0 gives a different product. P is a positive exact square, y = β(cm) mod
+N is recomputed independently with y² ≡ P ≡ x² (mod N) and x ≢ ±y, and the divisor gcd(|x−y|, N) is
+197 or 229 with divisor·cofactor = N. The lifted parity is even in every column, recomputed from the
+validated rows. **Tested scope (not an all-input or production claim):** one deterministic fixture,
+the checked path only, toy scale, pinned limits. **Open gaps:** the factor came from the first
+computed vector, so combination search is not exercised by the pipeline test; the fallback
+reconstruction is pinned but unused; seed 2 (non-monic, 101 | disc and 101 | N; independently
+computed as m=11, f=7x³+8x²+10x+8) never ran through the pipeline; the exact counts (60 relations,
+rank 18, relation list) are pinned, so a change in sieve, Lanczos or filter behaviour is a finding;
+seed 1 is totally real (disc 44581 > 0) and the matrix imposes no real-place positivity, so first-try
+success is partly luck (the exact verifier, not the filters, is the guarantee); three-seed pooling of
+solver vectors is a pinned option the final review should confirm does not weaken the contract;
+pruning removed 10 rows (a reported loss of candidates). Original statement, to be frozen at 14: one qualifying deterministic ordinary KAT satisfying every discovery/closure
 requirement in row 14, plus the attempted/unattempted configuration record. Actual generated rows,
 computed kernels, irreducibility, nonzero b participation, exact square identities, modular images,
 and proper factor provenance are mandatory. No manufactured relations or incidental-gcd shortcut.
@@ -1954,7 +1993,7 @@ unstaged and uncommitted.
 | 11 | Checked dependencies | done | e70fa8f | C-Dependency (context/validation types; factor-attempt/report signatures stay frozen for 13) |
 | 12 | Bounded kernel combinations | done | 2fd9ac4 | C-KernelSearch |
 | 13 | Verified factor API migration | done | d06032e | C-FactorReport |
-| 14 | Generated sieve-to-factor evidence ◆ | pending | — | — |
+| 14 | Generated sieve-to-factor evidence ◆ | done | 95f63c9 | C-PipelineEvidence (boundary fork and final review: see digest) |
 
 ## Action-frame digest
 
@@ -2194,6 +2233,26 @@ corrected; BENCHMARKS square-root timings are marked not re-measured. (5) The le
 gone they are used only by their own tests and re-exports (grep-verified). Removing them was not
 enrolled; the final review may flag them as a dead legacy surface.
 Texture: the committer's first shell call was permission-denied again and succeeded on plain retry.
+
+### 14 — 2026-11-07
+Discovery/flex: The first configuration (seed 1, profile 1) factored 45113 = 197·229, so 5 of 6
+configurations and 99.7% of the lattice budget were never spent; no obstruction, no defect, no limit
+exhausted. The pinned options were written before the first run and never changed. Candidate 0, a single
+computed vector, factored; the retry and combination paths were not needed by the pipeline fixture
+(they are covered by hand-built KATs). The full configuration record is under C-PipelineEvidence.
+Affected: C-PipelineEvidence (frozen); the final independent review.
+Deferred: yes — the final review and boundary fork should scrutinise: (1) combination search and the
+fallback reconstruction are not exercised on generated relations; (2) seed 2 (the non-monic
+`select_base_m` case) is untested at pipeline level; (3) counts are pinned (60 relations, rank 18), so
+a behaviour change upstream surfaces as a test failure; (4) three-seed pooling of Lanczos vectors as
+a pinned option; (5) the legacy `select_qc_primes`/`populate_qc_columns` surface is now unused by any
+production path; (6) the sibling-forgeable `NonSquareCertificate::new` (pub(super)), the greppable
+invariant that its non-test call sites are only in `padic.rs` and `crt.rs` held at row 13 and was
+re-checked by grep after row 13.
+Texture: the anneal denylist over the new test file gave zero hits; the added README, MATHEMATICS and
+PEDAGOGY text carries no plan coordinate. The only denylist-pattern hit on a changed line is the
+pre-existing historical text "G.D, G.E, and G.F" in PEDAGOGY, re-wrapped by the row, left untouched
+(unrelated historical text, same disposition as the first boundary).
 
 ## Discoveries & risks
 
