@@ -12,6 +12,10 @@
 //! - [`context`] — checked polynomial/map context ([`SqrtContext`]), the relation-factor input
 //!   boundary ([`RelationFactors`]), non-forgeable root witnesses ([`VerifiedRoot`]), failure
 //!   classes, and resource limits for the algebraic square root.
+//! - [`dependency`] — checked dependencies: a candidate set of filtered-matrix rows validated
+//!   against the original relations ([`DependencyContext`]), lifted by symmetric difference of
+//!   provenance, with the exact rational product `P` and algebraic product `γ`
+//!   ([`CheckedDependency`]).
 //! - [`padic`] — direct reconstruction of the algebraic square root by inverse-square-root Newton
 //!   lifting at one inert prime. Entry point: [`padic::direct_root`].
 //! - [`crt`] — signed local contributions of a square root at completely split primes, lifted to
@@ -43,6 +47,7 @@ pub mod algebraic;
 pub mod assembly;
 pub mod context;
 pub mod crt;
+pub mod dependency;
 pub mod padic;
 pub mod rational;
 
@@ -61,6 +66,10 @@ pub use context::{
 pub use crt::{
     Contribution, ContributionSet, ContributionSign, LocalPrime, SplitOutcome, recombine_signs,
     split_contributions, split_prime_root,
+};
+pub use dependency::{
+    CheckedDependency, DependencyContext, DependencyContextError, DependencyError,
+    DependencyRejection,
 };
 pub use padic::direct_root;
 pub use rational::rational_sqrt;

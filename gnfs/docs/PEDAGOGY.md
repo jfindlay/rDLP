@@ -4245,6 +4245,98 @@ of the root remain authoritative.
 
 ---
 
+## Checked Dependencies: Lifting and Exact Products
+
+### A kernel vector is a candidate
+
+A kernel vector of the filtered matrix is a set of rows whose columns sum to zero. It says
+nothing about the relations until the rows are lifted, and the lift is only sound if each row
+really is the GF(2) sum of the original rows its provenance names. `DependencyContext` owns the
+filtered matrix together with the `CheckedRelations`, `MatrixLayout`, and `RootCharacters` it was
+derived from, and checks that identity before any candidate is accepted. Candidates from any
+source, including a `KernelVector` built by struct literal, are then validated against it and never
+trusted.
+
+### What binds a matrix to its relations
+
+The relations, layout, and characters belong together by equality of their `RelationChecker` and by
+the character count. The matrix belongs to them by the per-row identity. The original row of
+relation `i` is the layout's columns for it (`row_columns`) together with one column per set bit of
+the root characters on it (`relation_bits`), in ascending order. Row `r` of the matrix must equal
+the XOR of the original rows over `r.provenance`, in every column.
+
+This single identity subsumes the character check, and it does more:
+
+- with characters present it rejects character columns that were never filled;
+- it forces the columns of omitted exceptional ideals to stay zero;
+- it passes whether the characters were filled before filtering (carried through elimination by
+  XOR) or after (recomputed from the complete provenance), since both satisfy it.
+
+Empty provenance is rejected. XOR elimination and row drops keep the provenance vectors linearly
+independent, so a genuine row never has none. A weight table that disagrees with the rows is
+rejected last. Relation sets that share a checker can produce equal layouts, so the identity, not
+the layout, is what ties a matrix to these relations. A mismatch that slipped through could only
+yield a candidate whose exact verification fails, never a false root.
+
+### Lifting is a symmetric difference
+
+`validate(selection)` checks that the selection is non-empty, strictly ascending, and in range, then
+that the selected rows sum to zero in the context's own matrix. It lifts by taking the symmetric
+difference of the selected rows' provenance. Overlap makes this essential. After weight-three
+elimination with pivot row `p` and incident rows `a`, `b`, the replacements are `p ⊕ a` with
+provenance `[p, a]` and `p ⊕ b` with provenance `[p, b]`. A selection containing both names `p`
+twice, and `p` cancels: the dependency is `{a, b, …}`, not `{p, a, b, …}`. A union would put the
+pivot back in, and its factor would change the products. The test fixture on `3x² + x − 1` has four
+relations with exactly this shape: the lift is relations `{0, 1, 3}` with `P = (−15)(−15)(1) = 225`,
+while the union would give `P = −1125`, negative and not a square. After the lift, the parity of
+the lifted relations is recomputed from the original rows, not read back from the matrix. A failure
+there is an invariant violation, since construction made it impossible, and is never reported as a
+rejected candidate.
+
+### Exact products, and what they are not
+
+For the `k` lifted relations, `P = Π(a − b·m)` over `Z` with the exact `m`, and `γ` is computed
+directly as `Π(c·a − b·θ) mod F` over `Z`, divided by `c^k`. This is the representation that
+`NormalizedTarget::gamma` uses, so the two implementations can be compared for equality. Both are
+products over the relations, with no parity assumption. The rational parities do make `P` an exact
+integer square (every rational prime and the sign have even weight). The good-ideal and character
+parities are only necessary filters, so `γ` need not be a square, and a `CheckedDependency` is a
+candidate rather than a certificate.
+
+No raw homogeneous-norm product is formed or tested. For non-monic `f` it would be the wrong
+object: `Π f_hom(a_i, b_i) = c^k·Norm(γ)`, and that need not be an integer square even when `γ` is a
+square. The non-monic fixture shows both products on selection `{2, 5}`: `Π f_hom = 13·81 = 1053` is
+not a square and `Norm(γ) = 117` is not a square either, yet `P = 1` and `γ = (96 − 29θ)/9` are
+exact and the dependency validates. The `3x² + x − 1` fixture selection `{1, 2, 3}` gives `P = 36`
+and `γ = (−993 − 62θ)/27`, with `Π f_hom = 33813 = 3²·13·17²` again not a square.
+
+### Duplicates are removed first
+
+`CheckedRelations` refuses a repeated `(a, b)` pair. A caller that may hold duplicates removes them
+from the relation list before building the checked relations and the matrix, keeping first
+occurrences in order, so provenance indexes the deduplicated list. Nothing renumbers provenance
+after validation. The pairs `(a, b)` and `(−a, −b)` stay distinct records (opposite rational
+signs). A duplicated *row* of a genuine matrix is a different matter: it passes construction, and
+selecting both copies cancels to the empty lift, which is rejected.
+
+### KAT summary
+
+| Test file | Test | Mathematical fact verified |
+|-----------|------|---------------------------|
+| `sqrt_dependency_kat.rs` | `kat_context_binds_relations_layout_characters` | Original rows are the layout columns plus the character bits (`T`, K = 0 and K = 2) |
+| `sqrt_dependency_kat.rs` | `kat_context_rejects_binding_mismatches` | A foreign checker, character count, and truncated weight table are refused |
+| `sqrt_dependency_kat.rs` | `kat_context_rejects_malformed_rows` | Unsorted or out-of-range columns, bad provenance, and wrong weights, first row reported |
+| `sqrt_dependency_kat.rs` | `kat_context_rejects_lifted_parity_mismatch` | A flipped bit, a bit in an omitted column, unfilled characters, and a vanishing character |
+| `sqrt_dependency_kat.rs` | `kat_validate_rejects_malformed_selection` | Empty, unsorted, duplicate, and out-of-range selections; a duplicated row gives an empty lift |
+| `sqrt_dependency_kat.rs` | `kat_validate_rejects_non_kernel_selection` | The smallest odd column is reported, with character columns included |
+| `sqrt_dependency_kat.rs` | `kat_overlap_cancellation_lifts_symmetric_difference` | After weight-three elimination, the pivot cancels: `P = 225`, not the union's `−1125` |
+| `sqrt_dependency_kat.rs` | `kat_exact_products_seam_monic` | `x² − 2`, pair `(3, −2)`: `P = 49`, `γ = 3 + 2θ`, equal to the normalized target's |
+| `sqrt_dependency_kat.rs` | `kat_exact_products_non_monic_without_norm_square` | Non-monic products validate when `Π f_hom` and `Norm(γ)` are nonsquares |
+| `sqrt_dependency_kat.rs` | `kat_duplicates_reconciled_before_matrix` | Deduplicating first keeps provenance valid; `(a, b)` and `(−a, −b)` are both kept |
+| `sqrt_dependency_kat.rs` | `kat_validate_computed_kernel_vectors` | Every Lanczos kernel vector of a sieved, filtered matrix validates with even lifted parity |
+
+---
+
 ## 51. What Comes Next
 
 The square-root and assembly stage is the final stage of the GNFS factoring pipeline. The
