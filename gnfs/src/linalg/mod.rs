@@ -7,7 +7,9 @@
 //! - [`blockvec`] — `BlockVec` and `BLOCK_WIDTH`: blocked GF(2) vector representation
 //!   for block Lanczos and Wiedemann solvers.
 //! - [`operator`] — `MatrixOperator`: sparse matrix as a linear operator over GF(2).
-//! - [`kernel`] — `KernelVector`: nullspace vector representation (the linear algebra → square root seam).
+//! - [`kernel`] — `KernelVector`: nullspace vector representation (the linear algebra → square root seam);
+//!   `search_kernel_combinations`: budgeted enumeration of distinct nonzero XOR combinations of
+//!   kernel vectors.
 //! - [`qc`] — individual root characters `(q, s)`: `select_root_characters`, `RootCharacters`
 //!   (fill and verify the matrix's character columns by XOR over original provenance); plus the
 //!   legacy norm-character helpers `populate_qc_columns`, `select_qc_primes`, `DEFAULT_NUM_QC`.
@@ -38,7 +40,10 @@ mod qc;
 
 pub use blockvec::{BlockVec, BLOCK_WIDTH};
 pub use operator::MatrixOperator;
-pub use kernel::KernelVector;
+pub use kernel::{
+    search_kernel_combinations, KernelSearch, KernelSearchLimits, KernelSearchPhase,
+    KernelSearchResource, KernelSearchStatus, KernelVector,
+};
 pub use qc::{
     populate_qc_columns, select_qc_primes, select_root_characters, CharacterResource,
     CharacterValue, PairRejection, RejectedPair, RootCharacter, RootCharacterError,

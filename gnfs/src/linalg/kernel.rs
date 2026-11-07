@@ -4,6 +4,8 @@
 //! sorted, deduplicated list of row indices. The square root step expands this to original
 //! relation indices via the provenance map.
 
+use std::collections::BTreeMap;
+
 use crate::filter::SparseMatrix;
 
 // ─── KernelVector ─────────────────────────────────────────────────────────────
@@ -141,6 +143,288 @@ impl KernelVector {
     pub fn is_empty(&self) -> bool {
         self.row_indices.is_empty()
     }
+}
+
+// ─── Bounded combinations of kernel vectors ──────────────────────────────────
+
+/// Budgets for [`search_kernel_combinations`], passed by value.
+///
+/// Both budgets are enforced before the step they would pay for, so the search never performs
+/// more than `max_xor_operations` merges and never emits more than `max_candidates` vectors,
+/// whatever the number of input vectors. The number of distinct combinations is `2^rank − 1`,
+/// which is never enumerated unless the budgets allow it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KernelSearchLimits {
+    /// Maximum XOR operations: merges of two sorted row-index lists, in both the reduction of
+    /// the inputs to an independent set and the construction of combinations.
+    pub max_xor_operations: u64,
+    /// Maximum distinct nonzero candidates emitted.
+    pub max_candidates: u64,
+}
+
+/// The budget that ended a search early.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KernelSearchResource {
+    /// The XOR-operation budget was exhausted.
+    XorOperations,
+    /// The candidate-output budget was exhausted with further combinations remaining.
+    Candidates,
+}
+
+/// The stage of the search that was running when a budget ended it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KernelSearchPhase {
+    /// Reducing the inputs to an independent set. No candidate has been emitted, and the rank is
+    /// not yet known.
+    Reduction,
+    /// Emitting combinations of the independent set.
+    Enumeration,
+}
+
+/// Whether a search covered every distinct nonzero combination of its inputs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KernelSearchStatus {
+    /// Every distinct nonzero XOR combination of the inputs was emitted: `2^rank − 1` of them.
+    Complete,
+    /// A budget ended the search; combinations remain unexamined. This is never a statement
+    /// about the kernel or about the unexamined combinations.
+    ResourceLimited {
+        /// The budget that ran out.
+        resource: KernelSearchResource,
+        /// The stage that was running.
+        phase: KernelSearchPhase,
+        /// XOR operations performed so far.
+        xor_operations: u64,
+        /// Candidates emitted so far.
+        candidates: u64,
+    },
+}
+
+impl KernelSearchStatus {
+    /// True iff the search is [`KernelSearchStatus::Complete`].
+    #[must_use]
+    pub fn is_complete(&self) -> bool {
+        matches!(self, Self::Complete)
+    }
+}
+
+/// The result of [`search_kernel_combinations`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KernelSearch {
+    /// Distinct nonzero combinations, each with strictly ascending row indices, in emission
+    /// order (see [`search_kernel_combinations`]).
+    pub candidates: Vec<KernelVector>,
+    /// Whether `candidates` is every combination.
+    pub status: KernelSearchStatus,
+    /// The GF(2) rank of the inputs when the reduction finished; while it was cut short
+    /// (`phase == Reduction`), the number of independent inputs found so far.
+    pub rank: usize,
+}
+
+/// Enumerate the distinct nonzero XOR combinations of `vectors` within `limits`.
+///
+/// Each input is read as a GF(2) vector over row indices. An index listed an even number of times
+/// cancels, so the input contract is "any `Vec<usize>`": nothing is validated against a matrix,
+/// index values are labels (an out-of-range index is carried through unchanged), and no input
+/// makes the search panic. A vector that normalizes to the empty set is dropped.
+///
+/// # Method
+///
+/// 1. **Reduction.** The inputs are scanned in order and each one that is linearly independent
+///    of those kept before it joins an independent set; a later duplicate, a zero vector, or a
+///    vector that is the XOR of earlier ones is dropped. The kept vectors are the original
+///    inputs, not echelon rows, so every emitted basis vector is one the caller supplied. Because
+///    the kept vectors are independent, every nonempty subset of them XORs to a distinct nonzero
+///    vector: deduplication and zero-cancellation need no seen-set, and `Complete` means exactly
+///    `2^rank − 1` candidates.
+/// 2. **Enumeration.** Subsets are produced by ascending size and, within a size, in
+///    lexicographic order over positions in the independent set. All independent vectors come
+///    first, then every pair, and so on. A small budget therefore covers the caller's own
+///    vectors and their low-order sums before long sums, and an output of any length is a prefix
+///    of the output under a larger budget. Subsets are generated lazily, one at a time; only
+///    `rank` positions of state are held, never the `2^rank` subsets.
+///
+/// # Budgets
+///
+/// The XOR budget is charged one unit per merge, before the merge, in both stages. A subset of
+/// size `s` costs `s − 1` merges, built from scratch, and a single vector costs none. The output
+/// budget is checked before building the next candidate, so a budget exactly equal to the
+/// number of combinations still reports `Complete`. When both are exhausted at the same step the
+/// output budget is reported. There is no resume cursor: retry with larger limits, which
+/// reproduces the earlier output as a prefix.
+#[must_use]
+pub fn search_kernel_combinations(
+    vectors: &[KernelVector],
+    limits: KernelSearchLimits,
+) -> KernelSearch {
+    let mut meter = Meter { limit: limits.max_xor_operations, used: 0 };
+    let (basis, reduced) = reduce_to_independent(vectors, &mut meter);
+    let rank = basis.len();
+    if !reduced {
+        let status =
+            limited(KernelSearchResource::XorOperations, KernelSearchPhase::Reduction, &meter, 0);
+        return KernelSearch { candidates: Vec::new(), status, rank };
+    }
+    let mut candidates: Vec<KernelVector> = Vec::new();
+    let mut emitted: u64 = 0;
+    for size in 1..=rank {
+        let mut positions: Vec<usize> = (0..size).collect();
+        loop {
+            if emitted >= limits.max_candidates {
+                let status = limited(
+                    KernelSearchResource::Candidates,
+                    KernelSearchPhase::Enumeration,
+                    &meter,
+                    emitted,
+                );
+                return KernelSearch { candidates, status, rank };
+            }
+            let Some(combination) = combine(&basis, &positions, &mut meter) else {
+                let status = limited(
+                    KernelSearchResource::XorOperations,
+                    KernelSearchPhase::Enumeration,
+                    &meter,
+                    emitted,
+                );
+                return KernelSearch { candidates, status, rank };
+            };
+            candidates.push(KernelVector { row_indices: combination });
+            emitted += 1;
+            if !advance(&mut positions, rank) {
+                break;
+            }
+        }
+    }
+    KernelSearch { candidates, status: KernelSearchStatus::Complete, rank }
+}
+
+/// Running count of XOR operations against a fixed budget.
+struct Meter {
+    limit: u64,
+    used: u64,
+}
+
+impl Meter {
+    /// Pay for one XOR; false (with nothing charged) when the budget is spent.
+    fn charge(&mut self) -> bool {
+        if self.used >= self.limit {
+            return false;
+        }
+        self.used += 1;
+        true
+    }
+}
+
+fn limited(
+    resource: KernelSearchResource,
+    phase: KernelSearchPhase,
+    meter: &Meter,
+    candidates: u64,
+) -> KernelSearchStatus {
+    KernelSearchStatus::ResourceLimited {
+        resource,
+        phase,
+        xor_operations: meter.used,
+        candidates,
+    }
+}
+
+/// Sort and cancel index pairs: the strictly ascending set of indices listed an odd number of
+/// times.
+fn normalize(row_indices: &[usize]) -> Vec<usize> {
+    let mut sorted = row_indices.to_vec();
+    sorted.sort_unstable();
+    let mut odd: Vec<usize> = Vec::with_capacity(sorted.len());
+    for index in sorted {
+        if odd.last() == Some(&index) {
+            odd.pop();
+        } else {
+            odd.push(index);
+        }
+    }
+    odd
+}
+
+/// Symmetric difference of two strictly ascending lists.
+fn xor_sorted(a: &[usize], b: &[usize]) -> Vec<usize> {
+    let mut merged = Vec::with_capacity(a.len() + b.len());
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() && j < b.len() {
+        match a[i].cmp(&b[j]) {
+            std::cmp::Ordering::Less => {
+                merged.push(a[i]);
+                i += 1;
+            }
+            std::cmp::Ordering::Greater => {
+                merged.push(b[j]);
+                j += 1;
+            }
+            std::cmp::Ordering::Equal => {
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    merged.extend_from_slice(&a[i..]);
+    merged.extend_from_slice(&b[j..]);
+    merged
+}
+
+/// The inputs that are independent of their predecessors, and whether the scan finished.
+///
+/// Independence is decided by an echelon table keyed by the largest index: a vector reduces
+/// against the table until its largest index is unclaimed (independent) or it is empty
+/// (dependent). Each reduction step removes the current largest index, so the loop ends.
+fn reduce_to_independent(
+    vectors: &[KernelVector],
+    meter: &mut Meter,
+) -> (Vec<Vec<usize>>, bool) {
+    let mut echelon: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    let mut basis: Vec<Vec<usize>> = Vec::new();
+    for vector in vectors {
+        let original = normalize(&vector.row_indices);
+        let mut reduced = original.clone();
+        while let Some(&top) = reduced.last() {
+            let Some(pivot) = echelon.get(&top) else {
+                echelon.insert(top, reduced);
+                basis.push(original);
+                break;
+            };
+            if !meter.charge() {
+                return (basis, false);
+            }
+            reduced = xor_sorted(&reduced, pivot);
+        }
+    }
+    (basis, true)
+}
+
+/// XOR of `basis[p]` over `positions`, or `None` when the budget runs out first.
+///
+/// `positions` is nonempty and in range by construction in the caller.
+fn combine(basis: &[Vec<usize>], positions: &[usize], meter: &mut Meter) -> Option<Vec<usize>> {
+    let mut sum = basis[positions[0]].clone();
+    for &position in &positions[1..] {
+        if !meter.charge() {
+            return None;
+        }
+        sum = xor_sorted(&sum, &basis[position]);
+    }
+    Some(sum)
+}
+
+/// Step `positions` (strictly ascending, each below `count`) to the next subset of the same size
+/// in lexicographic order; false when it was the last.
+fn advance(positions: &mut [usize], count: usize) -> bool {
+    let size = positions.len();
+    let Some(slot) = (0..size).rev().find(|&s| positions[s] < count - size + s) else {
+        return false;
+    };
+    positions[slot] += 1;
+    for s in slot + 1..size {
+        positions[s] = positions[s - 1] + 1;
+    }
+    true
 }
 
 // ─── Unit tests ──────────────────────────────────────────────────────────────

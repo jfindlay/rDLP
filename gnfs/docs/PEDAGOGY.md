@@ -4337,6 +4337,72 @@ selecting both copies cancels to the empty lift, which is rejected.
 
 ---
 
+## Bounded Combinations of Kernel Vectors
+
+### Why combine
+
+A solver returns a handful of kernel vectors, and any one of them may fail to give a square: the
+parity and character constraints are necessary conditions, not a certificate. The kernel is closed
+under XOR, so the sum of two kernel vectors is again a kernel vector, and it is a different
+candidate with its own chance of giving a square. For `r` independent vectors there are
+`2^r − 1` distinct nonzero sums, which is too many to list for the `r` of a real run. The search
+therefore enumerates them lazily and under two explicit budgets, and says whether it finished.
+
+### Reading and reducing the inputs
+
+`search_kernel_combinations` reads each `KernelVector` as a GF(2) vector over row indices and does
+not look at any matrix, so an index is only a label. An index listed an even number of times
+cancels, and a vector that normalizes to the empty set is dropped; no input makes it panic.
+
+Distinct nonzero sums need independence. If `v3 = v1 ⊕ v2` were kept, the subset `{v1, v2, v3}`
+would sum to the empty set and `{v1, v2}` and `{v3}` would sum to the same candidate. The search
+scans the inputs in order and keeps each one that is independent of those kept before it, deciding
+independence by reducing against an echelon table keyed on the largest index. The kept vectors are
+the caller's own, so every emitted single vector is one that was supplied. Independence then gives
+the rest for free: every nonempty subset sums to a distinct nonzero vector, so no seen-set is
+needed and a complete search emits exactly `2^rank − 1` candidates.
+
+### Order, budgets, and no resume
+
+Subsets come out by ascending size and, within a size, in lexicographic order over positions among
+the kept vectors: all singles, then every pair, and so on. Small budgets therefore cover the
+supplied vectors and their short sums first, and the output under a budget is a prefix of the
+output under any larger budget. Only the current subset's positions are held, so memory is `O(rank)`
+plus the emitted candidates, however large `2^rank` is.
+
+The XOR budget counts merges of two sorted index lists, in the reduction as well as in building
+sums; a subset of size `s` costs `s − 1`. The output budget counts emitted candidates. Each is
+checked before the step it would pay for, so neither can be exceeded, and a budget exactly equal
+to the need still reports completion. When both run out at once the output budget is reported.
+The status is `Complete` only when every combination was emitted; otherwise it names the budget,
+the stage (reduction or enumeration), and the work and output so far, and is never a statement
+about the kernel or the unexamined sums. There is no resume cursor: retry with larger limits.
+
+### What it does not do
+
+The search does not check that a candidate is in the kernel of any matrix and does not lift it.
+That is the job of the checked dependency, which re-derives everything from the row indices and
+treats every candidate as untrusted.
+
+### KAT summary
+
+| Test file | Test | Mathematical fact verified |
+|-----------|------|---------------------------|
+| `kernel_combinations_kat.rs` | `kat_combinations_include_sums_beyond_basis_vectors` | `{0,1}⊕{1,2} = {0,2}` is emitted; three independent vectors give 7 sums |
+| `kernel_combinations_kat.rs` | `kat_dependent_and_duplicate_inputs_reduce_to_independent_set` | Duplicates, zero, and `a⊕b` collapse; rank 3 gives 7, with 3 + 5 XORs |
+| `kernel_combinations_kat.rs` | `kat_large_dependent_input_set_has_rank_based_count` | Rank 10 gives 1023 distinct sorted nonzero sums |
+| `kernel_combinations_kat.rs` | `kat_zero_cancellation_never_emitted` | `a⊕b⊕c = ∅` is never a candidate; empty and cancelling inputs are complete with none |
+| `kernel_combinations_kat.rs` | `kat_malformed_input_rows_do_not_panic` | Unsorted, repeated, and extreme indices are read as GF(2) sets |
+| `kernel_combinations_kat.rs` | `kat_order_is_deterministic_and_pinned` | Size-then-lexicographic order, identical across runs |
+| `kernel_combinations_kat.rs` | `kat_xor_budget_limits_enumeration` | Exactly enough is complete; one short and zero are limited, as prefixes |
+| `kernel_combinations_kat.rs` | `kat_xor_budget_can_end_during_reduction` | A budget spent in reduction emits nothing and names the stage |
+| `kernel_combinations_kat.rs` | `kat_candidate_budget_limits_output` | Output budget exactly enough is complete; one short and zero are limited |
+| `kernel_combinations_kat.rs` | `kat_large_input_set_with_small_budget_does_not_scan_the_subset_space` | 64 and 300 vectors with small budgets return limited at once |
+| `kernel_combinations_kat.rs` | `kat_status_is_complete_only_for_complete` | Only `Complete` reports complete |
+| `kernel_combinations_kat.rs` | `kat_combinations_of_computed_vectors_are_kernel_vectors` | Every sum of Lanczos vectors of the pinned matrix is in its kernel |
+
+---
+
 ## 51. What Comes Next
 
 The square-root and assembly stage is the final stage of the GNFS factoring pipeline. The
