@@ -1496,8 +1496,52 @@ provenance, including the three-identical-rows counterexample and column-weight 
 ### C-RootCharacters — individual affine-root filters
 
 **Enforcement:** compiler + test + prose. **Defined-in:** 10. **Consumed-by:** 11, 14.
-To be frozen at 10: (q,s) selection, Legendre(a-bs,q), pair-count semantics, zero rejection, and XOR
-over original provenance. q is odd and coprime to c*disc(F); f(s)=0 mod q. KATs distinguish the
+**Status:** **frozen at row 10 (commit 8100dd3, 2026-11-07)**; items are `gnfs::linalg::*` (module
+`qc` stays private); 9 new KATs plus one legacy pin in `gnfs/tests/linalg_substrate_kat.rs`; no
+Cargo change; the legacy norm-character helpers `populate_qc_columns`, `select_qc_primes` and
+`DEFAULT_NUM_QC` are unchanged in behaviour (docs relabelled) and old algebraic callers still use
+them until the migration row. Public API after the change:
+
+    pub struct RootCharacter;  // (q, s): prime(), root(), evaluate(&BigInt, &BigInt) -> CharacterValue
+    pub enum CharacterValue { Square /* bit 0 */, NonSquare /* bit 1 */, Zero /* no bit */ }
+        // bit() -> Option<bool>; a-b·s reduced mod q, Legendre by Euler's criterion
+    pub struct RootCharacters;  // owns a RelationChecker clone; minted only via new
+        // new(&RelationChecker, &[(q, s)]) -> Result<_, RootCharacterError>
+        //   rejection order: Even, NotPrime, Exceptional (classify_prime), RootOutOfRange, NotRoot,
+        //   Duplicate{first}; each as RootCharacterError::Pair{position, prime, root, reason}
+        // checker(), characters(), len() /* pairs, not primes */, is_empty()
+        // relation_bits(&CheckedRelations, index) -> Result<Vec<bool>, RootCharacterError>
+        // bit_table(&CheckedRelations) -> Result<Vec<Vec<bool>>, _>   // [relation][slot]
+        // fill_columns(&mut SparseMatrix, &MatrixLayout, &CheckedRelations) -> Result<(), _>
+        //   sets each row's character columns by XOR over its COMPLETE original provenance; zero
+        //   values and malformed input refused before anything changes; refuses a second fill
+        //   (CharacterColumnNotZero)
+        // verify_columns(&SparseMatrix, &MatrixLayout, &CheckedRelations) -> Result<(), _>
+        //   CharacterMismatch{row, slot} on a provenance-XOR difference
+    pub fn select_root_characters(&CheckedRelations, count: usize, RootCharacterLimits)
+        -> Result<RootCharacterSelection, RootCharacterError>;
+    pub struct RootCharacterLimits { pub prime_search: PrimeSearchLimits, pub root_search: RootSearchLimits }
+        // Default: start 3, 1000 primes, 100 000 evaluations per prime
+    pub struct RootCharacterSelection;  // characters(), report(), into_parts()
+    pub struct SelectionReport;  // rejected_pairs (vanish on a retained relation), exceptional_primes,
+                                 // truncated_primes (a truncated prime still offers the roots found)
+    pub enum RootCharacterError { Pair{..}, Exhausted{ resource: CharacterResource::{PrimeBudget{limit}
+        | PrimeRange}, requested, found, report: Box<SelectionReport> }, RelationsCheckerMismatch,
+        LayoutCheckerMismatch, LayoutCharacterCount{layout, characters}, MatrixShapeMismatch,
+        RelationOutOfRange{index, len}, ZeroValue{slot, prime, root, relation},
+        MalformedProvenance{row}, ProvenanceOutOfRange{row, index, relations},
+        CharacterColumnNotZero{row, column}, CharacterMismatch{row, slot}, Arithmetic(FpPolyError) }
+        // all with Display + Error
+
+Consumer notes: the elimination pivot is order-dependent, so a matrix filled before merging and one
+filled after can differ in structure — each satisfies the provenance-XOR identity, so do not assume
+the two orders give identical matrices; zero rejection depends on the relation set (a pair that
+vanishes on one retained relation is rejected for the whole set); row 11's "own character bits" call
+is `relation_bits`. Fixture evidence (independent script): x²−3, m=7, N=23, u=2+α has bits 00 at the
+q=23 roots 7 and 16 (so those characters cannot see it is a nonsquare) and bit 1 at pairs (11,6),
+(13,4), (13,9); the square 13+4α has bit 0 everywhere; exact reconstruction certifies u a nonsquare
+and 13+4α a root. Original statement: (q,s) selection, Legendre(a-bs,q), pair-count semantics, zero
+rejection, and XOR over original provenance. q is odd and coprime to c*disc(F); f(s)=0 mod q. KATs distinguish the
 norm-one nonsquare unit from a certified root and check merged-row consistency. Characters are
 necessary filters, not square certificates or sign-selection rules.
 
@@ -1556,7 +1600,7 @@ unstaged and uncommitted.
 | 7 | CRT recombination and dispatch ◆ | done | 01e1907 | C-VerifiedRoot (boundary: still-on-intent; anneal clean) |
 | 8 | Checked relations and algebraic parity | done | eba0a56 | C-CheckedRelations |
 | 9 | Elimination and XOR provenance | done | 6f304e9 | C-XorLift |
-| 10 | Individual root characters | pending | — | — |
+| 10 | Individual root characters | done | 8100dd3 | C-RootCharacters |
 | 11 | Checked dependencies | pending | — | — |
 | 12 | Bounded kernel combinations | pending | — | — |
 | 13 | Verified factor API migration | pending | — | — |
@@ -1729,6 +1773,20 @@ Deferred: yes — row 10 fills character columns by XOR over complete provenance
 reuses `classify_prime`; row 11 lifts dependencies with `lift_dependency` and must not union
 provenance anywhere; row 13/14 should not depend on `merge_columns` being a fixpoint; any later
 row wanting crate-level re-exports of the new merge items needs `filter/mod.rs` in its fileset.
+
+### 10 — 2026-11-07
+Discovery/flex: Clean dispatch. Additions beyond the plan: `relation_bits`/`bit_table`, and a
+truncated root enumeration still offers the roots found while reporting the prime (never proof of
+absence). Legacy norm-character helpers remain callable (docs relabelled); the new filter is not
+wired into the legacy end-to-end path, which is expected until the migration row. Verified the
+norm-one nonsquare unit fixture independently: it passes the q=23 characters yet is not a square, and
+exact reconstruction rejects it.
+Affected: C-RootCharacters (frozen); consumers 11, 14.
+Deferred: yes — row 11 must use `relation_bits`/`verify_columns` for provenance identities and must
+treat characters as necessary filters only; row 13 migrates callers off the legacy
+`populate_qc_columns`/`select_qc_primes` norm characters; row 14 must pin `RootCharacterLimits`
+(the `Default` is not a pinned configuration) and use eight pairs as planned; fill order
+(before vs after merging) gives structurally different but identity-satisfying matrices.
 
 ## Discoveries & risks
 
