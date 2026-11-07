@@ -14,11 +14,17 @@
 //!
 //! and, centered modulo `M > 2B`, equals its true coefficients exactly.
 //!
-//! This module builds the signed contributions `C_ij = W_i · s_ij · L_ij mod M` and checks every
-//! local identity it relies on. It never chooses the signs `ε_ij` and never produces a verified
-//! root: a local square at every root says nothing about a global square. A prime where `H` is a
-//! nonresidue at a root is a genuine obstruction (`z(r)² ≡ H(r) (mod p)` has no solution), so it
-//! yields a nonsquare certificate; exhausted budgets are resource outcomes only. See
+//! [`split_contributions`] builds the signed contributions `C_ij = W_i · s_ij · L_ij mod M` and
+//! checks every local identity it relies on. It never chooses the signs `ε_ij`: a local square at
+//! every root says nothing about a global square. A prime where `H` is a nonresidue at a root is a
+//! genuine obstruction (`z(r)² ≡ H(r) (mod p)` has no solution), so it yields a nonsquare
+//! certificate; exhausted budgets are resource outcomes only.
+//!
+//! [`recombine_signs`] then finds the signs by meet-in-the-middle matching on the coefficient with
+//! the smallest bound, and [`split_prime_root`] runs both steps. The first contribution is fixed
+//! to `+`, which removes the `z ↔ −z` symmetry and nothing else. A sign vector is accepted only
+//! through [`NormalizedTarget::verify_candidate`]; a search cut short by a budget is a resource
+//! outcome, and only a complete search whose every match was rejected certifies a nonsquare. See
 //! `gnfs/docs/PEDAGOGY.md` for the derivation.
 
 use num_bigint::BigInt;
@@ -32,8 +38,9 @@ use shared_numfield::{
 use shared_padic::hensel_lift;
 
 use super::{
-    CrtLimits, InvariantViolation, NonSquareCertificate, NonSquareEvidence, NormalizedTarget,
-    PrimeSearchLimits, ReconstructionMethod, ResourceExhaustion, ResourceKind, SqrtError,
+    AlgebraicSqrtOutcome, CandidateRejection, CandidateVerdict, CrtLimits, InvariantViolation,
+    NonSquareCertificate, NonSquareEvidence, NormalizedTarget, PrimeSearchLimits,
+    RecombinationLimits, ReconstructionMethod, ResourceExhaustion, ResourceKind, SqrtError,
 };
 
 /// The sign `ε` applied to one local contribution.
@@ -284,6 +291,277 @@ pub fn split_contributions(
     Ok(SplitOutcome::Ready(assemble_set(
         target, lifted, weights, exponent, modulus,
     )))
+}
+
+/// Reconstruct a verified square root of `target` by split-prime lifting and sign recombination.
+///
+/// Runs [`split_contributions`] and, when it yields contributions, [`recombine_signs`]. A local
+/// nonresidue becomes a nonsquare certificate; a budget that ends the prime search is a
+/// single-entry [`AlgebraicSqrtOutcome::ResourceExhausted`].
+///
+/// # Errors
+///
+/// [`SqrtError::Invariant`] as for [`split_contributions`] and [`recombine_signs`].
+pub fn split_prime_root(
+    target: &NormalizedTarget,
+    crt: CrtLimits,
+    recombination: RecombinationLimits,
+) -> Result<AlgebraicSqrtOutcome, SqrtError> {
+    match split_contributions(target, crt)? {
+        SplitOutcome::Ready(set) => recombine_signs(&set, recombination),
+        SplitOutcome::NotSquare(certificate) => Ok(AlgebraicSqrtOutcome::NotSquare(certificate)),
+        SplitOutcome::ResourceExhausted(exhausted) => {
+            Ok(AlgebraicSqrtOutcome::ResourceExhausted(vec![exhausted]))
+        }
+    }
+}
+
+/// Find the signs `ε` for which `Σ ε_k·C_k` is a verified root, by meet-in-the-middle matching.
+///
+/// Let `n = ℓ·d` and `c_k = C_k[κ]`, where `κ` is the coefficient with the smallest bound `b = B_κ`
+/// (ties go to the lowest index). The first contribution is fixed to `+`, which removes the
+/// symmetry `z ↔ −z`; no other sign is normalised. The remaining indices split into a left half
+/// `1..=⌊(n−1)/2⌋` and a right half. The left list holds `c_0 + Σ ±c_k` over the left signs and the
+/// right list holds `Σ ±c_k` over the right signs, both modulo `M`, enumerated by sign mask (bit
+/// `j` set means `−`). A pair is a match when `x + y` has centered residue in `[−b, b]`, that is,
+/// `y` lies in the residue interval `[−x−b, −x+b] (mod M)`. An interval that wraps past `M` is
+/// scanned as the two exact ranges `[lo, M−1]` and `[0, hi]`; since `2b + 1 ≤ M` they never
+/// overlap. The right list is sorted by `(residue, mask)` and searched by binary search, so
+/// matches are examined in ascending left mask, then interval order, then right residue.
+///
+/// Each match is assembled in full and passed to [`NormalizedTarget::verify_candidate`], which
+/// checks every coefficient bound and `z² = H` exactly. A close match on `κ` alone proves nothing.
+/// [`AlgebraicSqrtOutcome::Verified`], [`AlgebraicSqrtOutcome::Incidental`] and
+/// [`AlgebraicSqrtOutcome::Unsupported`] are returned at once: a root exists. Rejected matches are
+/// skipped.
+///
+/// Budgets: if the larger list would exceed `max_list_entries`, the result is
+/// [`ResourceKind::RecombinationList`] with the required entry count (saturated at `u64::MAX`),
+/// before any list is built. Before examining the match numbered `max_matches + 1`, the result is
+/// [`ResourceKind::RecombinationMatches`]. Neither is evidence about squareness. Only a complete
+/// search in which every match was rejected, including a search with no match at all, returns
+/// [`NonSquareEvidence::SignSearchExhausted`]: some `±z` has `ε_0 = +` and `|z_κ| ≤ b`, so a root
+/// would always have been matched.
+///
+/// # Errors
+///
+/// [`SqrtError::Invariant`] if the set is empty or malformed, `2b + 1 > M`, or the verifier
+/// reports a candidate of degree `≥ d`. These indicate a defect, never a nonsquare.
+pub fn recombine_signs(
+    set: &ContributionSet,
+    limits: RecombinationLimits,
+) -> Result<AlgebraicSqrtOutcome, SqrtError> {
+    let contributions = set.contributions.len();
+    let bounds = set.target.coefficient_bounds();
+    let Some(kappa) = (0..bounds.len()).min_by(|&a, &b| bounds[a].cmp(&bounds[b]).then(a.cmp(&b)))
+    else {
+        return Err(violation("coefficient bounds are empty"));
+    };
+    let bound = &bounds[kappa];
+    if contributions == 0 || bound * 2 + 1 > set.modulus {
+        return Err(violation(
+            "contribution set is empty or its modulus does not exceed twice the bound",
+        ));
+    }
+    let column = set
+        .contributions
+        .iter()
+        .map(|c| c.coefficients.get(kappa))
+        .collect::<Option<Vec<&BigInt>>>()
+        .ok_or_else(|| violation("contribution has fewer coefficients than the degree"))?;
+
+    let halves = Halves::of(contributions);
+    let lists = match MeetInTheMiddle::build(&column, halves, bound, &set.modulus, limits) {
+        Ok(lists) => lists,
+        Err(exhausted) => return Ok(AlgebraicSqrtOutcome::ResourceExhausted(vec![exhausted])),
+    };
+
+    let mut examined: u64 = 0;
+    for (left_mask, right_mask) in lists.candidates() {
+        if examined >= limits.max_matches {
+            return Ok(AlgebraicSqrtOutcome::ResourceExhausted(vec![
+                ResourceExhaustion {
+                    kind: ResourceKind::RecombinationMatches,
+                    consumed: examined,
+                    limit: limits.max_matches,
+                },
+            ]));
+        }
+        examined += 1;
+        let signs = halves.signs(left_mask, right_mask);
+        let candidate = set.assemble(&signs)?;
+        match set.target.verify_candidate(&candidate, set.method())? {
+            CandidateVerdict::Verified(root) => return Ok(AlgebraicSqrtOutcome::Verified(root)),
+            CandidateVerdict::Incidental(factor) => {
+                return Ok(AlgebraicSqrtOutcome::Incidental(factor));
+            }
+            CandidateVerdict::Unsupported(domain) => {
+                return Ok(AlgebraicSqrtOutcome::Unsupported(domain));
+            }
+            CandidateVerdict::Rejected(CandidateRejection::DegreeTooHigh) => {
+                return Err(violation("assembled candidate has degree at least d"));
+            }
+            CandidateVerdict::Rejected(_) => {}
+        }
+    }
+    Ok(AlgebraicSqrtOutcome::NotSquare(NonSquareCertificate::new(
+        NonSquareEvidence::SignSearchExhausted {
+            primes: set.locals.iter().map(LocalPrime::prime).collect(),
+            exponent: set.exponent,
+        },
+    )))
+}
+
+/// The split of the `n − 1` free signs into a left half and a right half.
+///
+/// Contribution `0` is fixed to `+`; contributions `1..=left` form the left half and the rest the
+/// right half, so the right half is never the smaller one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Halves {
+    total: usize,
+    left: usize,
+}
+
+impl Halves {
+    fn of(total: usize) -> Self {
+        Self {
+            total,
+            left: total.saturating_sub(1) / 2,
+        }
+    }
+
+    fn right(self) -> usize {
+        self.total.saturating_sub(1) - self.left
+    }
+
+    /// The full sign vector: `+` first, then the left mask, then the right mask (bit set = `−`).
+    fn signs(self, left_mask: u64, right_mask: u64) -> Vec<ContributionSign> {
+        let sign = |mask: u64, bit: usize| {
+            if mask >> bit & 1 == 1 {
+                ContributionSign::Minus
+            } else {
+                ContributionSign::Plus
+            }
+        };
+        let left = (0..self.left).map(|j| sign(left_mask, j));
+        let right = (0..self.right()).map(|j| sign(right_mask, j));
+        std::iter::once(ContributionSign::Plus)
+            .chain(left)
+            .chain(right)
+            .collect()
+    }
+}
+
+/// `2^len` as an entry count if it fits `usize`.
+fn entry_count(len: usize) -> Option<usize> {
+    u32::try_from(len)
+        .ok()
+        .and_then(|bits| 1usize.checked_shl(bits))
+}
+
+/// `2^len` as a `u64`, saturating at `u64::MAX` when it does not fit.
+fn required_entries(len: usize) -> u64 {
+    u32::try_from(len)
+        .ok()
+        .and_then(|bits| 1u64.checked_shl(bits))
+        .unwrap_or(u64::MAX)
+}
+
+/// The meet-in-the-middle lists for one coefficient.
+struct MeetInTheMiddle {
+    /// `c_0 + Σ ±c_k` over the left signs, indexed by left mask.
+    left: Vec<BigInt>,
+    /// `(Σ ±c_k, mask)` over the right signs, ascending.
+    right: Vec<(BigInt, u64)>,
+    bound: BigInt,
+    modulus: BigInt,
+}
+
+impl MeetInTheMiddle {
+    /// Build both lists after checking their size against the budget, so nothing is allocated for
+    /// a search that cannot fit.
+    fn build(
+        column: &[&BigInt],
+        halves: Halves,
+        bound: &BigInt,
+        modulus: &BigInt,
+        limits: RecombinationLimits,
+    ) -> Result<Self, ResourceExhaustion> {
+        let required = required_entries(halves.right());
+        let exhausted = ResourceExhaustion {
+            kind: ResourceKind::RecombinationList,
+            consumed: required,
+            limit: limits.max_list_entries,
+        };
+        if halves.right() >= 64 || required > limits.max_list_entries {
+            return Err(exhausted);
+        }
+        let left_terms = &column[1..=halves.left];
+        let right_terms = &column[1 + halves.left..];
+        let left = signed_sums(column[0], left_terms, modulus).ok_or(exhausted)?;
+        let sums = signed_sums(&BigInt::zero(), right_terms, modulus).ok_or(exhausted)?;
+        let mut right = Vec::new();
+        right.try_reserve_exact(sums.len()).map_err(|_| exhausted)?;
+        right.extend(sums.into_iter().zip(0u64..));
+        right.sort_unstable();
+        Ok(Self {
+            left,
+            right,
+            bound: bound.clone(),
+            modulus: modulus.clone(),
+        })
+    }
+
+    /// Every `(left mask, right mask)` whose sum is within the bound, in examination order.
+    fn candidates(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
+        self.left
+            .iter()
+            .zip(0u64..)
+            .flat_map(move |(x, left_mask)| {
+                residue_intervals(x, &self.bound, &self.modulus)
+                    .into_iter()
+                    .flat_map(move |(lo, hi)| {
+                        let start = self.right.partition_point(|(r, _)| *r < lo);
+                        let end = self.right.partition_point(|(r, _)| *r <= hi);
+                        self.right[start..end]
+                            .iter()
+                            .map(move |&(_, right_mask)| (left_mask, right_mask))
+                    })
+            })
+    }
+}
+
+/// `head + Σ ±term` modulo `modulus` for every sign mask, indexed by mask (bit `j` set means the
+/// `j`-th term is subtracted). `None` if the `2^len` entries cannot be allocated.
+fn signed_sums(head: &BigInt, terms: &[&BigInt], modulus: &BigInt) -> Option<Vec<BigInt>> {
+    let mut sums = Vec::new();
+    sums.try_reserve_exact(entry_count(terms.len())?).ok()?;
+    sums.push(head.mod_floor(modulus));
+    for term in terms {
+        let minus: Vec<BigInt> = sums
+            .iter()
+            .map(|s| (s - *term).mod_floor(modulus))
+            .collect();
+        for s in &mut sums {
+            *s = (&*s + *term).mod_floor(modulus);
+        }
+        sums.extend(minus);
+    }
+    Some(sums)
+}
+
+/// The residues `y` with `x + y` within `bound` of zero modulo `modulus`, as ascending disjoint
+/// inclusive intervals in scan order: one interval, or two when the interval wraps past `modulus`.
+///
+/// Requires `2·bound + 1 ≤ modulus`, so the interval never covers a residue twice.
+fn residue_intervals(x: &BigInt, bound: &BigInt, modulus: &BigInt) -> Vec<(BigInt, BigInt)> {
+    let lo = (-x - bound).mod_floor(modulus);
+    let hi = (bound - x).mod_floor(modulus);
+    if lo <= hi {
+        vec![(lo, hi)]
+    } else {
+        vec![(lo, modulus - BigInt::one()), (BigInt::zero(), hi)]
+    }
 }
 
 // ─── prime search ────────────────────────────────────────────────────────────
@@ -776,7 +1054,10 @@ fn violation(what: &'static str) -> SqrtError {
 
 #[cfg(test)]
 mod tests {
+    use shared_numfield::RootSearchLimits;
+
     use super::*;
+    use crate::sqrt::{PrecisionLimits, RelationFactors, SqrtContext, TargetOutcome};
 
     fn big(v: i64) -> BigInt {
         BigInt::from(v)
@@ -788,6 +1069,305 @@ mod tests {
 
     fn is_invariant<T: std::fmt::Debug>(result: Result<T, SqrtError>) -> bool {
         matches!(result, Err(SqrtError::Invariant(_)))
+    }
+
+    /// Contributions for `f`, `m`, `N` and the relation pairs, at `ell` split primes from `first`.
+    fn set_for(
+        f: &[i64],
+        m: i64,
+        n: i64,
+        pairs: &[(i64, i64)],
+        first: u64,
+        ell: u32,
+    ) -> ContributionSet {
+        let context = SqrtContext::new(&poly(f), &big(m), &big(n)).unwrap();
+        let pairs: Vec<(BigInt, BigInt)> = pairs.iter().map(|&(a, b)| (big(a), big(b))).collect();
+        let factors = RelationFactors::new(&context, &pairs).unwrap();
+        let precision = PrecisionLimits {
+            max_modulus_bits: 4096,
+        };
+        let TargetOutcome::Ready(target) = NormalizedTarget::new(factors, precision).unwrap()
+        else {
+            panic!("precision budget is generous");
+        };
+        let limits = CrtLimits {
+            prime_search: PrimeSearchLimits {
+                first_candidate: first,
+                max_primes_examined: 200,
+            },
+            max_primes: ell,
+            root_search: RootSearchLimits {
+                max_evaluations: 100_000,
+            },
+            nonresidue_search: NonresidueSearchLimits {
+                max_candidates: 1000,
+            },
+        };
+        match split_contributions(&target, limits).unwrap() {
+            SplitOutcome::Ready(set) => set,
+            other => panic!("expected contributions, got {other:?}"),
+        }
+    }
+
+    fn roomy() -> RecombinationLimits {
+        RecombinationLimits {
+            max_list_entries: 1 << 20,
+            max_matches: 1 << 20,
+        }
+    }
+
+    /// The coefficient index with the least bound, lowest index on ties, and that bound.
+    fn narrowest(set: &ContributionSet) -> (usize, BigInt) {
+        let bounds = set.target().coefficient_bounds();
+        let kappa = (0..bounds.len())
+            .min_by_key(|&i| (bounds[i].clone(), i))
+            .unwrap();
+        (kappa, bounds[kappa].clone())
+    }
+
+    /// Bit `k − 1` of the mask is set exactly when contribution `k` is subtracted.
+    fn mask_of(signs: &[ContributionSign]) -> u64 {
+        signs[1..]
+            .iter()
+            .enumerate()
+            .filter(|&(_, s)| *s == ContributionSign::Minus)
+            .fold(0, |mask, (j, _)| mask | 1 << j)
+    }
+
+    /// Every sign vector with the first sign `+` whose assembled coefficient `κ` is within its
+    /// bound, found by assembling all `2^(n−1)` vectors.
+    fn brute_force_matches(set: &ContributionSet) -> Vec<u64> {
+        let (kappa, bound) = narrowest(set);
+        let n = set.contributions().len();
+        (0..1u64 << (n - 1))
+            .filter(|&mask| {
+                let signs: Vec<ContributionSign> = std::iter::once(ContributionSign::Plus)
+                    .chain((0..n - 1).map(|j| {
+                        if mask >> j & 1 == 1 {
+                            ContributionSign::Minus
+                        } else {
+                            ContributionSign::Plus
+                        }
+                    }))
+                    .collect();
+                let z = set.assemble(&signs).unwrap();
+                let value = z.coeffs.get(kappa).cloned().unwrap_or_else(BigInt::zero);
+                -&bound <= value && value <= bound
+            })
+            .collect()
+    }
+
+    fn lists_for(set: &ContributionSet) -> (Halves, MeetInTheMiddle) {
+        let (kappa, bound) = narrowest(set);
+        let column: Vec<&BigInt> = set
+            .contributions()
+            .iter()
+            .map(|c| &c.coefficients()[kappa])
+            .collect();
+        let halves = Halves::of(column.len());
+        let lists =
+            MeetInTheMiddle::build(&column, halves, &bound, set.modulus(), roomy()).unwrap();
+        (halves, lists)
+    }
+
+    #[test]
+    fn residue_intervals_split_a_wrapped_interval_into_two_exact_ranges() {
+        // M = 11, b = 3: x = 0 needs y ∈ {−3, …, 3} = {8, 9, 10, 0, 1, 2, 3}, which wraps; x = 5
+        // needs y ∈ {−8, …, −2} = {3, …, 9}, which does not.
+        let (m, b) = (big(11), big(3));
+        assert_eq!(
+            residue_intervals(&big(0), &b, &m),
+            vec![(big(8), big(10)), (big(0), big(3))]
+        );
+        assert_eq!(residue_intervals(&big(5), &b, &m), vec![(big(3), big(9))]);
+        // The edges: the interval ends exactly at M − 1 (x = 8: y ∈ {0, …, 6}), starts exactly
+        // at 0 (x = 3: y ∈ {5, …, 11 ≡ 0}), and with b = 0 is a single residue.
+        assert_eq!(residue_intervals(&big(8), &b, &m), vec![(big(0), big(6))]);
+        assert_eq!(
+            residue_intervals(&big(3), &b, &m),
+            vec![(big(5), big(10)), (big(0), big(0))]
+        );
+        assert_eq!(
+            residue_intervals(&big(4), &big(0), &m),
+            vec![(big(7), big(7))]
+        );
+        // M = 2b + 1 = 7: every residue is within the bound, exactly once, for every x.
+        let (m, b) = (big(7), big(3));
+        for x in 0..7 {
+            let intervals = residue_intervals(&big(x), &b, &m);
+            let mut covered: Vec<BigInt> = Vec::new();
+            for (lo, hi) in &intervals {
+                assert!(lo <= hi);
+                let mut y = lo.clone();
+                while y <= *hi {
+                    covered.push(y.clone());
+                    y += 1;
+                }
+            }
+            covered.sort();
+            assert_eq!(covered, (0..7).map(big).collect::<Vec<_>>(), "x = {x}");
+        }
+    }
+
+    #[test]
+    fn residue_intervals_cover_exactly_the_residues_within_the_bound() {
+        // Brute force over all x and b for a small odd modulus.
+        let m = big(13);
+        for b in 0..=6 {
+            for x in 0..13 {
+                let expected: Vec<i64> = (0..13)
+                    .filter(|y| {
+                        let sum = centered(&big((x + y) % 13), &m);
+                        big(-b) <= sum && sum <= big(b)
+                    })
+                    .collect();
+                let mut got: Vec<i64> = Vec::new();
+                for (lo, hi) in residue_intervals(&big(x), &big(b), &m) {
+                    let (lo, hi) = (i64::try_from(lo).unwrap(), i64::try_from(hi).unwrap());
+                    got.extend(lo..=hi);
+                }
+                got.sort_unstable();
+                assert_eq!(got, expected, "x = {x}, b = {b}");
+            }
+        }
+    }
+
+    #[test]
+    fn halves_put_the_larger_part_on_the_right_and_fix_the_first_sign() {
+        let shapes: Vec<(usize, usize)> = [1, 2, 3, 4, 5, 8]
+            .iter()
+            .map(|&n| (Halves::of(n).left, Halves::of(n).right()))
+            .collect();
+        assert_eq!(shapes, vec![(0, 0), (0, 1), (1, 1), (1, 2), (2, 2), (3, 4)]);
+        // n = 4: signs are [+, left bit 0, right bit 0, right bit 1].
+        let signs = Halves::of(4).signs(0b1, 0b10);
+        assert_eq!(
+            signs,
+            vec![
+                ContributionSign::Plus,
+                ContributionSign::Minus,
+                ContributionSign::Plus,
+                ContributionSign::Minus
+            ]
+        );
+        assert_eq!(Halves::of(1).signs(0, 0), vec![ContributionSign::Plus]);
+    }
+
+    #[test]
+    fn list_sizes_saturate_instead_of_overflowing() {
+        assert_eq!(required_entries(0), 1);
+        assert_eq!(required_entries(10), 1024);
+        assert_eq!(required_entries(63), 1 << 63);
+        assert_eq!(required_entries(64), u64::MAX);
+        assert_eq!(required_entries(usize::MAX), u64::MAX);
+        assert_eq!(entry_count(3), Some(8));
+        assert_eq!(entry_count(usize::MAX), None);
+        // A request that cannot fit is refused rather than allocated.
+        assert_eq!(signed_sums(&big(0), &[&big(1); 70], &big(11)), None);
+    }
+
+    #[test]
+    fn signed_sums_are_indexed_by_sign_mask() {
+        // 5 ± 1 ± 2 ± 4 modulo 100, bit j set subtracting term j: mask 0b101 = 5 − 1 + 2 − 4 = 2,
+        // mask 0b010 = 5 + 1 − 2 + 4 = 8, mask 0b111 = 5 − 7 = −2 ≡ 98.
+        let terms = [big(1), big(2), big(4)];
+        let refs: Vec<&BigInt> = terms.iter().collect();
+        let sums = signed_sums(&big(5), &refs, &big(100)).unwrap();
+        assert_eq!(sums.len(), 8);
+        assert_eq!(sums[0], big(12));
+        assert_eq!(sums[0b101], big(2));
+        assert_eq!(sums[0b010], big(8));
+        assert_eq!(sums[0b111], big(98));
+        // No terms: just the head.
+        assert_eq!(
+            signed_sums(&big(-3), &[], &big(100)).unwrap(),
+            vec![big(97)]
+        );
+    }
+
+    #[test]
+    fn meet_in_the_middle_finds_exactly_the_brute_force_matches() {
+        let fixtures = [
+            // 527: z = 4 + 2θ, one prime and two primes.
+            set_for(&[-2, 0, 1], 23, 527, &[(3, -2)], 0, 1),
+            set_for(&[-2, 0, 1], 23, 527, &[(3, -2)], 0, 2),
+            // A negative integer is a local square at 7 and 23 and no global square.
+            set_for(&[-2, 0, 1], 23, 527, &[(-5, 0)], 0, 1),
+            set_for(&[-2, 0, 1], 23, 527, &[(-5, 0)], 0, 2),
+            // V4 quartic at one prime and two, and the degree-one case with three primes.
+            set_for(&[1, 0, -10, 0, 1], 4, 97, &[(1, -1), (1, -1)], 0, 1),
+            set_for(&[1, 0, -10, 0, 1], 4, 97, &[(1, -1), (1, -1)], 0, 2),
+            set_for(&[-5, 1], 5, 21, &[(169, 0)], 0, 3),
+        ];
+        for (index, set) in fixtures.iter().enumerate() {
+            let (halves, lists) = lists_for(set);
+            let mut found: Vec<u64> = lists
+                .candidates()
+                .map(|(l, r)| mask_of(&halves.signs(l, r)))
+                .collect();
+            found.sort_unstable();
+            let mut distinct = found.clone();
+            distinct.dedup();
+            assert_eq!(found, distinct, "fixture {index}: a match was listed twice");
+            assert_eq!(found, brute_force_matches(set), "fixture {index}");
+        }
+    }
+
+    #[test]
+    fn matches_inside_a_wrapped_interval_are_not_lost() {
+        // A left sum within b of zero modulo M has a residue interval that wraps past M: it is
+        // [lo, M − 1] followed by [0, hi], with lo > hi. Scanning only [lo, hi] when lo ≤ hi would
+        // silently drop the matches of such a sum.
+        let wrapped = [
+            set_for(&[-2, 0, 1], 23, 527, &[(-5, 0)], 0, 2),
+            set_for(&[1, 0, -10, 0, 1], 4, 97, &[(1, -1), (1, -1)], 0, 2),
+        ];
+        for set in &wrapped {
+            let (_, lists) = lists_for(set);
+            let wrapping = lists
+                .left
+                .iter()
+                .filter(|x| residue_intervals(x, &lists.bound, &lists.modulus).len() == 2)
+                .count();
+            assert!(wrapping > 0, "the fixture must exercise a wrapped interval");
+            let unwrapped_only = lists
+                .left
+                .iter()
+                .map(|x| {
+                    let lo = (-x - &lists.bound).mod_floor(&lists.modulus);
+                    let hi = (&lists.bound - x).mod_floor(&lists.modulus);
+                    if lo <= hi {
+                        lists
+                            .right
+                            .iter()
+                            .filter(|(r, _)| lo <= *r && *r <= hi)
+                            .count()
+                    } else {
+                        0
+                    }
+                })
+                .sum::<usize>();
+            assert!(unwrapped_only < lists.candidates().count());
+        }
+    }
+
+    #[test]
+    fn recombination_reports_defective_sets_as_invariant_errors() {
+        let set = set_for(&[-2, 0, 1], 23, 527, &[(3, -2)], 0, 2);
+        assert!(recombine_signs(&set, roomy()).is_ok());
+
+        let mut empty = set.clone();
+        empty.contributions.clear();
+        assert!(is_invariant(recombine_signs(&empty, roomy())));
+
+        // A modulus at most 2b + 1 would let an interval cover a residue twice: b = 6, so 13.
+        let mut small = set.clone();
+        small.modulus = big(12);
+        assert!(is_invariant(recombine_signs(&small, roomy())));
+
+        let mut short = set.clone();
+        short.contributions[2].coefficients.truncate(1);
+        assert!(is_invariant(recombine_signs(&short, roomy())));
     }
 
     #[test]

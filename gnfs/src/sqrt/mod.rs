@@ -15,8 +15,12 @@
 //! - [`padic`] — direct reconstruction of the algebraic square root by inverse-square-root Newton
 //!   lifting at one inert prime. Entry point: [`padic::direct_root`].
 //! - [`crt`] — signed local contributions of a square root at completely split primes, lifted to
-//!   a common prime power with Lagrange interpolation and Chinese-remainder weights. Entry point:
-//!   [`crt::split_contributions`].
+//!   a common prime power with Lagrange interpolation and Chinese-remainder weights, and the exact
+//!   meet-in-the-middle sign search that turns them into a root. Entry points:
+//!   [`crt::split_contributions`], [`crt::recombine_signs`], [`crt::split_prime_root`].
+//! - [`reconstruct_root`] — the method-neutral entry point: direct Newton lifting first, split-prime
+//!   lifting only when the search for an inert prime is exhausted. Both methods return through the
+//!   same exact verifier.
 //!
 //! # Background
 //!
@@ -55,7 +59,87 @@ pub use context::{
     SqrtError, SqrtLimits, UnsupportedDomain, VerifiedRoot,
 };
 pub use crt::{
-    Contribution, ContributionSet, ContributionSign, LocalPrime, SplitOutcome, split_contributions,
+    Contribution, ContributionSet, ContributionSign, LocalPrime, SplitOutcome, recombine_signs,
+    split_contributions, split_prime_root,
 };
 pub use padic::direct_root;
 pub use rational::rational_sqrt;
+
+/// Reconstruct a verified algebraic square root with bounded primary-to-fallback dispatch.
+///
+/// The primary method is [`direct_root`]. The fallback, [`split_prime_root`], runs only when the
+/// primary reports [`ResourceKind::InertPrimeSearch`] or [`ResourceKind::MachinePrimeRange`]
+/// exhaustion, which says the inert-prime search stopped, not that no inert prime exists. Every
+/// other primary outcome is returned unchanged: a verified root, a nonsquare certificate, an
+/// incidental factor, an unsupported map, or an exhausted nonresidue or precision budget. If the
+/// fallback is also exhausted, the two resource lists are concatenated in the order the methods
+/// ran. Both methods accept a root only through [`NormalizedTarget::verify_candidate`], so a
+/// [`AlgebraicSqrtOutcome::Verified`] result is the same kind of witness whichever produced it.
+///
+/// `limits.precision` is checked against the target's minimum modulus `2B + 1` before any prime
+/// search, so a target built under a looser budget is still refused here.
+///
+/// # Errors
+///
+/// [`SqrtError::Invariant`] if either method detects a violated internal identity. These indicate
+/// a defect, never a nonsquare.
+pub fn reconstruct_root(
+    target: &NormalizedTarget,
+    limits: SqrtLimits,
+) -> Result<AlgebraicSqrtOutcome, SqrtError> {
+    let bits = target.minimum_modulus().bits();
+    if bits > limits.precision.max_modulus_bits {
+        return Ok(AlgebraicSqrtOutcome::ResourceExhausted(vec![
+            ResourceExhaustion {
+                kind: ResourceKind::Precision,
+                consumed: bits,
+                limit: limits.precision.max_modulus_bits,
+            },
+        ]));
+    }
+    let primary = match direct_root(target, limits.direct)? {
+        AlgebraicSqrtOutcome::ResourceExhausted(spent) if inert_search_ended(&spent) => spent,
+        other => return Ok(other),
+    };
+    Ok(
+        match split_prime_root(target, limits.crt, limits.recombination)? {
+            AlgebraicSqrtOutcome::ResourceExhausted(fallback) => {
+                AlgebraicSqrtOutcome::ResourceExhausted(
+                    primary.into_iter().chain(fallback).collect(),
+                )
+            }
+            other => other,
+        },
+    )
+}
+
+/// Build the normalized target for `factors` under `limits.precision`, then [`reconstruct_root`].
+///
+/// A precision budget too small for the target's bound is reported as
+/// [`ResourceKind::Precision`] exhaustion before any prime search.
+///
+/// # Errors
+///
+/// [`SqrtError`] as for [`NormalizedTarget::new`] and [`reconstruct_root`].
+pub fn reconstruct_root_from_factors(
+    factors: RelationFactors,
+    limits: SqrtLimits,
+) -> Result<AlgebraicSqrtOutcome, SqrtError> {
+    match NormalizedTarget::new(factors, limits.precision)? {
+        TargetOutcome::Ready(target) => reconstruct_root(&target, limits),
+        TargetOutcome::ResourceExhausted(exhausted) => {
+            Ok(AlgebraicSqrtOutcome::ResourceExhausted(vec![exhausted]))
+        }
+    }
+}
+
+/// True for a non-empty exhaustion list made only of inert-prime-search outcomes.
+fn inert_search_ended(spent: &[ResourceExhaustion]) -> bool {
+    !spent.is_empty()
+        && spent.iter().all(|e| {
+            matches!(
+                e.kind,
+                ResourceKind::InertPrimeSearch | ResourceKind::MachinePrimeRange
+            )
+        })
+}

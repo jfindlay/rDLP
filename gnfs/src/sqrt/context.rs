@@ -596,7 +596,7 @@ pub struct CrtLimits {
     pub max_primes: u32,
     /// Exhaustive root search in each prime field.
     pub root_search: RootSearchLimits,
-    /// Search for a nonresidue modulo each prime power.
+    /// Search for a nonresidue modulo each split prime.
     pub nonresidue_search: NonresidueSearchLimits,
 }
 
@@ -716,8 +716,6 @@ pub struct NonSquareCertificate {
 }
 
 impl NonSquareCertificate {
-    // No reconstruction code mints certificates yet, so non-test builds see no caller.
-    #[allow(dead_code)]
     pub(super) fn new(evidence: NonSquareEvidence) -> Self {
         Self { evidence }
     }

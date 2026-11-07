@@ -3887,6 +3887,137 @@ and one contribution per prime.
 
 ---
 
+## Sign Recombination and Method Dispatch
+
+The contributions of the previous section leave one thing open: which signs `ε_ij` make
+`Σ ε_ij C_ij` a root rather than merely a local square. `gnfs::sqrt::crt::recombine_signs` decides
+this exactly, `split_prime_root` runs prime selection and recombination together, and
+`gnfs::sqrt::reconstruct_root` chooses between the direct method and this one. A root is accepted
+in one place only, `NormalizedTarget::verify_candidate`, which checks every coefficient bound and
+`z² ≡ H (mod F)` exactly; nothing here constructs a `VerifiedRoot`.
+
+### Matching on the narrowest coefficient
+
+Let `n = ℓ·d`, `C_k` the contributions in their canonical order, and `κ` the coefficient with the
+smallest certified bound `b = B_κ` (the lowest index on ties). A root `z` has `|z_κ| ≤ b`, and
+`M ≥ 2B + 1 ≥ 2b + 1`, so `z_κ` is the centered residue of `Σ ε_k C_k[κ]`. Both `z` and `−z` are
+roots and negating `z` negates every sign, so exactly one of them has `ε_0 = +`. That is the only
+sign the search fixes. It does not assume that the signs agree within a prime, across primes, or
+along any other pattern: `z` is the sum of `n` independently signed contributions, and the signs of
+a true root are whatever `z(R_ij) ≡ ±s_ij` dictates.
+
+The remaining `n − 1` signs are split into a left half (contributions `1..=⌊(n−1)/2⌋`) and a right
+half (the rest, never the smaller). With `c_k = C_k[κ]`:
+
+- the left list holds `x = c_0 + Σ_left ±c_k (mod M)`, indexed by sign mask (bit `j` set means
+  subtract the `j`-th term);
+- the right list holds `y = Σ_right ±c_k (mod M)`, sorted by `(y, mask)`.
+
+A pair is a *match* when `x + y` has centered residue in `[−b, b]`, that is, when
+`y ∈ [−x − b, −x + b] (mod M)`. Put `lo = (−x − b) mod M` and `hi = (−x + b) mod M`. If `lo ≤ hi`
+this is the range `[lo, hi]`. Otherwise the interval wraps past `M` and is exactly the two ranges
+`[lo, M − 1]` and `[0, hi]`. Because `2b + 1 ≤ M` the two ranges cannot overlap, and a residue is
+never listed twice (when `2b + 1 = M` they tile all of `Z/M`). Each range is a binary search in the
+sorted right list. For `M = 11`, `b = 3` the sum `x = 0` needs `y ∈ {8, 9, 10, 0, 1, 2, 3}`, which
+is `[8, 10]` then `[0, 3]`, while `x = 5` needs `y ∈ {3, …, 9}`, a single range. A scan that kept
+only `[lo, hi]` would find nothing for `x = 0`, and the failure would be silent: the search would
+look complete and end in a false nonsquare.
+
+Wrapping is common, not exotic. For `γ = −5` over `x² − 2`, `H = −40` is a constant, so `s` is
+the same up to sign at both roots of a prime, and the `t`-coefficients of the two Lagrange
+polynomials of that prime are opposite. For one sign choice the two contributions cancel exactly,
+the left sum is `x = 0`, and the interval `[−6, 6]` wraps as `[155, 160]` with `[0, 6]` at
+`M = 161`.
+
+The lists have `2^⌊(n−1)/2⌋` and `2^⌈(n−1)/2⌉` entries, so memory and time are exponential in half
+of `ℓ·d`, which is why a published parameter choice keeps `ℓ` small, often 1. No performance claim
+is made.
+
+### A match is not a root
+
+Matching uses one coefficient. Every sign vector is already a local square, so a match can only
+say that coefficient `κ` is small; the other coefficients, and `z² = H` over `Z`, are checked by
+the verifier on the full assembled candidate. Close matches that fail are the rule, not a defect:
+
+- `γ = −5` over `x² − 2` is negative, so not a square in the real field `Q(√2)`, yet at `p = 7`
+  the unique match is `z = ±3` with `9 ≡ −40 (mod 49)` and `9 ≠ −40` over `Z`; at the primes 7 and
+  23 the two matches are `±(80, 0)`, out of bound, and `±(−11, 0)` with `121 ≡ −40 (mod 161)`;
+- in the `V4` field, a genuine root coexists with rejected matches (two matches at `23⁴`, three at
+  `23²·47²`), so the search must not stop at the first match.
+
+`Incidental` and `Unsupported` verdicts mean a root exists but the map to `Z/N` failed, and they
+return immediately like `Verified`.
+
+### What is certified, and what is only a budget
+
+Two budgets bound the work, both checked before the work they bound:
+
+- if the larger list would exceed `max_list_entries`, the result is `RecombinationList` with the
+  required count (saturating at `u64::MAX` when `2^m` does not fit), and nothing is allocated;
+- before the match numbered `max_matches + 1` is examined, the result is `RecombinationMatches`.
+
+Both are resource outcomes. Only a search that examined every match, with every one rejected,
+returns `SignSearchExhausted`. This is sound exactly because a root would always have been
+matched: one of `±z` has `ε_0 = +` and `|z_κ| ≤ b`. A search with zero matches is complete, even
+with `max_matches = 0`. The false-positive fixture `x² − 3`, `γ = 2 + θ` at the prime 23 is the
+case: `2 + θ = (1 + θ)²/2` is a square in `Q(√3)` only if 2 is, and `√2 ∉ Q(√3)`; both local
+roots give squares modulo 23, yet the two candidates `61 − 156θ` and `126 + 126θ` (modulo 529,
+up to sign) have `θ`-coefficients far outside `b = 6`.
+
+### Dispatch
+
+`reconstruct_root` runs the direct method first. It falls back to `split_prime_root` only when the
+direct method reports exhaustion of the inert-prime search (`InertPrimeSearch`, or
+`MachinePrimeRange` when no prime is left below `2^64`). That says the search stopped, never that
+no inert prime exists: the `V4` field has none, so for it the fallback is the only route. Every
+other primary outcome is returned unchanged:
+
+- a nonsquare certificate (`InertLocalNonresidue`, `DirectBoundExhausted`);
+- an incidental factor or unsupported map (a root exists; retrying would only reproduce it);
+- exhaustion of the nonresidue or precision budget.
+
+If the fallback is also exhausted, the two resource lists are concatenated in the order the
+methods ran. Because both methods end in `verify_candidate`, their results are interchangeable
+witnesses: for `x² − 2` with `γ = 3 + 2θ` the direct method at the inert prime 3 and the
+split-prime method at 7 return `z = ±(4 + 2θ)`, `β = ±(1 + θ)` and the same image up to sign.
+`limits.precision` is checked against `2B + 1` before any prime search, and
+`reconstruct_root_from_factors` builds the target under it.
+
+### Fixtures
+
+- `x² − 2`, `N = 527`, `(3, −2)`: `b = 6` at `κ = 1`. At `ℓ = 1` the sums at coefficient 1 are
+  `11 ± 40`, which is `2` or `20` modulo 49, and only `2` is within `b`. At `ℓ = 2` there is one
+  match.
+- `F = t⁴ − 10t² + 1`, `N = 97`, `(1, −1)` twice: `κ = 3`, `b = 48`, matches `2` at `23⁴` and `3`
+  at `23²·47²`, one of which is `z = −4 − 20θ + 20θ² + 4θ³`.
+- `x² − 8`, `(2, 0)`: `z = 8`, `β = θ/2`, whose denominator 2 gives an incidental factor at
+  `N = 4` and an unsupported map at `N = 2`.
+
+### KAT summary
+
+| Test file | Test | Mathematical fact verified |
+|-----------|------|---------------------------|
+| `sqrt_crt_kat.rs` | `kat_single_prime_recombination_verifies_a_root` | `ℓ = 1` with and without a free sign (`d = 1`, `n = 1`) |
+| `sqrt_crt_kat.rs` | `kat_multiple_primes_recombine_without_cross_prime_sign_normalisation` | The true vector is the match with only `ε_0` fixed |
+| `sqrt_crt_kat.rs` | `kat_v4_quartic_without_an_inert_prime_reconstructs_by_split_primes` | `V4` needs the split-prime method; `β = 1 + θ`, `y = 5` |
+| `sqrt_crt_kat.rs` | `kat_close_matches_are_not_roots` | Matches rejected by bound or by `z² ≠ H`; a root among rejected matches |
+| `sqrt_crt_kat.rs` | `kat_complete_search_with_every_match_rejected_certifies_nonsquare` | `SignSearchExhausted` after every match is rejected |
+| `sqrt_crt_kat.rs` | `kat_zero_match_complete_search_certifies_nonsquare` | An empty complete search certifies, even with no match budget |
+| `sqrt_crt_kat.rs` | `kat_list_budget_exhaustion_is_a_resource_outcome` | List sizes, check before allocation, saturation at `u64::MAX` |
+| `sqrt_crt_kat.rs` | `kat_match_budget_exhaustion_is_a_resource_outcome` | Budget equal to the match count completes; one fewer is a resource outcome |
+| `sqrt_crt_kat.rs` | `kat_wrapped_intervals_are_scanned_exactly` | A match lies in a wrapped interval and is counted |
+| `sqrt_crt_kat.rs` | `kat_direct_and_split_prime_roots_agree_up_to_sign` | Both methods return the same root, `β` and image up to sign |
+| `sqrt_crt_kat.rs` | `kat_dispatch_prefers_the_direct_method` | The inert prime 3 is used when it is found |
+| `sqrt_crt_kat.rs` | `kat_dispatch_falls_back_when_the_inert_prime_search_is_exhausted` | Fallback on `InertPrimeSearch` and `MachinePrimeRange`; `V4` |
+| `sqrt_crt_kat.rs` | `kat_dispatch_reports_primary_and_fallback_exhaustion_in_order` | Resource lists concatenate in the order the methods ran |
+| `sqrt_crt_kat.rs` | `kat_dispatch_never_falls_back_on_other_outcomes` | Nonsquare, incidental, unsupported, and nonresidue exhaustion are not retried |
+| `sqrt_crt_kat.rs` | `kat_dispatch_precision_budget_applies_before_any_search` | `bits(2B + 1)` over budget is refused first |
+| `crt.rs` unit tests | `residue_intervals_*`, `matches_inside_a_wrapped_interval_are_not_lost` | Exact wrapped ranges, checked against enumeration |
+| `crt.rs` unit tests | `meet_in_the_middle_finds_exactly_the_brute_force_matches` | The lists find every match once, as brute-force assembly does |
+| `crt.rs` unit tests | `halves_*`, `signed_sums_*`, `list_sizes_*`, `recombination_reports_defective_sets_*` | Sign layout, mask indexing, saturating sizes, invariant errors |
+
+---
+
 ## 51. What Comes Next
 
 The square-root and assembly stage is the final stage of the GNFS factoring pipeline. The
