@@ -326,11 +326,170 @@ Producer dispatches receive both the contracts they consume and their own contra
 ### C-FpPoly — checked prime-polynomial arithmetic
 
 **Enforcement:** compiler + test. **Defined-in:** 1. **Consumed-by:** 2, 5, 6, 10.
-To be frozen at 1: deterministic validated u64 prime modulus, normalized polynomial coefficients,
-overflow-safe arithmetic/division/gcd/powmod/irreducibility, and bounded exhaustive root enumeration.
-Expose complete versus truncated enumeration, never claim splitting from an incomplete root list.
-KATs: arithmetic identities, reducible/irreducible/repeated-factor fixtures, pseudoprime rejection,
-degree/zero handling, and root-search exhaustion. No new dependency or full factorization engine.
+**Status:** **frozen at row 1 (commit a5e168b, 2026-11-06)**, designed at the row-1 inflection and
+implemented with no signature or semantic deviation (21 named KATs plus two extras pass). Record any
+later deviation from these signatures here; do not adopt it silently. Fileset unchanged: no `Cargo.toml` edit. Existing `num-bigint` (including
+`BigUint`), `num-integer`, and `num-traits` suffice. Module `shared_numfield::fp_poly`; lib.rs adds
+`pub mod fp_poly;` and re-exports every public item below from the crate root. No new dependency,
+no full factorization engine, no Berlekamp, Cantor–Zassenhaus or randomized splitting, no panics.
+
+Signatures (bodies elided; every public item gets rustdoc with `# Errors` where fallible):
+
+    pub fn is_prime_u64(n: u64) -> bool;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct PrimeModulus { /* private: p: u64, proved prime at construction */ }
+    impl PrimeModulus {
+        pub fn new(p: u64) -> Result<Self, FpPolyError>;         // NotPrime
+        pub fn get(self) -> u64;
+        pub fn to_biguint(self) -> BigUint;
+        pub fn reduce(self, a: u64) -> u64;
+        pub fn reduce_i64(self, a: i64) -> u64;                  // least nonnegative residue
+        pub fn reduce_bigint(self, a: &BigInt) -> u64;           // least nonnegative residue
+        pub fn add(self, a: u64, b: u64) -> u64;
+        pub fn sub(self, a: u64, b: u64) -> u64;
+        pub fn neg(self, a: u64) -> u64;
+        pub fn mul(self, a: u64, b: u64) -> u64;
+        pub fn pow(self, a: u64, e: u64) -> u64;                 // pow(_, 0) = 1
+        pub fn inv(self, a: u64) -> Result<u64, FpPolyError>;    // DivisionByZero if a ≡ 0
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub struct FpPoly { /* private: modulus: PrimeModulus, coeffs: Vec<u64> */ }
+    impl FpPoly {
+        pub fn zero(m: PrimeModulus) -> Self;
+        pub fn one(m: PrimeModulus) -> Self;
+        pub fn constant(m: PrimeModulus, c: u64) -> Self;
+        pub fn monomial(m: PrimeModulus, c: u64, degree: usize) -> Self;   // c·x^degree
+        pub fn from_coeffs(m: PrimeModulus, coeffs: &[u64]) -> Self;
+        pub fn from_int_poly(f: &IntPoly, m: PrimeModulus) -> Self;
+        pub fn to_int_poly(&self) -> IntPoly;                    // representatives in [0, p)
+        pub fn modulus(&self) -> PrimeModulus;
+        pub fn coeffs(&self) -> &[u64];
+        pub fn degree(&self) -> Option<usize>;
+        pub fn leading_coeff(&self) -> Option<u64>;
+        pub fn is_zero(&self) -> bool;
+        pub fn is_monic(&self) -> bool;
+        pub fn eval(&self, x: u64) -> u64;
+        pub fn derivative(&self) -> Self;
+        pub fn neg(&self) -> Self;
+        pub fn scale(&self, c: u64) -> Self;
+        pub fn add(&self, rhs: &Self) -> Result<Self, FpPolyError>;
+        pub fn sub(&self, rhs: &Self) -> Result<Self, FpPolyError>;
+        pub fn mul(&self, rhs: &Self) -> Result<Self, FpPolyError>;
+        pub fn div_rem(&self, divisor: &Self) -> Result<(Self, Self), FpPolyError>;
+        pub fn rem(&self, divisor: &Self) -> Result<Self, FpPolyError>;
+        pub fn to_monic(&self) -> Result<Self, FpPolyError>;     // ZeroPolynomial
+        pub fn gcd(&self, rhs: &Self) -> Result<Self, FpPolyError>;
+        pub fn extended_gcd(&self, rhs: &Self) -> Result<ExtendedGcd, FpPolyError>;
+        pub fn mul_mod(&self, rhs: &Self, modulus: &Self) -> Result<Self, FpPolyError>;
+        pub fn pow_mod(&self, exp: &BigUint, modulus: &Self) -> Result<Self, FpPolyError>;
+        pub fn is_squarefree(&self) -> bool;
+        pub fn is_irreducible(&self) -> bool;
+        pub fn distinct_root_count(&self) -> Result<usize, FpPolyError>; // ZeroPolynomial
+        pub fn roots(&self, limits: RootSearchLimits) -> Result<RootEnumeration, FpPolyError>;
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct ExtendedGcd { pub gcd: FpPoly, pub s: FpPoly, pub t: FpPoly } // s·a + t·b = gcd
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct RootSearchLimits { pub max_evaluations: u64 }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[must_use]
+    pub enum RootEnumeration {
+        Complete { roots: Vec<u64>, evaluations: u64 },
+        Truncated { found: Vec<u64>, distinct_root_count: usize, evaluations: u64 },
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum FpPolyError {
+        NotPrime { candidate: u64 },
+        ModulusMismatch { left: u64, right: u64 },
+        DivisionByZero,
+        ZeroPolynomial,
+    }
+    // Display and std::error::Error are implemented by hand: thiserror is not a numfield dependency.
+
+Semantics consumers may rely on:
+
+- **Canonical representation.** Coefficients are least-significant first, each in [0, p), trailing
+  zeros trimmed, zero polynomial = empty slice. Fields are private, so every value is canonical.
+  Equality and hashing include the modulus. Every constructor reduces its input, using least
+  nonnegative residues for negative integers. Reducing a non-monic integer polynomial may lower
+  its degree. Consumers that require preservation check `degree()`: F is monic, and f keeps
+  degree d at q not dividing c.
+- **Overflow safety.** Scalar sums and products widen to u128 and reduce immediately. Polynomial
+  products reduce after every multiply-add and never accumulate unreduced u128 sums. No wrapping
+  or unchecked arithmetic is allowed. Results are exact for every prime p < 2^64, including
+  2^64−59. `derivative` multiplies by i mod p, so derivative of x^p is zero.
+- **Checked operations.** A binary operation on different moduli returns `ModulusMismatch`. A
+  zero divisor or modulus polynomial returns `DivisionByZero`. No input panics. `div_rem` satisfies
+  a = q·b + r with r = 0 or deg r < deg b. `gcd` is monic, except gcd(0,0) = 0. `extended_gcd`
+  returns the same canonical gcd with s·a + t·b = gcd exactly. `mul_mod` and `pow_mod` reduce
+  their results modulo `modulus`; a nonzero constant modulus gives zero.
+  `pow_mod(_, 0, m)` = 1 rem m. Arbitrary-precision exponents admit (p^d−1)/2 and p^d without u64
+  overflow; inputs need not already be reduced.
+- **Deterministic u64 primality.** Return false for n < 2. Trial-divide by the first twelve primes
+  2..37; n equal to one of them is prime. Otherwise run a strong-probable-prime test to all twelve
+  bases, using u128 multiplication. This is a proof, not probable primality, for all u64. The least
+  strong pseudoprime to all twelve bases is psi_12 = 318665857834031151167461 > 2^64 (Sorenson and
+  Webster, "Strong pseudoprimes to twelve prime bases", Math. Comp. 86 (2017) 985–1003). Fewer
+  prime bases are insufficient: psi_9 = psi_10 = psi_11 = 3825123056546413051 < 2^64 (Jiang and
+  Deng, Math. Comp. 83 (2014)). Both bounds match the table in `shared/numth/src/prime.rs`.
+  Calling that crate would be a new numfield dependency, so this small duplicate is intentional; a
+  later consolidation may remove it. A BigInt candidate above u64::MAX fails `u64::try_from`.
+  Consumers report that machine-prime range exhaustion as a resource outcome, not invalid input.
+- **Squarefreeness and irreducibility.** `is_squarefree`: zero is false, a nonzero constant is
+  true, otherwise gcd(f, f') = 1. A positive-degree p-th power has f' = 0 and is not squarefree.
+  `is_irreducible` uses Rabin's exact test. Degree < 1 is false, because zero and units are not
+  irreducible; degree 1 is true. For g = to_monic(f) of degree n, g is irreducible iff
+  x^(p^n) ≡ x mod g and gcd(x^(p^(n/r)) − x, g) = 1 for each prime r dividing n. Compute it by n
+  successive p-th powers modulo g. The first condition rejects repeated factors because
+  x^(p^n) − x is squarefree. A root test never substitutes for this test.
+- **Exact root count.** `distinct_root_count` = deg gcd(f, (x^p mod f) − x). It uses
+  `pow_mod`, which costs O(log p) products of degree < deg f. That cost is polynomial and not
+  budgeted. Complete splitting into distinct linear factors holds iff `is_squarefree()` and
+  `distinct_root_count() == degree()`. Consumers decide splitting this way, never from a list.
+- **Resource-accounted exhaustive enumeration.** `roots` returns `ZeroPolynomial` for zero, because
+  every element would be a root. It computes the exact count first. A count of 0 returns
+  `Complete { roots: [], evaluations: 0 }`. Otherwise it evaluates a = 0, 1, 2, ..., in ascending
+  order, one evaluation per candidate. It stops at the count-th root with `Complete`, giving
+  distinct ascending roots, or at `max_evaluations` with `Truncated`. In `Truncated`, `found` lists
+  exactly the roots in [0, evaluations), count is exact, and `found.len() < count`. It never
+  exceeds the budget or uses randomness, and it offers no resume API; retry with a larger budget.
+  The budget makes a large machine prime a resource outcome rather than an O(p) hang.
+- **Error classes for consumers.** `NotPrime` is invalid input. `ModulusMismatch` is a caller
+  invariant violation. `DivisionByZero` and `ZeroPolynomial` are invalid arguments. None is a
+  mathematical certificate. Truncated enumeration is resource exhaustion, never proof of absence.
+
+KATs, named in `shared/numfield/tests/fp_poly_kat.rs`, with independent comments justifying each
+fixture: `kat_prime_modulus_accepts_small_and_boundary_primes` (2, 3, 5, 7, 2^31−1, 2^61−1,
+2^64−59); `kat_prime_modulus_rejects_units_and_composites` (0, 1, 4, 9, 561, 2^64−1);
+`kat_prime_modulus_rejects_strong_pseudoprimes` (2047, 1373653, 25326001, 3215031751,
+2152302898747, 3474749660383, 341550071728321, 3825123056546413051; each test supplies a
+nontrivial divisor and checks it by product, independently of Miller–Rabin);
+`kat_is_prime_u64_matches_trial_division_below_100000`;
+`kat_scalar_arithmetic_near_u64_max` (p=2^64−59: (p−1)+(p−1), (p−1)², inverse, Fermat, i64::MIN
+and negative BigInt reduction); `kat_canonical_representation` (reduction, trimming, negative
+coefficients, degree drop such as 2x²+x+1 mod 2, modulus-sensitive equality);
+`kat_modulus_mismatch_is_error`; `kat_div_rem_identity_and_degree`; `kat_gcd_and_extended_gcd`
+(gcd((x−1)(x−2),(x−1)(x−3)) = x−1 mod 7, coprime gives 1, gcd(0,0)=0, and Bézout);
+`kat_pow_mod_matches_repeated_multiplication_and_frobenius` (x^(p^d) ≡ x mod irreducible f; a
+BigUint exponent above 2^64 agrees with its reduction mod p^d−1; exponent 0; zero modulus);
+`kat_derivative_characteristic_p`; `kat_irreducible_fixtures` (x²+1/F_3, x²−2/F_3 and F_5,
+x³−x−1/F_2 and F_3, x⁴+x+1/F_2, x⁶+x+1/F_2, x²+1/F_(2^61−1) with p ≡ 3 mod 4, linear);
+`kat_reducible_fixtures_without_roots` ((x²+1)(x²+x+2) = x⁴+x³+x+2 over F_3; t⁴−10t²+1 ≡
+(t²+2)(t²+3) over F_5; (x³+x+1)(x³+x²+1) over F_2); `kat_repeated_factor_fixtures`
+((x²+x+1)² over F_2; t⁴−10t²+1 ≡ (t²+1)² over F_3; x³ over F_3);
+`kat_reducible_with_roots` (x²+1/F_5, x³−x−1/F_5, x²+1/F_(2^64−59) with p ≡ 1 mod 4);
+`kat_degree_and_zero_handling`; `kat_distinct_root_count` (x⁵−x/F_5 → 5, (x−1)²(x−2)/F_5 → 2,
+t⁴+1/F_5 → 0, x²+1/F_(2^64−59) → 2); `kat_root_enumeration_complete` (x²−2/F_7 gives [3,4]
+with 5 evaluations; x⁵−x/F_5 gives [0..4]; (x−1)²(x−2)/F_5 gives [1,2] with 3 evaluations;
+t⁴+1/F_5 and constants give [] with 0 evaluations; exhaustive cross-check for small p);
+`kat_root_enumeration_truncated` (x²−2/F_7 with budgets 4 and 0; x²+1/F_(2^64−59) with budget
+1000 is truncated, has count 2 and 1000 evaluations, and every found value is a root).
 
 ### C-ResidueField — irreducible residue fields
 
@@ -447,13 +606,17 @@ The frozen evidence is a tested scope, not an all-input or production-performanc
 ## Progress ledger
 
 Preflight bindings: VERIFY_TYPES=`cargo check --workspace`; VERIFY_TEST=`cargo test --workspace`;
-additional mandatory gates=`cargo dep-policy`, `cargo audit`, `cargo coverage`. No current baseline
-has been run. C-Design is accepted input, not an uncompleted producer row. Concrete interfaces await
-their listed freezes. Final G.5 independent review: **pending**.
+additional mandatory gates=`cargo dep-policy`, `cargo audit`, `cargo coverage`. Run mode: default
+self-continue (chosen by the user at run start over `halt-at-boundaries`). Baselines re-established
+green at 0e974ab on 2026-11-06 (check, test, dep-policy, audit, coverage 92.76% lines). C-Design is
+accepted input, not an uncompleted producer row. Concrete interfaces await their listed freezes.
+Final G.5 independent review: **pending**. Row 1 allowed extras: none; unrelated dirty
+`.cargo/config.toml` and `Cargo.toml` (build-tuning edits not made by any worker) were left
+unstaged and uncommitted.
 
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
-| 1 | Checked finite-field polynomials | pending | — | — |
+| 1 | Checked finite-field polynomials | done | a5e168b | C-FpPoly |
 | 2 | Residue-field square roots | pending | — | — |
 | 3 | Checked square-root contexts | pending | — | — |
 | 4 | Normalized targets and bounds | pending | — | — |
@@ -470,7 +633,18 @@ their listed freezes. Final G.5 independent review: **pending**.
 
 ## Action-frame digest
 
-*(none yet)*
+### 1 — 2026-11-06
+Discovery/flex: Inflection fork returned `design-confident` (no halt); implemented with no deviation
+from the designed C-FpPoly signatures. Primality is deliberately duplicated from `shared-numth`
+because numfield may take no new dependency (candidate for later consolidation).
+Affected: C-FpPoly (now frozen).
+Deferred: yes — rows 5/6 need their own big-integer prime-power quotient arithmetic (`PrimeModulus`
+is u64-only by design); consumers must decide splitting from `is_squarefree()` plus exact
+`distinct_root_count() == degree()`, never from a possibly `Truncated` root list; non-monic integer
+polynomials can lose degree on reduction, so check `degree()` after `from_int_poly`.
+Texture: `.cargo/config.toml` and `Cargo.toml` became dirty mid-run with build-tuning edits (job
+count, test threads, dev line-tables-only debuginfo) not made by any worker; committer ran in
+exact-path mode and excluded them. The gates ran partly under that config.
 
 ## Discoveries & risks
 
