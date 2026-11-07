@@ -1831,8 +1831,54 @@ F = t²+t−3, so θ² = 3 − θ. The seam fixture is x²−2, m = 23, N = 527,
 ### C-KernelSearch — deterministic bounded kernel combinations
 
 **Enforcement:** compiler + test. **Defined-in:** 12. **Consumed-by:** 13, 14.
-To be frozen at 12: enumeration ordering and work/output bounds, distinct nonzero XOR candidates,
-and exhaustion accounting. Candidates originate in the computed kernel; validation remains at the
+**Status:** **frozen at row 12 (commit 2fd9ac4, 2026-11-07)**, transcribed from the worker's return.
+Module `gnfs::linalg::kernel`, every new public item re-exported at `gnfs::linalg::*`; no
+`lib.rs` or manifest edit. 12 named KATs pass (including real `block_lanczos` vectors, with
+`KernelVector::verify` used only in the test). Signatures:
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]   // plain pub fields, no Default
+    pub struct KernelSearchLimits { pub max_xor_operations: u64, pub max_candidates: u64 }
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum KernelSearchResource { XorOperations, Candidates }
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum KernelSearchPhase { Reduction, Enumeration }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum KernelSearchStatus { Complete,
+        ResourceLimited { resource: KernelSearchResource, phase: KernelSearchPhase,
+            xor_operations: u64, candidates: u64 } }
+    impl KernelSearchStatus { pub fn is_complete(&self) -> bool }  // true only for Complete
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct KernelSearch { pub candidates: Vec<KernelVector> /* strictly ascending rows,
+        distinct, nonzero */, pub status: KernelSearchStatus, pub rank: usize }
+    #[must_use]
+    pub fn search_kernel_combinations(vectors: &[KernelVector], limits: KernelSearchLimits)
+        -> KernelSearch;
+
+Semantics consumers may rely on:
+
+- **Input.** Any `Vec<usize>` is accepted without panic; each row list is read as a GF(2) set (an
+  index listed an even number of times cancels; unsorted rows are sorted; out-of-range values pass
+  through since this layer has no matrix). `verify`/`expand_provenance` are never called.
+- **Reduction.** Inputs are scanned in order; each vector independent of those kept so far joins
+  an independent subset (echelon table keyed by the largest index). Duplicates, zeros and XORs of
+  earlier vectors are dropped. Kept vectors are the caller's own, not echelon rows. Independence
+  makes every nonempty subset sum distinct and nonzero, so `Complete` means exactly 2^rank − 1
+  candidates and no seen-set is needed.
+- **Order.** Subsets by ascending size, then lexicographic over positions among kept vectors: all
+  singles first, then pairs 01, 02, …. A smaller budget's output is a prefix of a larger one's; a
+  trip during reduction emits nothing. State is `rank` positions plus emitted candidates, never 2^rank.
+- **Budgets.** `max_xor_operations` counts sorted-list merges in reduction and enumeration (a
+  size-s subset costs s−1, built from scratch; a single vector costs 0). `max_candidates` counts
+  emitted candidates. Each is checked before the step it pays for; a budget exactly equal to the need
+  is `Complete`; a simultaneous trip reports `Candidates`; a mid-subset trip emits nothing for that
+  subset; an `XorOperations` trip reports `xor_operations == max_xor_operations`.
+- **Resumability.** None; no cursor. Retry with larger limits (reproduces the earlier output as a
+  prefix).
+- **Factor report.** Row 13's `factor(context, &search.candidates, search.status.clone(), limits)`
+  matches its frozen signature; `resource_limited()` can use `!status.is_complete()`. `rank` is the
+  independent inputs found so far if cut short in reduction.
+
+Candidates originate in the computed kernel; validation remains at the
 checked dependency boundary. KATs include non-basis combinations and degenerate/duplicate inputs.
 **Output shape fixed by the row-11 inflection.** Row 13's frozen `factor` consumes these, so row 12
 must provide them. Candidates are emitted as `Vec<KernelVector>`, each with sorted unique
@@ -1888,7 +1934,7 @@ unstaged and uncommitted.
 | 9 | Elimination and XOR provenance | done | 6f304e9 | C-XorLift |
 | 10 | Individual root characters | done | 8100dd3 | C-RootCharacters |
 | 11 | Checked dependencies | done | e70fa8f | C-Dependency (context/validation types; factor-attempt/report signatures stay frozen for 13) |
-| 12 | Bounded kernel combinations | pending | — | — |
+| 12 | Bounded kernel combinations | done | 2fd9ac4 | C-KernelSearch |
 | 13 | Verified factor API migration | pending | — | — |
 | 14 | Generated sieve-to-factor evidence ◆ | pending | — | — |
 
@@ -2092,6 +2138,20 @@ pairs. (4) `DependencyContext` has no `PartialEq`, so row 13/14 tests compare ou
 Texture: `@build` is not dispatchable as a subagent in this environment, so `@general` (Sonnet) ran the
 implementation, as the plan allows. Shell permission was rejected intermittently, including once for
 `@committer`, which committed on a plain retry (not a scope or secret refusal).
+
+### 12 — 2026-11-07
+Discovery/flex: Clean dispatch, no discovery. The contract text was thin by design, so the worker
+chose and froze the details: a two-budget model (XOR merges and emitted candidates), ordering by subset
+size then lexicographic, and no resume cursor. It reduces inputs to an independent set first, which
+makes `Complete` equal exactly 2^rank − 1 candidates. The reduction XORs count against the same
+budget. The worker's Python cross-check ported the Rust reduction logic, so the reduction-cost
+hand value (3) is not a fully independent derivation.
+Affected: C-KernelSearch (frozen); consumers 13, 14.
+Deferred: yes — (1) row 14 must size `max_xor_operations` for reduction cost, roughly n²/2 merges for
+n computed vectors, and the plan's cap of 4096 distinct combinations per configuration maps to
+`max_candidates`; pin both before discovery, since the defaults do not exist. (2) Candidates come
+basis-first in input order, so the retry loop tries each computed vector before any sum. (3) Row 13's
+`factor` takes `&KernelSearch::candidates` and `KernelSearch::status`.
 
 ## Discoveries & risks
 
