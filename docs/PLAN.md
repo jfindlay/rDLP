@@ -60,7 +60,7 @@ the named paths, not permission to edit an entire directory. New paths are ident
 | 5 | Reconstruct algebraic roots by p-adic Newton lifting | B | T1 | C-Design, C-FpPoly, C-ResidueField, C-SqrtContext, C-NormalizedTarget | `gnfs/src/sqrt/{padic,mod}.rs`, `gnfs/tests/sqrt_padic_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 6 | Construct lifted split-prime root contributions — @architect | A | T1 + T0 design | C-Design, C-FpPoly, C-ResidueField, C-SqrtContext, C-NormalizedTarget | `gnfs/src/sqrt/{crt,mod}.rs`, `gnfs/tests/sqrt_crt_kat.rs`, `gnfs/Cargo.toml`, `Cargo.lock`, `gnfs/docs/PEDAGOGY.md` |
 | 7 | Recombine CRT signs and dispatch verified roots ◆ | I | T1; T0 boundary | C-Design, C-SqrtContext, C-NormalizedTarget, C-DirectRoot, C-SplitContributions | `gnfs/src/sqrt/{crt,mod,context}.rs`, `gnfs/tests/sqrt_crt_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
-| 8 | Validate relations and classify algebraic parity — @architect | A | T1 + T0 design | C-Design, C-SqrtContext | `gnfs/src/sieve/{mod,factor_base}.rs`, `gnfs/src/filter/mod.rs`, `gnfs/tests/checked_relations_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
+| 8 | Validate relations and classify algebraic parity — @architect | A | T1 + T0 design | C-Design, C-SqrtContext | `gnfs/src/sieve/{checked,mod,factor_base}.rs`, `gnfs/src/filter/mod.rs`, `gnfs/tests/checked_relations_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 9 | Preserve kernels through elimination and XOR lifts | B | T1 | C-Design, C-CheckedRelations | `gnfs/src/filter/{matrix,merge}.rs`, `gnfs/tests/merge_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 10 | Filter candidates with individual root characters | B | T1 | C-Design, C-FpPoly, C-CheckedRelations, C-XorLift | `gnfs/src/linalg/{qc,mod}.rs`, `gnfs/tests/linalg_substrate_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 11 | Validate dependencies against original relations — @architect | A | T1 + T0 design | C-Design, C-SqrtContext, C-NormalizedTarget, C-CheckedRelations, C-XorLift, C-RootCharacters | `gnfs/src/sqrt/{dependency,mod}.rs`, `gnfs/tests/sqrt_dependency_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
@@ -159,6 +159,11 @@ This boundary reviews reconstruction fidelity and anneals its durable text; it d
 still-unmigrated public factor path. The V4 fixture must exercise a genuinely no-inert-prime field.
 
 ### 8 — Validated relations and honest algebraic parity (G.3a)
+
+Fileset refined at the row-8 inflection (2026-11-07): one new file, `gnfs/src/sieve/checked.rs`, holds
+the checked relation types so the legacy collector in `sieve/mod.rs` stays untouched. No manifest
+or `lib.rs` change. Doc claims about `Relation` that are false (sign through a real embedding;
+characters guaranteeing a square) are corrected within this row's files and topic.
 
 New: `gnfs/tests/checked_relations_kat.rs`.
 Deliver: checked indices/exponents, exact norm/sign reconstruction, good affine root labels, and
@@ -1143,10 +1148,311 @@ the two methods.
 ### C-CheckedRelations — validated records and matrix interpretation
 
 **Enforcement:** compiler + test + prose. **Defined-in:** 8. **Consumed-by:** 9–11, 13, 14.
-To be frozen at 8: separate checked relation context, valid index/exponent/sign/norm/affine-label
-identities, matrix column layout, and conservative exceptional-prime classification. Preserve
-public Relation/SparseMatrix shapes and NFS-DL consumers. Retain rational parity/sign; omit unproved
-algebraic constraints at p dividing c*disc(F). KATs independently cover good and exceptional primes.
+**Status:** **frozen at row 8 (commit eba0a56, 2026-11-07)**, designed at the row-8 inflection. The
+fileset refinement below was applied to the session list. 15 KATs (9 named plus 6 extras) pass; the
+diff to `sieve/mod.rs`, `factor_base.rs` and `filter/mod.rs` is additive or doc-comment only
+(`Relation`, `SparseMatrix`, `build_matrix`, `line_sieve` and NFS-DL untouched; the legacy matrix
+path is pinned by a KAT). **Implementation deviations (benign):** `MatrixLayout` carries one extra
+private cached field `num_cols`; `classify_prime` returns `Exceptional` for p < 2 (never panics);
+`ExponentSide` gains `Display` and `CheckedRelationsError` gains `Error::source`; check ordering
+left open by the design is whole-list passes in variant order for the factor base and per-list
+(rational then algebraic) for exponents; `build_checked_matrix` reads rows through a private
+infallible helper. Consumer notes: `SparseMatrix` has no `PartialEq` (compare `rows` and
+`col_weights` field by field); `excess()` undercounts by `omitted_columns().len()`; row 10 should
+call `classify_prime(ctx, q)` for the q ∤ c·disc(F) rule and additionally needs q odd; `(a,b)` and
+`(−a,−b)` are both accepted and `b <= 0` is accepted, so the (3,−2) seam fixture is usable; kernel
+vectors of the checked matrix are candidates only (fixture {(2,1),(5,2)} on f = 3x²+x−1 is a kernel
+vector with Norm(γ)=117 not a rational square, and exact verification returns `NotSquare`); the
+doc text in `filter/matrix.rs` saying `num_cols = FactorBase::matrix_width()` holds only for the
+legacy builder and row 9 should correct it. Original statement: separate checked relation context, valid
+index/exponent/sign/norm/affine-label identities, matrix column layout, and conservative
+exceptional-prime classification. Preserve public Relation/SparseMatrix shapes and NFS-DL consumers.
+Retain rational parity/sign; omit unproved algebraic constraints at p dividing c*disc(F).
+
+**Fileset refinement, which the driver must apply to the session list:** one new file,
+`gnfs/src/sieve/checked.rs`. Row 8 becomes `gnfs/src/sieve/{checked,mod,factor_base}.rs`,
+`gnfs/src/filter/mod.rs`, `gnfs/tests/checked_relations_kat.rs`, `gnfs/docs/PEDAGOGY.md`. No other
+widening and no manifest edit. gnfs already depends on `shared-numfield` (`is_prime_u64`,
+`IntPoly::eval_mod`). *Why a new file:* the legacy collector, `Relation`, and its tests stay
+byte-for-byte in `sieve/mod.rs`, so NFS-DL risk is confined to imports. The checked code (~400
+lines with unit tests) would roughly double that module. *Cost:* one more path, plus an intra-crate
+`sieve -> sqrt` module edge, which is acceptable in Rust because `sqrt -> sieve` already exists.
+- `sieve/checked.rs`: validation and prime classification, kept together per the row intent.
+- `sieve/mod.rs`: adds `pub mod checked;`, re-exports every public item below at `gnfs::sieve::*`,
+  and adds a module-list bullet. It also corrects two `Relation` doc sentences. Algebraic sign is
+  **not** resolved through a real embedding, and character columns are necessary filters that do
+  **not** guarantee that a square root exists. No code change touches `Relation`, `ExponentVector`,
+  `RelationError`, `Relation::new`, `Relation::verify`, or the `*_row_gf2` methods.
+- `factor_base.rs`: **documentation only**. Make the same QC-claim correction on
+  `obstruction_count`. Restate the bad-prime section: `is_bad_prime` is informational and not consulted by the checked
+  path, which classifies by exact divisibility of c·disc(F). Also state the inherited projective
+  limitation: for p | c and p | b, no affine root r satisfies a ≡ b·r, so `Relation::new` returns
+  `None` and such relations are never collected.
+- `filter/mod.rs`: `ColumnClass`, `MatrixLayout`, `ColumnCountOverflow`, and `build_checked_matrix`
+  sit beside the unchanged legacy `build_matrix`. Add a doc note: the legacy builder treats every
+  factor-base ideal column as a parity constraint. `gnfs/src/lib.rs` is untouched, so callers use
+  module paths `gnfs::sieve::*` and `gnfs::filter::*`, following the row-3 precedent.
+
+**Preservation (compiler-checkable).** No field, variant, or signature changes on `Relation`,
+`ExponentVector`, `FactorBase`, `AlgebraicPrime`, `MatrixRow`, `SparseMatrix`, `build_matrix`, or
+`line_sieve`. NFS-DL (`gnfs::dl`) consumes only `Relation`/`FactorBase`, and rho's index calculus
+has its own `Relation` type. Both compile unchanged. The checked builder never reads or mutates
+`fb.obstruction_count` or `AlgebraicPrime::is_bad_prime`; it snapshots the factor base it needs.
+
+Signatures (bodies elided; rustdoc with `# Errors`; owned values; no lifetimes; hand-written
+`Display` + `Error` on every error type; no panics on any input):
+
+    // ── gnfs/src/sieve/checked.rs ──
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum PrimeClass { Good, Exceptional }          // Exceptional iff p | c·disc(F)
+    pub fn classify_prime(ctx: &SqrtContext, p: u64) -> PrimeClass;   // exact BigInt divisibility
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum ExponentSide { Rational, Algebraic }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum FactorBaseRejection {                     // `position` = slice position
+        RationalNotStrictlyAscending { position: usize },
+        RationalNotPrime { position: usize, value: u64 },
+        IdealsNotStrictlyAscending { position: usize },        // by (p, r)
+        IdealIndexMismatch { position: usize, index: usize },  // index != position
+        IdealNotPrime { position: usize, p: u64 },
+        IdealRootOutOfRange { position: usize, p: u64, r: u64 },
+        IdealNotRoot { position: usize, p: u64, r: u64 },      // f(r) ≢ 0 mod p, f from ctx
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum RelationRejection {
+        NotCoprime { gcd: BigInt },
+        MalformedExponents { side: ExponentSide, position: usize }, // index not strictly
+                                                                    // ascending, or exponent 0
+        IndexOutOfRange { side: ExponentSide, index: usize, size: usize },
+        ZeroRationalNorm,                              // a − b·m = 0
+        SignMismatch { expected: bool, stored: bool },
+        RationalNormMismatch { norm: BigInt },         // Π p^e ≠ |a − b·m|
+        ZeroAlgebraicNorm,                             // f_hom(a, b) = 0
+        AffineLabelMismatch { position: usize, p: u64, r: u64 },  // a ≢ b·r mod p
+        AlgebraicNormMismatch { norm: BigInt },        // Π p^e ≠ |f_hom(a, b)|
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum CheckedRelationsError {
+        Relation { index: usize, rejection: RelationRejection },
+        DuplicatePair { first: usize, second: usize },
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct RelationChecker { /* private: context: SqrtContext, rational_primes: Vec<u64>,
+        ideals: Vec<(u64, u64)>, classes: Vec<PrimeClass> */ }
+    impl RelationChecker {
+        pub fn new(ctx: &SqrtContext, fb: &FactorBase) -> Result<Self, FactorBaseRejection>;
+        pub fn context(&self) -> &SqrtContext;
+        pub fn rational_primes(&self) -> &[u64];        // column order
+        pub fn ideals(&self) -> &[(u64, u64)];          // (p, r), column order
+        pub fn ideal_class(&self, index: usize) -> Option<PrimeClass>;
+        pub fn check(&self, relation: &Relation) -> Result<CheckedRelation, RelationRejection>;
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct CheckedRelation { /* private; minted only by RelationChecker::check */ }
+    impl CheckedRelation {
+        pub fn a(&self) -> &BigInt;  pub fn b(&self) -> &BigInt;    // gcd(a, b) = 1; b any sign
+        pub fn rational_norm(&self) -> &BigInt;       // a − b·m, signed, nonzero
+        pub fn algebraic_norm(&self) -> &BigInt;      // f_hom(a,b) = Σ f_i a^i b^(d−i), signed, ≠ 0
+        pub fn rational_sign(&self) -> bool;          // rational_norm < 0
+        pub fn rational_exponents(&self) -> &[(usize, u32)];   // strictly ascending, e ≥ 1
+        pub fn algebraic_exponents(&self) -> &[(usize, u32)];  // strictly ascending, e ≥ 1
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct CheckedRelations { /* private: checker: RelationChecker, relations */ }
+    impl CheckedRelations {
+        pub fn new(checker: &RelationChecker, relations: &[Relation])
+            -> Result<Self, CheckedRelationsError>;   // clones checker; may be empty
+        pub fn checker(&self) -> &RelationChecker;
+        pub fn context(&self) -> &SqrtContext;
+        pub fn relations(&self) -> &[CheckedRelation]; // position i == input i == provenance i
+        pub fn len(&self) -> usize;  pub fn is_empty(&self) -> bool;
+    }
+
+    // ── gnfs/src/filter/mod.rs ──
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum ColumnClass {
+        RationalPrime { prime: u64 },                  // [0, R)
+        GoodIdeal { prime: u64, root: u64 },           // [R, R+A), constrained
+        ExceptionalIdeal { prime: u64, root: u64 },    // [R, R+A), omitted: never set
+        RationalSign,                                  // R + A
+        RootCharacter { slot: usize },                 // R + A + 1 + slot; zero at build
+    }
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct ColumnCountOverflow;                    // R + A + 1 + K overflowed usize
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct MatrixLayout { /* private: checker: RelationChecker (owned clone), K */ }
+    impl MatrixLayout {
+        pub fn checker(&self) -> &RelationChecker;     // the binding: compare by ==
+        pub fn rational_size(&self) -> usize;          // R
+        pub fn algebraic_size(&self) -> usize;         // A
+        pub fn character_count(&self) -> usize;        // K
+        pub fn sign_column(&self) -> usize;            // R + A == obstruction_col_start
+        pub fn obstruction_col_start(&self) -> usize;  // R + A
+        pub fn obstruction_count(&self) -> usize;      // 1 + K
+        pub fn num_cols(&self) -> usize;               // R + A + 1 + K
+        pub fn character_column(&self, slot: usize) -> Option<usize>;   // None if slot ≥ K
+        pub fn class(&self, column: usize) -> Option<ColumnClass>;     // None if ≥ num_cols
+        pub fn omitted_columns(&self) -> Vec<usize>;   // ascending ExceptionalIdeal columns
+        pub fn row_columns(&self, relation: &CheckedRelation) -> Option<Vec<usize>>;
+        pub fn shape_matches(&self, matrix: &SparseMatrix) -> bool;
+    }
+    pub fn build_checked_matrix(relations: &CheckedRelations, character_count: usize)
+        -> Result<(SparseMatrix, MatrixLayout), ColumnCountOverflow>;
+
+Semantics consumers may rely on:
+
+- **Context binding.** `RelationChecker` owns a `SqrtContext` clone. Through it, the checker
+  supplies N, the exact m, f, c, and nonzero disc(F). `CheckedRelations` and `MatrixLayout` own checker
+  clones, so a matrix, layout, relation set, and context are bound by equality, never by convention.
+  For every nonempty subset of `relations()`, `RelationFactors::new(relations.context(), pairs)`
+  succeeds. Each pair has a − b·m ≠ 0 and f_hom ≠ 0, and the latter is exactly the unit criterion.
+- **Factor-base validation (`RelationChecker::new`).** The checks follow the variant order in the
+  enum, and the first failure is reported. Rational primes must be strictly ascending and prime
+  under `is_prime_u64`. Ideals must be strictly ascending by (p, r), with `index == position`, p
+  prime, r < p, and f(r) ≡ 0 mod p. Completeness is not required, because exact norm reconstruction
+  catches any missing ideal. `is_bad_prime` and `obstruction_count` are ignored.
+- **Classification.** `classify_prime` is `Exceptional` iff p | c or p | disc(F), using the context
+  values and exact BigInt remainders. It is not derived from `is_bad_prime`. For d = 2,
+  disc(F) = disc(f), so p | c can be invisible to a discriminant-only flag. Every ideal above an
+  exceptional prime is exceptional, even when its root is simple. This whole-prime rule is
+  conservative and easy to prove; its cost is that some genuine constraints are dropped. For
+  example, (23, 3) on x³−x−1 is a simple root but is still omitted. 2 is `Good` when 2 ∤ c·disc(F).
+  Root characters additionally require odd q; that is row 10's rule. Row 10 should reuse
+  `classify_prime` for "q ∤ c·disc(F)" rather than re-deriving it.
+- **Why good columns are honest (derived).** For p ∤ c·disc(F), p ∤ [O : Z[θ]], so Kummer–Dedekind
+  gives a degree-1 prime 𝔭 = (p, θ − c·r) for each simple root r of f mod p. Since c is a p-unit,
+  v_𝔭(a − bα) = v_𝔭(ca − bθ). For coprime (a, b), p ∤ b whenever p | f_hom, because otherwise
+  f_hom ≡ c·a^d ≢ 0. Then r ≡ a/b is the unique root, so v_𝔭(a − bα) = v_p(f_hom(a, b)), and no
+  other ideal above p divides the element. At exceptional primes, the recorded exponent is only a
+  norm-valuation attribution, not an ideal valuation, so its parity is not a valid square
+  constraint. In particular, for non-monic f, Norm(γ) = Π f_hom / c^k, so p | c parity is not
+  necessary.
+- **Relation check order (`check`).** The first failure is reported in this order:
+  1. gcd(|a|, |b|) = 1. Any sign of b is accepted.
+  2. Both exponent lists are well formed, rational first: strictly ascending indices with e ≥ 1,
+     then index < size.
+  3. Rational side: a − b·m ≠ 0; the stored sign matches; then exact reconstruction.
+  4. Algebraic side: f_hom ≠ 0; every entry, good or exceptional, satisfies the affine label
+     a ≡ b·r mod p for its ideal (p, r); then exact reconstruction.
+
+  Reconstruction divides |norm| by each p exactly e times and requires remainder 1. It never forms
+  p^e from an untrusted u32, so no input causes unbounded work. Success means each listed exponent
+  is the exact p-adic valuation. Rational primes are distinct; for labels, a ≡ b·r with distinct r
+  at one p would force p | b and p | a. Thus success also gives one algebraic entry per prime.
+  `CheckedRelations::new` checks relations in index order. After relation i passes, an exact
+  equality of (a, b) with an earlier pair returns `DuplicatePair { first, second: i }`. Duplicates
+  are rejected, never silently removed or renumbered; composition deduplicates beforehand.
+  (a, b) and (−a, −b) are distinct records: they have opposite rational signs and the product
+  −(a − bα)². They are not rejected, and collectors with b ≥ 1 never produce both.
+- **Why b ≤ 0 is accepted.** It keeps the NOTES seam fixture (3, −2) on x²−2, m = 23, N = 527,
+  available through the checked path for rows 11 and 13. In that fixture, a − bm = 49 and f_hom = 1.
+  Its canonical-b form (−3, 2) changes γ by −1, so it is not equivalent. *Cost:* duplicate detection
+  is exact-pair, not ideal-level.
+- **Column layout (frozen; rows 9–11 consume it cold).** Let R = `rational_primes().len()`, A =
+  `ideals().len()`, and K = `character_count`. Columns are [0, R) rational primes, [R, R+A)
+  factor-base ideals in index order, R+A the rational sign, and R+A+1+slot root characters. This is
+  exactly the legacy `build_matrix` ordering, with `obstruction_col_start = R+A` and
+  `obstruction_count = 1+K`. Singleton removal, merging, and the existing character convention
+  (sign first, then characters) therefore read it unchanged. Exceptional ideal columns are
+  **retained as permanently zero columns**, as NOTES permits, rather than compacted. Indices thus
+  coincide with factor-base indices, and a zero column stays zero under any XOR. *Cost:*
+  `SparseMatrix::excess()` undercounts by `omitted_columns().len()`. That is conservative: pruning
+  keeps more rows.
+- **Rows (`row_columns`, `build_checked_matrix`).** Row i is built from
+  `relations.relations()[i]`, with provenance `[i]`. Its columns, ascending, are:
+  - the rational indices with odd e;
+  - R + index for every **good** ideal with odd e;
+  - the sign column iff a − b·m < 0.
+
+  Exceptional entries and character slots contribute nothing. There is no algebraic-sign column and
+  no raw homogeneous-norm parity or square test. `col_weights` is exact, and an empty row is kept,
+  because it is itself a dependency. `num_cols = R+A+1+K`. `row_columns` returns `None` only for a
+  relation whose indices exceed this layout's sizes, meaning a foreign checker. `shape_matches`
+  compares `num_cols`, `obstruction_col_start`, `obstruction_count`, and `col_weights.len()` only;
+  rows and provenance are row 11's checks. The builder uses checked addition for R+A+1+K.
+- **Downstream use.**
+  - Row 9 relies on the block boundaries and the always-zero omitted columns.
+  - Row 10 selects K pairs, possibly from `relations` before building. It sets
+    `character_column(slot)` either at build time, through XOR over complete provenance, or after
+    filtering through the same XOR.
+  - Row 11 requires `layout.checker() == relations.checker()` and `layout.shape_matches(&matrix)`.
+    It recomputes each original row as `row_columns(...)` plus its own character bits, and takes P
+    and γ pairs from `relations()`. Pair uniqueness is already an invariant of `CheckedRelations`.
+- **Inherited limitation (documented, not repaired).** The primitive affine collector stays as is.
+  Relations with a projective factor (p | c, p | b, p | f_hom) are rejected by `Relation::new` and,
+  if hand-built, by `AffineLabelMismatch` or `AlgebraicNormMismatch`. No complete
+  projective/exceptional-ideal factorization is claimed. Omitting exceptional parity weakens the
+  candidate filter but does not affect exact square verification. Expanding the collector requires
+  review.
+
+KATs in `gnfs/tests/checked_relations_kat.rs`, each with an independent arithmetic comment and
+fixtures re-derived by the worker:
+- **Fixture T (non-monic).** f = 3x²+x−1, m = 3, N = 29, since f(3) = 29. Here c = 3,
+  F = t²+t−3, and disc(F) = 13. `FactorBase::new(&f, 7, 17)` gives rational primes [2, 3, 5, 7]
+  and ideals (3,1)#0, (13,2)#1, (17,4)#2, (17,7)#3.
+  - Mod 3, f ≡ x−1. Mod 13, f has the double root 2. Mod 17, the roots are 4 and 7.
+  - 2, 5, 7, and 11 have no roots.
+- **Fixture C (monic cubic).** x³−x−1, m = 2, N = 5, and disc = −23. Mod 23,
+  x³−x−1 ≡ (x−3)(x−10)².
+
+Named KATs:
+- `kat_classify_primes_by_leading_coefficient_and_discriminant`: under T, 3 (p | c, p ∤ 13) and 13
+  are `Exceptional`; 2, 5, and 17 are `Good`. Under C, both (23,3) and (23,10) are exceptional, and
+  5 is good.
+- `kat_checker_rejects_malformed_factor_base`: one case per variant.
+- `kat_good_and_exceptional_relations_accepted`: T pairs with hand norms:
+
+  | Pair | a − 3b | f_hom | Labels |
+  |---|---|---|---|
+  | (4,1) | 1 | 51 = 3·17 | (3,1), (17,4) |
+  | (7,1) | 4 | 153 = 3²·17 | (3,1), (17,7) |
+  | (2,1) | −1 | 13 | (13,2) |
+  | (−3,2) | −9 | 17 | (17,7) |
+  | (−9,2) | −15 | 221 | (13,2), (17,4) |
+  | (5,2) | −1 | 81 = 3⁴ | (3,1) |
+
+- `kat_checked_rows_omit_exceptional_columns`: under T with K = 2, `num_cols` = 11, the sign column
+  is 8, and the character columns are 9 and 10. Rows are (4,1) [6], (7,1) [7], (2,1) [8],
+  (−3,2) [7,8], (−9,2) [1,2,6,8], and (5,2) [8]. Columns 4 and 5 have weight 0. Legacy
+  `build_matrix` differs exactly at those columns: (4,1) [4,6], (2,1) [5,8], and (−9,2)
+  [1,2,5,6,8]. (4,1) has odd v₃(f_hom) at 3 | c and no bit. {(2,1),(5,2)} XORs to zero only in the
+  checked matrix, yet Norm(γ) = (13/3)(81/3) = 117 is not a rational square. So omission admits a
+  candidate that exact verification must reject.
+- `kat_relation_rejections_are_typed`: one case per `RelationRejection` variant:
+  - `NotCoprime`: (4,2).
+  - `ZeroRationalNorm`: (3,1) under T.
+  - `SignMismatch`: a flipped sign.
+  - `MalformedExponents`: an unsorted index, a duplicate index, or exponent 0.
+  - `IndexOutOfRange`: an index past the end of either list.
+  - `RationalNormMismatch`: 2¹ claimed for a norm of 4.
+  - `AlgebraicNormMismatch`.
+  - `AffineLabelMismatch`: (17,7) claimed on (4,1).
+  - `ZeroAlgebraicNorm`: x²−1, m = 4, N = 15, pair (1,1).
+  - Projective `AffineLabelMismatch`: (1,3) under T has a − 3b = −8 and f_hom = −3 with 3 | b,
+    and `Relation::new` returns `None` for it.
+- `kat_duplicate_pairs_rejected`: [(4,1), (7,1), (4,1)] gives `DuplicatePair{0,2}`, while (a,b)
+  and (−a,−b) are both accepted.
+- `kat_negative_b_seam_relation_accepted`: x²−2, m = 23, N = 527, FB(7,7), and pair (3,−2). The
+  rational entry is {7: 2}, there is no algebraic entry, and the row is empty.
+- `kat_line_sieve_relations_validate`: C, FB(30,30), `LineSieveConfig::new(10,3)`. Every collected
+  relation checks, and `CheckedRelations::new` succeeds. Checked rows equal legacy rows (with
+  `fb.obstruction_count` = 1, K = 0) except at the two (23,·) columns. This is a positive control,
+  not parameter search.
+- `kat_layout_accessors_and_binding`: covers `class` for every column kind,
+  `character_column(K) == None`, and `shape_matches` true and false. It also checks that
+  `row_columns` returns `None` for a relation from a larger foreign checker, and that
+  `RelationFactors::new` succeeds on subsets.
+
+Existing `merge_kat`, `line_sieve_kat`, `linalg_substrate_kat`, `sqrt_algebraic_kat`, and `dl_*`
+KATs stay unedited and green; that is the preservation evidence.
 
 ### C-XorLift — kernel-preserving elimination
 
@@ -1217,7 +1523,7 @@ unstaged and uncommitted.
 | 5 | Direct p-adic reconstruction | done | 7898119 | C-DirectRoot |
 | 6 | Split-prime local contributions | done | 5da4883 | C-SplitContributions; manifest edge gnfs -> shared-padic |
 | 7 | CRT recombination and dispatch ◆ | done | 01e1907 | C-VerifiedRoot (boundary: still-on-intent; anneal clean) |
-| 8 | Checked relations and algebraic parity | pending | — | — |
+| 8 | Checked relations and algebraic parity | done | eba0a56 | C-CheckedRelations |
 | 9 | Elimination and XOR provenance | pending | — | — |
 | 10 | Individual root characters | pending | — | — |
 | 11 | Checked dependencies | pending | — | — |
@@ -1358,6 +1664,24 @@ observed regression values cross-checked only against brute force built on the c
 `factor`/`algebraic_sqrt` do not use the new code (row 13 owns it).
 Texture: the plan had recommended `halt-at-boundaries` for the first run; the user chose default
 self-continue, so this first ◆ passed without a human review stop.
+
+### 8 — 2026-11-07
+Discovery/flex: Inflection fork returned `design-confident` and refined row 8's fileset with one new
+file, `gnfs/src/sieve/checked.rs` (session list and row-8 detail updated by the driver), so the
+legacy collector stays untouched. Exceptional prime ideals stay in the layout as permanently-zero
+columns (column indices coincide with factor-base indices); the whole prime is exceptional when
+p | c·disc(F), even at a simple root, which drops some genuine constraints (a conservative
+tradeoff). The worker re-verified every hand-derived fixture number with an independent script and
+found one more foreign-checker fixture ((1,4) on the 3x²+x−1 fixture). Projective factors
+(p | c and p | b) are rejected, which is the documented inherited collection limitation.
+Affected: C-CheckedRelations (frozen); consumers 9–11, 13, 14.
+Deferred: yes — row 9 must correct the `filter/matrix.rs` doc claim `num_cols =
+FactorBase::matrix_width()` for the checked matrix (`layout.num_cols()`) and note the `excess()`
+undercount; row 10 reuses `classify_prime` and `layout.character_column(slot)`; rows 11/13 may
+reuse the {(2,1),(5,2)} fixture as one where exact verification must reject a kernel candidate;
+the sibling-forgeable `NonSquareCertificate` question moves to the row-11 inflection as already
+recorded.
+Texture: the committer was given a verbatim title and body this time and kept both.
 
 ## Discoveries & risks
 
