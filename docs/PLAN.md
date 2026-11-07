@@ -494,9 +494,46 @@ t⁴+1/F_5 and constants give [] with 0 evaluations; exhaustive cross-check for 
 ### C-ResidueField — irreducible residue fields
 
 **Enforcement:** compiler + test. **Defined-in:** 2. **Consumed-by:** 5, 6.
-To be frozen at 2: checked field context, inversion, quadratic-residue test and Tonelli–Shanks.
-Cardinality/exponents are arbitrary precision; nonresidue search is bounded. KATs distinguish zero,
-degree >1 roots, nonsquares, invalid field inputs, and resource exhaustion.
+**Status:** **frozen at row 2 (commit 237d353, 2026-11-06)**; signatures transcribed from the
+worker's return, module `shared_numfield::residue_field`, crate-root re-exports, no new dependency.
+Checked field context, inversion, quadratic-residue test and Tonelli–Shanks. Cardinality/exponents
+are arbitrary precision; nonresidue search is bounded. 24 KATs (zero, degree >1 roots, nonsquares,
+invalid field inputs, resource exhaustion, v2(q-1)=62 case, exhaustive small-field cross-checks).
+
+    pub enum ResidueFieldError { Poly(FpPolyError), ZeroModulus, ConstantModulus,
+        ReducibleModulus /* incl. repeated factors */, DivisionByZero, InvariantViolation }
+    impl From<FpPolyError> for ResidueFieldError;   // hand-written Display/Error
+    pub struct NonresidueSearchLimits { pub max_candidates: u64 }
+    #[must_use] pub enum NonresidueSearch { Found { element: FpPoly, candidates_tried: u64 },
+        Absent /* characteristic 2 certificate */, BudgetExhausted { candidates_tried: u64 } }
+    #[must_use] pub enum SqrtOutcome { Root(FpPoly) /* verified by squaring; other root is -r */,
+        NotSquare /* proved by Euler criterion */, ResourceExhausted { candidates_tried: u64 } }
+    pub struct ResidueField { /* private: monic modulus, characteristic, degree, order = p^d */ }
+    impl ResidueField {
+        pub fn new(f: &FpPoly) -> Result<Self, ResidueFieldError>;
+        pub fn from_int_poly(f: &IntPoly, p: u64) -> Result<Self, ResidueFieldError>;
+        pub fn characteristic(&self) -> PrimeModulus;  pub fn degree(&self) -> usize;
+        pub fn modulus_poly(&self) -> &FpPoly;  pub fn order(&self) -> &BigUint;   // q = p^d
+        pub fn zero(&self) -> FpPoly;  pub fn one(&self) -> FpPoly;
+        pub fn element(&self, a: &FpPoly) -> Result<FpPoly, ResidueFieldError>;   // a rem f
+        pub fn add|sub|mul(&self, a: &FpPoly, b: &FpPoly) -> Result<FpPoly, ResidueFieldError>;
+        pub fn neg(&self, a: &FpPoly) -> Result<FpPoly, ResidueFieldError>;
+        pub fn pow(&self, a: &FpPoly, exp: &BigUint) -> Result<FpPoly, ResidueFieldError>;
+        pub fn inv(&self, a: &FpPoly) -> Result<FpPoly, ResidueFieldError>;
+        pub fn is_square(&self, a: &FpPoly) -> Result<bool, ResidueFieldError>;   // zero is a square
+        pub fn find_nonresidue(&self, limits: NonresidueSearchLimits)
+            -> Result<NonresidueSearch, ResidueFieldError>;
+        pub fn sqrt(&self, a: &FpPoly, limits: NonresidueSearchLimits)
+            -> Result<SqrtOutcome, ResidueFieldError>;
+    }
+
+Consumer notes: elements are owned `FpPoly` values, reduced mod f on every operation; `from_int_poly`
+reduces mod p so field degree drops if p divides the leading coefficient; characteristic 2 is
+handled (every element a square, `Absent`) so row 5 must itself restrict to odd p and reject zero H
+before `sqrt`; `sqrt` rebuilds the nonresidue per call (no cache); the root's sign is deterministic
+but unspecified; for q ≡ 3 mod 4 no nonresidue search runs, so budget 0 still yields a root.
+`NonresidueSearch::BudgetExhausted` / `SqrtOutcome::ResourceExhausted` are resource outcomes only,
+never evidence about the input.
 
 ### C-SqrtContext — owned context, outcomes, and limits
 
@@ -617,7 +654,7 @@ unstaged and uncommitted.
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
 | 1 | Checked finite-field polynomials | done | a5e168b | C-FpPoly |
-| 2 | Residue-field square roots | pending | — | — |
+| 2 | Residue-field square roots | done | 237d353 | C-ResidueField |
 | 3 | Checked square-root contexts | pending | — | — |
 | 4 | Normalized targets and bounds | pending | — | — |
 | 5 | Direct p-adic reconstruction | pending | — | — |
@@ -645,6 +682,17 @@ polynomials can lose degree on reduction, so check `degree()` after `from_int_po
 Texture: `.cargo/config.toml` and `Cargo.toml` became dirty mid-run with build-tuning edits (job
 count, test threads, dev line-tables-only debuginfo) not made by any worker; committer ran in
 exact-path mode and excluded them. The gates ran partly under that config.
+
+### 2 — 2026-11-06
+Discovery/flex: Interface was left to the worker (no inflection); frozen as C-ResidueField from its
+return. Nothing was missing from fp_poly. `sqrt` works in characteristic 2 and treats zero as a
+square with root zero, so row 5's odd-p and nonzero-H conditions are the consumer's to enforce.
+Affected: C-ResidueField (now frozen); consumers 5, 6.
+Deferred: yes — row 5 must filter to odd p and reject H ≡ 0 before calling `sqrt`; `sqrt` re-searches
+a nonresidue per call (cost, not correctness).
+Texture: the human edited `.cargo/config.toml` again (RUST_TEST_THREADS 4→2) during the run;
+committer first refused as scope drift in exact mode and succeeded after the mode was restated.
+`.cargo/config.toml` remains dirty and unstaged.
 
 ## Discoveries & risks
 
