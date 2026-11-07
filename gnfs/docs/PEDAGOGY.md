@@ -4018,6 +4018,112 @@ split-prime method at 7 return `z = ±(4 + 2θ)`, `β = ±(1 + θ)` and the same
 
 ---
 
+## Checked Relations and Honest Algebraic Parity
+
+The sieve produces `Relation` records whose exponents the later stages trusted.
+`gnfs::sieve::checked` re-derives every identity those stages need, and
+`gnfs::filter::build_checked_matrix` accepts only the validated records. The public `Relation` and
+`SparseMatrix` shapes, `build_matrix`, and the NFS-DL consumers are untouched; validation state
+lives in separate owned types.
+
+### What is checked
+
+A `RelationChecker` owns a `SqrtContext` and a validated snapshot of the factor base: rational
+primes strictly ascending and prime, ideals strictly ascending by `(p, r)` with
+`index == position`, `p` prime, `r < p`, and `f(r) ≡ 0 (mod p)`. A complete factor base is not
+required, because exact norm reconstruction catches any missing ideal. `check` accepts a relation
+only when
+
+1. `gcd(|a|, |b|) = 1`; any sign of `b` is allowed, so the pair `(3, −2)` on `x² − 2` stays
+   available;
+2. both exponent lists are strictly ascending with exponents `≥ 1` and in range;
+3. `a − b·m ≠ 0`, the stored sign is the sign of `a − b·m`, and the rational exponents are the
+   exact valuations of `|a − b·m|`;
+4. `f_hom(a, b) ≠ 0`, every listed ideal `(p, r)` satisfies `a ≡ b·r (mod p)`, and the algebraic
+   exponents are the exact valuations of `|f_hom(a, b)|`.
+
+Reconstruction divides the norm by each `p` exactly `e` times and requires remainder 1; it never
+forms `p^e` from an untrusted exponent, so no input forces unbounded work. Two distinct roots `r`
+at one `p` would force `p | a` and `p | b`, so a passing relation has one algebraic entry per prime.
+`f_hom ≠ 0` is precisely the unit criterion of the square-root context, so every nonempty subset of
+a `CheckedRelations` list is accepted by `RelationFactors::new`.
+
+`CheckedRelations` fixes the order: position, input index, and matrix provenance coincide. An exact
+repeat of a pair `(a, b)` is a `DuplicatePair` error. Duplicates are never dropped or renumbered
+here, because provenance indices are what a dependency is later lifted through; composition
+deduplicates beforehand. `(a, b)` and `(−a, −b)` are different records, with opposite rational sign
+and product `−(a − bα)²`, and both are accepted.
+
+### Which algebraic parities are constraints
+
+Let `c` be the leading coefficient and `F` the monic form with `θ = c·α`. For a prime
+`p ∤ c·disc(F)`, `p` does not divide the index `[O : Z[θ]]`, so each simple root `r` of `f mod p`
+gives a degree-1 prime `(p, θ − c·r)` (Kummer–Dedekind). Because `c` is a `p`-unit,
+`v(a − bα) = v(ca − bθ)` at that prime. For a coprime pair, `p | f_hom(a, b)` forces `p ∤ b`
+(otherwise `f_hom ≡ c·a^d ≢ 0`), so `r ≡ a/b` is the unique root, no other ideal above `p` divides
+the element, and the valuation equals `v_p(f_hom(a, b))`. Its parity is a genuine constraint.
+
+At a prime dividing `c·disc(F)` the recorded exponent is only a norm-valuation attribution, not an
+ideal valuation, and for non-monic `f` the norm of `a − bα` is `f_hom(a, b)/c`, so for `p | c` even
+the norm-valuation parity of `f_hom` is not necessary. `classify_prime` therefore marks the whole
+prime `Exceptional` when `p | c·disc(F)`, using exact big-integer remainders rather than the
+informational `is_bad_prime` flag, which for `d = 2` cannot see `p | c`. The rule is conservative:
+for `x³ − x − 1` the ideal `(23, 3)` has a simple root but lies over the exceptional prime 23, so
+its constraint is dropped along with `(23, 10)`. Rational primes and the rational sign remain
+constraints for every prime.
+
+### The matrix layout
+
+`build_checked_matrix` uses exactly the column order of `build_matrix`: `R` rational primes, `A`
+ideals in factor-base order, one rational-sign column at `R + A` (the start of the obstruction
+block), and `K` character slots after it, which are zero when built. Exceptional ideal columns are
+kept and never set, so indices still equal factor-base indices and a zero column stays zero under
+any XOR; `SparseMatrix::excess` undercounts by the number of omitted columns, which only makes
+pruning more conservative. `MatrixLayout` classifies every column (`RationalPrime`, `GoodIdeal`,
+`ExceptionalIdeal`, `RationalSign`, `RootCharacter`), reports `omitted_columns`, recomputes any
+relation's row with `row_columns`, and checks a matrix's width and obstruction block with
+`shape_matches`. It owns a clone of the checker, so a matrix, layout, and relation set are bound by
+equality, not by convention.
+
+The fixture `f = 3x² + x − 1`, `m = 3`, `N = 29` has `c = 3` and `F = t² + t − 3`, `disc(F) = 13`,
+so 3 and 13 are exceptional. The relation `(4, 1)` has `f_hom = 51 = 3·17` and legacy row `[4, 6]`;
+the checked row is `[6]`. The pairs `(2, 1)` (`f_hom = 13`) and `(5, 2)` (`f_hom = 81 = 3⁴`) both
+give the checked row `[8]`, so they cancel, yet `Norm(γ) = (13/3)(81/3) = 117` is not a square.
+Omitting the parities admits a candidate that exact verification rejects, which is why the filter is
+a necessary condition and never a proof.
+
+### Limits that remain
+
+- The primitive affine collector records only degree-1 affine ideals. A coprime pair with `p | c`,
+  `p | b` and `p | f_hom` (for example `(1, 3)` on the fixture, with `f_hom = −3`) has no affine
+  root, so `Relation::new` returns `None`, and a hand-built record claiming one fails with
+  `AffineLabelMismatch` or `AlgebraicNormMismatch`. Complete projective and exceptional-ideal
+  factorization is not provided.
+- Omitting exceptional parity weakens the candidate filter. It does not weaken exact verification
+  of a square root.
+- Quadratic characters, like the other columns, are necessary filters: earlier chapters' wording
+  that they guarantee a square root is superseded by this section. Duplicate detection is
+  exact-pair, not ideal-level.
+
+### KAT summary
+
+| Test file | Test | Mathematical fact verified |
+|-----------|------|---------------------------|
+| `checked_relations_kat.rs` | `kat_classify_primes_by_leading_coefficient_and_discriminant` | `p \| c·disc(F)` is exceptional for the whole prime; 2 is good for `x³−x−1` and exceptional for `x²−2` |
+| `checked_relations_kat.rs` | `kat_checker_rejects_malformed_factor_base` | One case per factor-base rejection, in variant order; incomplete bases are accepted |
+| `checked_relations_kat.rs` | `kat_good_and_exceptional_relations_accepted` | Hand norms, signs, labels, and exponents of six pairs on `3x²+x−1` |
+| `checked_relations_kat.rs` | `kat_checked_rows_omit_exceptional_columns` | Checked rows differ from legacy rows exactly at columns 4 and 5; weights are exact |
+| `checked_relations_kat.rs` | `kat_omitting_exceptional_parity_admits_a_candidate_exact_verification_rejects` | `{(2,1),(5,2)}` cancels in the matrix, but `Norm(γ) = 117` and exact reconstruction certifies a nonsquare |
+| `checked_relations_kat.rs` | `kat_relation_rejections_are_typed` | One case per relation rejection, including an absurd exponent refused without forming `p^e` |
+| `checked_relations_kat.rs` | `kat_projective_collection_limit_is_rejected_not_repaired` | The projective pair `(1, 3)` is refused by the checker and by `Relation::new` |
+| `checked_relations_kat.rs` | `kat_duplicate_pairs_rejected` | Exact repeats fail with both indices; `(a, b)` and `(−a, −b)` coexist |
+| `checked_relations_kat.rs` | `kat_negative_b_seam_relation_accepted` | `(3, −2)` on `x²−2`, `N = 527`, has `a−bm = 49` and `f_hom = 1`; its row is empty |
+| `checked_relations_kat.rs` | `kat_line_sieve_relations_validate` | Every collected relation on `x³−x−1` checks; checked rows equal legacy rows except at the two `(23, ·)` columns |
+| `checked_relations_kat.rs` | `kat_layout_accessors_and_binding` | Column classes, `shape_matches`, foreign relations, checker equality, and column-count overflow |
+| `checked_relations_kat.rs` | `kat_legacy_matrix_path_is_unchanged` | `Relation`, `SparseMatrix`, and `build_matrix` keep their shape and legacy interpretation |
+
+---
+
 ## 51. What Comes Next
 
 The square-root and assembly stage is the final stage of the GNFS factoring pipeline. The

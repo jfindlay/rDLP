@@ -7,6 +7,9 @@
 //! - [`ExponentVector`] — sparse exponent vector over a factor base (rational or algebraic side).
 //! - [`Relation`] — a coprime pair ``(a, b)`` with both norms smooth over the factor bases.
 //! - [`RelationError`] — error type for relation verification.
+//! - [`checked`] — the checked relation context: [`RelationChecker`], [`CheckedRelation`],
+//!   [`CheckedRelations`], and [`classify_prime`], which re-derive every norm, sign, and affine
+//!   ideal label of a [`Relation`] before a matrix is built from it.
 //!
 //! # Background
 //!
@@ -23,12 +26,17 @@
 //! This over-specification for NFS-DL is the load-bearing cross-track design: re-narrowing the
 //! relation type after either consumer uses it would be a destructive reshard.
 
+pub mod checked;
 pub mod factor_base;
 pub mod lattice;
 pub mod line;
 pub mod norms;
 pub mod special_q;
 
+pub use checked::{
+    classify_prime, CheckedRelation, CheckedRelations, CheckedRelationsError, ExponentSide,
+    FactorBaseRejection, PrimeClass, RelationChecker, RelationRejection,
+};
 pub use factor_base::{AlgebraicPrime, FactorBase};
 pub use lattice::{lattice_sieve, LatticeBasis, LatticeSieveConfig, LatticeSieveResult};
 pub use line::{line_sieve, LineSieveConfig};
@@ -215,10 +223,21 @@ impl std::error::Error for RelationError {}
 /// "−1 column" for the linear algebra step: the product of all selected relations' rational
 /// norms must be a perfect square, which requires the sign product to be +1.
 ///
-/// The algebraic norm's sign is not stored separately because the algebraic square root
-/// computation handles sign via the embedding into ℝ, not via a matrix column.
-/// (The quadratic-character columns in the linear algebra step serve a different purpose:
-/// ensuring the algebraic square root exists in K, not sign correction.)
+/// The algebraic norm's sign is not stored separately and is not a matrix column. A field
+/// need not have a real embedding (totally imaginary fields have none), so the algebraic
+/// square root is reconstructed and verified exactly, with no sign convention taken from ℝ.
+/// (The quadratic-character columns in the linear algebra step are necessary filters on
+/// the algebraic side: they exclude candidates, but they do not guarantee that a square
+/// root exists in K, so every candidate is still verified exactly.)
+///
+/// # Algebraic parity
+///
+/// The algebraic exponents record the valuation of the homogeneous norm at each degree-1
+/// ideal ``(p, r)`` with ``a ≡ b·r (mod p)``. Their parity is a square constraint only at
+/// primes ``p`` that divide neither the leading coefficient nor the discriminant of the
+/// monic form; [`checked::RelationChecker`] classifies the other primes as exceptional. The
+/// primitive affine collector never returns a pair with a projective factor (``p`` dividing
+/// both the leading coefficient and ``b``).
 ///
 /// # Cross-track adaptation (NFS-DL)
 ///

@@ -20,8 +20,9 @@
 //! # Obstruction columns (over-specified for the linear algebra step)
 //!
 //! The linear algebra step over GF(2) requires additional columns beyond the factor-base
-//! primes: the sign column (−1) and quadratic-character columns for ensuring the algebraic
-//! square root exists. The ``obstruction_count`` field reserves column indices for these;
+//! primes: the sign column (−1) and quadratic-character columns, which are necessary filters
+//! on the algebraic side (they exclude candidates but do not guarantee that an algebraic
+//! square root exists). The ``obstruction_count`` field reserves column indices for these;
 //! the line sieve does not populate them, but the slot exists so the linear algebra step
 //! can extend without resharding.
 //!
@@ -34,6 +35,18 @@
 //! ``is_bad_prime`` flag set, using direct root-finding (``f(r) ≡ 0 mod p``) which is correct
 //! for linear factors even at bad primes. The ``is_bad_prime`` flag documents the principle-4
 //! over-exposure.
+//!
+//! The flag is informational. The checked relation path ([`super::checked`]) does not consult
+//! it: it classifies a prime by exact divisibility of ``c·disc(F)``, where ``c`` is the
+//! leading coefficient and ``F`` the monic form. For ``deg f = 2`` the discriminant of ``F``
+//! is that of ``f``, so ``p | c`` can be invisible to a flag derived from the discriminant
+//! alone.
+//!
+//! # Projective limitation
+//!
+//! Only affine ideals ``(p, α − r)`` are represented. For ``p | c`` and ``p | b``, no affine
+//! root ``r`` satisfies ``a ≡ b·r (mod p)``, so [`Relation::new`](super::Relation::new)
+//! returns ``None`` and such relations are never collected.
 
 use num_bigint::BigInt;
 use num_traits::Zero;
@@ -88,8 +101,9 @@ pub struct AlgebraicPrime {
 /// # Obstruction columns (over-specified for the linear algebra step)
 ///
 /// The linear algebra step over GF(2) requires additional columns beyond the factor-base
-/// primes: the sign column (−1) and quadratic-character columns for ensuring the algebraic
-/// square root exists. The ``obstruction_count`` field reserves column indices for these;
+/// primes: the sign column (−1) and quadratic-character columns, which are necessary filters
+/// on the algebraic side and do not guarantee that an algebraic square root exists. The
+/// ``obstruction_count`` field reserves column indices for these;
 /// the line sieve does not populate them, but the slot exists so the linear algebra step
 /// can extend without resharding.
 #[derive(Debug, Clone)]
@@ -104,7 +118,8 @@ pub struct FactorBase {
     pub b_alg: u64,
     /// Number of obstruction columns reserved for the linear algebra step (sign + quadratic chars).
     ///
-    /// Initialised to 1 (the sign column); the linear algebra step may increase it.
+    /// Initialised to 1 (the sign column); the linear algebra step may increase it. The
+    /// quadratic-character columns are necessary filters, not a guarantee of a square root.
     pub obstruction_count: usize,
 }
 
