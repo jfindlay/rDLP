@@ -59,7 +59,7 @@ the named paths, not permission to edit an entire directory. New paths are ident
 | 4 | Construct normalized targets and certified bounds | B | T1 | C-Design, C-SqrtContext | `gnfs/src/sqrt/context/normalize.rs`, `gnfs/src/sqrt/{context,mod}.rs`, `gnfs/tests/sqrt_normalize_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 5 | Reconstruct algebraic roots by p-adic Newton lifting | B | T1 | C-Design, C-FpPoly, C-ResidueField, C-SqrtContext, C-NormalizedTarget | `gnfs/src/sqrt/{padic,mod}.rs`, `gnfs/tests/sqrt_padic_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 6 | Construct lifted split-prime root contributions — @architect | A | T1 + T0 design | C-Design, C-FpPoly, C-ResidueField, C-SqrtContext, C-NormalizedTarget | `gnfs/src/sqrt/{crt,mod}.rs`, `gnfs/tests/sqrt_crt_kat.rs`, `gnfs/Cargo.toml`, `Cargo.lock`, `gnfs/docs/PEDAGOGY.md` |
-| 7 | Recombine CRT signs and dispatch verified roots ◆ | I | T1; T0 boundary | C-Design, C-SqrtContext, C-NormalizedTarget, C-DirectRoot, C-SplitContributions | `gnfs/src/sqrt/{crt,mod}.rs`, `gnfs/tests/sqrt_crt_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
+| 7 | Recombine CRT signs and dispatch verified roots ◆ | I | T1; T0 boundary | C-Design, C-SqrtContext, C-NormalizedTarget, C-DirectRoot, C-SplitContributions | `gnfs/src/sqrt/{crt,mod,context}.rs`, `gnfs/tests/sqrt_crt_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 8 | Validate relations and classify algebraic parity — @architect | A | T1 + T0 design | C-Design, C-SqrtContext | `gnfs/src/sieve/{mod,factor_base}.rs`, `gnfs/src/filter/mod.rs`, `gnfs/tests/checked_relations_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 9 | Preserve kernels through elimination and XOR lifts | B | T1 | C-Design, C-CheckedRelations | `gnfs/src/filter/{matrix,merge}.rs`, `gnfs/tests/merge_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 10 | Filter candidates with individual root characters | B | T1 | C-Design, C-FpPoly, C-CheckedRelations, C-XorLift | `gnfs/src/linalg/{qc,mod}.rs`, `gnfs/tests/linalg_substrate_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
@@ -143,6 +143,10 @@ precision, not the old u64-only helpers. Freeze the contribution representation 
 matching interface at the inflection checkpoint, with list/match accounting for row 7.
 
 ### 7 — Exact sign recombination and method dispatch (G.2e, global half) ◆
+
+Fileset refined at the row-6 inflection (2026-11-07): `gnfs/src/sqrt/context.rs` is added, only to
+drop the stale dead-code allowance on the nonsquare-certificate constructor and to correct the CRT
+limits doc comment ("each split prime", not "each prime power"). No other widening.
 
 Deliver: exact meet-in-the-middle sign matching, complete verification, and bounded
 primary-to-fallback dispatch, consuming signed local contributions rather than local candidate roots
@@ -867,10 +871,230 @@ does not. KATs cover nonconstant/even-degree/totally imaginary roots and precisi
 ### C-SplitContributions — lifted roots and signed CRT contributions
 
 **Enforcement:** compiler + test. **Defined-in:** 6. **Consumed-by:** 7.
-To be frozen at 6: distinct completely split odd primes coprime to cN, nonzero H at each root,
-lifted F roots and local square roots, Lagrange polynomials and CRT idempotents, and owned signed
-contributions. Select Q_i=p_i^e with M=product Q_i>2B. Check both local identities; a local
-nonresidue proves nonsquare. KATs check interpolation, lifts, CRT weights, and resource limits.
+**Status:** **frozen at row 6 (commit 5da4883, 2026-11-07)**, designed at the row-6 inflection and
+implemented with **no deviation** from the signatures and record layout below (15 integration KATs
+plus 7 unit tests; fixtures independently re-derived by the worker with a separate script).
+Implementation notes: `root_search` is a per-prime budget, not a total; `max_primes` is an upper
+bound (if the budget ends after at least one usable prime, those primes are used and no exhaustion
+is reported; `max_primes == 0` gives `{SplitPrimeSearch, 0, 0}`); `p | cN` skips are redundant for
+d >= 2 (zero H at root 0 already skips them) but kept explicitly; `Precision` from
+`split_contributions` is reachable only on u32 exponent overflow, so user-visible precision
+exhaustion comes from `NormalizedTarget::new`; the stale `dead_code` allowance on
+`NonSquareCertificate::new` remains. Ground truth for row 7's KATs (verified by the worker): of the
+2^n sign vectors exactly the true root and its negation assemble to ±z (527 fixture ℓ=1 and ℓ=2;
+V4 quartic `F = t⁴−10t²+1`, m=4, N=97, relation pair (1,−1) twice, `z = −4−20θ+20θ²+4θ³`,
+β = 1+θ, at 23⁴ and 23²·47²). A false-positive fixture for `SignSearchExhausted`: `t²−3`, pair
+(2,−1), `first_candidate` 14 gives `Ready` at prime 23 with M = 529 and all 4 sign vectors are
+`Rejected` by `verify_candidate`. Original statement: distinct completely split odd primes coprime to cN,
+nonzero H at each root, lifted F roots and local square roots, Lagrange polynomials and CRT
+idempotents, and owned signed contributions. Select Q_i=p_i^e with M=product Q_i>2B. Check both
+local identities. A local nonresidue proves nonsquare.
+
+**Fileset (confirmed, no widening).** New `gnfs/src/sqrt/crt.rs` and `gnfs/tests/sqrt_crt_kat.rs`.
+`gnfs/src/sqrt/mod.rs` adds `pub mod crt;`, re-exports every public item below at `gnfs::sqrt::*`,
+and adds one module-list bullet. `gnfs/Cargo.toml` adds exactly
+`shared-padic = { path = "../shared/padic" }`, and `Cargo.lock` gains only that edge. shared-padic
+depends on bigint and numfield, not gnfs, so no cycle is formed. Its `thiserror` 1 is already
+locked. `gnfs/docs/PEDAGOGY.md` gains one split-prime section. `context.rs`, `padic.rs`,
+`normalize.rs`, and `algebraic.rs` are **not** touched. `crt.rs` therefore keeps its own private
+copies of the prime cursor, which reports `SplitPrimeSearch`, plus the lifting exponent and
+centering. That ~50-line duplication of `padic.rs` privates is a later consolidation candidate,
+not this row's work. The stale `#[allow(dead_code)]` on `NonSquareCertificate::new` remains. Row 6
+is another caller, through `pub(super)`, which is visible to `sqrt::crt`. Never call the legacy
+u64 `garner_crt` or other `algebraic.rs` helpers.
+Row 7's listed fileset (`crt.rs`, `mod.rs`, `sqrt_crt_kat.rs`, PEDAGOGY) is consistent with this
+design and needs no new file: sign matching and the split-prime entry point live in `crt.rs`, the
+method-neutral dispatcher in `mod.rs`, and the KATs extend `sqrt_crt_kat.rs`.
+
+Signatures (row 6; bodies elided; rustdoc with `# Errors`; no lifetimes; all owned):
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum ContributionSign { Plus, Minus }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct LocalPrime { /* private: prime: u64, modulus Q = p^e: BigInt, weight W: BigInt */ }
+    impl LocalPrime {
+        pub fn prime(&self) -> u64;
+        pub fn modulus(&self) -> &BigInt;     // Q_i = p_i^e
+        pub fn weight(&self) -> &BigInt;      // W_i in [0, M): ≡ 1 mod Q_i, ≡ 0 mod Q_k (k ≠ i)
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Contribution { /* private */ }
+    impl Contribution {
+        pub fn prime_index(&self) -> usize;   // index into ContributionSet::locals()
+        pub fn prime(&self) -> u64;
+        pub fn root(&self) -> u64;            // r in [0, p), F(r) ≡ 0 mod p
+        pub fn lifted_root(&self) -> &BigInt; // R in [0, Q), R ≡ r mod p, F(R) ≡ 0 mod Q
+        pub fn local_root(&self) -> &BigInt;  // s in [0, Q), s² ≡ H(R) mod Q (sign unspecified)
+        pub fn lagrange(&self) -> &IntPoly;   // L mod Q, coeffs in [0, Q), degree exactly d − 1
+        pub fn coefficients(&self) -> &[BigInt];  // C = W·s·L mod M; exactly d entries in [0, M)
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct ContributionSet { /* private: target: NormalizedTarget (owned clone), locals,
+        exponent: u32, modulus M: BigInt, contributions */ }
+    impl ContributionSet {
+        pub fn target(&self) -> &NormalizedTarget;     // binding cannot be mismatched
+        pub fn locals(&self) -> &[LocalPrime];         // ascending primes, ell >= 1
+        pub fn exponent(&self) -> u32;                 // common e
+        pub fn modulus(&self) -> &BigInt;              // M = product Q_i >= 2B + 1, odd
+        pub fn contributions(&self) -> &[Contribution];   // ell·d entries, canonical order
+        pub fn method(&self) -> ReconstructionMethod;  // SplitPrimeCrt { primes, exponent }
+        pub fn assemble(&self, signs: &[ContributionSign]) -> Result<IntPoly, SqrtError>;
+    }
+
+    #[must_use]
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum SplitOutcome {
+        Ready(ContributionSet),
+        NotSquare(NonSquareCertificate),              // SplitLocalNonresidue only
+        ResourceExhausted(ResourceExhaustion),        // single entry, see below
+    }
+
+    pub fn split_contributions(target: &NormalizedTarget, limits: CrtLimits)
+        -> Result<SplitOutcome, SqrtError>;
+
+**Frozen C-SqrtContext shapes are unchanged.** `ReconstructionMethod::SplitPrimeCrt { primes:
+Vec<u64>, exponent: u32 }` is adequate because the exponent is common to all primes. The open
+refinement is therefore declined, and no frozen enum, limit, or evidence shape changes.
+
+Semantics row 7 and the KATs may rely on:
+
+- **Selection.** Primes are examined in ascending order from `max(first_candidate, 3)`. Each prime
+  counts against `prime_search.max_primes_examined`. Prime p is usable iff it is odd, p ∤ c·N,
+  F mod p is squarefree (equivalently p ∤ disc F), `distinct_root_count() == d`, the complete root
+  list fits `root_search`, and H(r) ≢ 0 mod p at every root. Otherwise p is skipped. Per-prime
+  order: split test; enumerate roots (`Truncated` returns `ResourceExhausted{RootSearch,
+  consumed: evaluations, limit: max_evaluations}`); zero-test H at all roots, skipping p if any is
+  zero; then take residue square roots for ascending roots. A `SqrtOutcome::NotSquare` at root r
+  returns `NotSquare(SplitLocalNonresidue { prime, root: r })` immediately. This certificate is
+  valid even for reducible A, because z ∈ Z[t] and H(r) ≡ z(r)² mod p.
+  `SqrtOutcome::ResourceExhausted` returns `{NonresidueSearch, consumed: candidates_tried, limit}`.
+  Residue square roots use `ResidueField` with the linear modulus t over F_p (C-ResidueField
+  reuse) and constant elements.
+- **ell.** `max_primes` is an upper bound. Search stops once `max_primes` usable primes are found.
+  If the prime budget or machine range ends after at least one usable prime, proceed with those
+  found primes, so ell < max_primes, and record no exhaustion. With zero usable primes, return
+  `ResourceExhausted{SplitPrimeSearch | MachinePrimeRange, consumed: primes examined, limit:
+  max_primes_examined}`. `max_primes == 0` returns `{SplitPrimeSearch, consumed: 0, limit: 0}`
+  before any search. *Tradeoff:* when fewer primes exist in the budget, the whole remaining prime
+  budget is spent, and ell becomes budget-dependent. In exchange, a resource failure is reported
+  only when nothing usable was found. Sign dimension grows with ell·d, so pinned limits should
+  prefer `max_primes = 1`. ell = 1 is a valid published parameter.
+- **Precision.** e is the least value with (product p_i)^e ≥ 2B+1 (`target.minimum_modulus()`).
+  If e does not fit `u32`, return `{Precision, consumed: minimum.bits(), limit: u32::MAX}`, as row 5
+  does. The target already enforced `max_modulus_bits`, so M has at most
+  bits(2B+1)+bits(product p_i) bits.
+- **Lifting (arbitrary precision; existing scalar substrate).** Use
+  `shared_padic::hensel_lift(f: &IntPoly, r0: &BigInt, p: &BigInt, k: u32) -> Result<BigInt,
+  HenselError>`, which returns a value in [0, p^k). Signatures match: `IntPoly` is the same
+  `shared_numfield` type, and e is `u32`. Call it with `(monic F, r, p, e)` for R. Compute
+  v = H(R) mod Q with `IntPoly::eval_mod`. Then call it with `(x² − v, s0, p, e)` for s, where s0 is
+  the residue root. Preconditions are established beforehand: r is simple because F is squarefree
+  mod p, and 2·s0 ≢ 0 because p is odd and v ≢ 0. Never pass k = 0, which returns an unlifted value.
+  Every `HenselError` is `Err(SqrtError::Invariant)`. `hensel_lift` does not verify its result, so
+  row 6 itself checks F(R) ≡ 0, R ≡ r, s² ≡ H(R) mod Q, and s ≡ s0 mod p. A failure is
+  `Err(Invariant)`.
+- **Interpolation and CRT (in `crt.rs`, BigInt throughout).** L_ij = product_{k≠j}(t − R_ik) ·
+  (product_{k≠j}(R_ij − R_ik))^(−1) mod Q_i. The denominators are units because the roots are
+  distinct mod p. M_i = M/Q_i and W_i = M_i·(M_i^(−1) mod Q_i) mod M. Use checked inverses: either
+  `num_integer::Integer::extended_gcd` or `shared_padic::Zp::inv`, and verify the product is 1.
+  ell = 1 gives W = 1. C_ij = W_i·s_ij·L_ij mod M, padded to exactly d coefficients. Row 6 checks
+  W_i ≡ 1 mod Q_i at runtime. The other identities are KAT obligations.
+- **Canonical order and global sign.** Contributions are ordered by ascending prime, then ascending
+  root r. Index 0 is the first prime's least root. This order is part of the contract because row 7
+  fixes index 0 to `Plus` as its only global-sign normalization.
+- **assemble.** `signs.len()` must equal the contribution count; otherwise the result is
+  `Err(Invariant)`. It returns the centered residue of sum ε_k C_k mod M, coefficientwise, as an
+  `IntPoly` of degree < d. That value can be passed directly to `verify_candidate`. It selects no
+  signs. Why it is sound: for any square root z, z(R_ij) ≡ ±s_ij mod Q_i, because H(R_ij) is a unit
+  and Z/p^e has only ±s as unit square roots. Also F ≡ product(t − R_ij) mod Q_i. Hence z equals
+  the assembly of some sign vector, and centered at M > 2B it equals z exactly.
+- **No success or sign selection here.** Row 6 never calls `verify_candidate` and never returns
+  `Verified`. Local squares at every root are not evidence of a global square. That is the local
+  false-positive case.
+
+**Planned row-7 consumption interface (binding intent; frozen in C-VerifiedRoot at row 7):**
+
+    // crt.rs
+    pub fn recombine_signs(set: &ContributionSet, limits: RecombinationLimits)
+        -> Result<AlgebraicSqrtOutcome, SqrtError>;
+    pub fn split_prime_root(target: &NormalizedTarget, crt: CrtLimits,
+        recombination: RecombinationLimits) -> Result<AlgebraicSqrtOutcome, SqrtError>;
+    // mod.rs (method-neutral dispatcher, planned name from C-SqrtContext)
+    pub fn reconstruct_root(target: &NormalizedTarget, limits: SqrtLimits)
+        -> Result<AlgebraicSqrtOutcome, SqrtError>;
+
+Row 7 owns all of the following. Bound-aware matching uses coefficient κ = argmin_i B_i from
+`set.target().coefficient_bounds()`, with ties going to the lowest i, and b = B_κ. Let
+n = contributions count and c_k = C_k[κ]. Fix ε_0 = Plus. The left half is indices
+1..=⌊(n−1)/2⌋. The right half is the remaining ⌈(n−1)/2⌉ indices. The left list holds
+(c_0 + signed left sums) mod M, enumerated by ascending sign mask. The right list holds signed
+right sums mod M, sorted by (residue, mask). For each left x, match y in the exact residue
+interval [lo, hi], where lo = (−x−b) mod M and hi = (−x+b) mod M. If lo ≤ hi, it is one range.
+Otherwise, scan [lo, M−1] and then [0, hi]. Because 2b+1 ≤ M, the interval never double-counts.
+Matches are examined in that order. A match assembles all coefficients through `assemble` and calls
+`verify_candidate`. `Verified`, `Incidental`, and `Unsupported` return immediately; a root
+exists. `Rejected(DegreeTooHigh)` is `Err(Invariant)`. Other rejections continue.
+
+Accounting:
+- Before allocating, if 2^⌈(n−1)/2⌉ > `max_list_entries`, return
+  `ResourceExhausted[{RecombinationList, consumed: required (saturating u64), limit}]`.
+- Before examining match `max_matches + 1`, return
+  `ResourceExhausted[{RecombinationMatches, consumed: max_matches, limit}]`.
+- Zero total matches is complete, even if `max_matches = 0`. Complete exhaustion returns
+  `NotSquare(SignSearchExhausted { primes, exponent })`. This is sound because one of ±z has
+  ε_0 = Plus and |z_κ| ≤ B_κ, so the true vector is always a match.
+
+Dispatcher mapping:
+- `direct_root` falls back only on `ResourceExhausted` of `InertPrimeSearch` or
+  `MachinePrimeRange`.
+- `SplitOutcome::NotSquare` becomes `AlgebraicSqrtOutcome::NotSquare`.
+- `SplitOutcome::ResourceExhausted(e)` and recombination exhaustion append after the primary entry,
+  in chronological order.
+- `Ready` goes to `recombine_signs`.
+
+KATs (row 6, `gnfs/tests/sqrt_crt_kat.rs`, each with independent arithmetic comments; fixtures
+derived here, worker re-verifies):
+- `kat_split_selection_skips_unusable_primes`: x²−2, m=23, N=527=17·31, relation (3,−2), and
+  H=24+16θ. With `first_candidate` 0, the primes examined are 3, 5, 7. Primes 3 and 5 are inert, and
+  the first usable prime is 7, with roots 3 and 4, H(3) ≡ 2, and H(4) ≡ 4. With `max_primes` 2,
+  the primes are [7, 23]. 11, 13, and 19 are inert, 17 divides N, and 8 primes are examined. At 23,
+  the roots are 5 and 18, with H ≡ 12 and 13, both squares.
+- `kat_lifted_roots_satisfy_polynomial_mod_prime_power`
+- `kat_local_roots_satisfy_target_identity`
+- `kat_lagrange_basis_identities`: L_ij(R_ik) ≡ δ_jk, sum_j L_ij ≡ 1 mod Q_i, and deg L = d−1.
+- `kat_crt_idempotents`: W_i ≡ δ_ik mod Q_k, ΣW ≡ 1, and W² ≡ W mod M. Under ell = 1, W = 1.
+- `kat_every_sign_vector_is_a_local_square`: for small n, every assembly satisfies z² ≡ H
+  mod (F, M). Check with `IntPoly::mul` and `pseudo_div_rem`, not `crt.rs` code.
+- `kat_known_root_sign_vector_assembles`: derive ε_ij independently from z(R_ij) ≡ ±s_ij, then
+  require `assemble(ε) = ±z`. Use the 527 fixture with z = 4+2θ under ell = 1 and ell = 2, and use
+  a V4 target, F = t⁴−10t²+1. The V4 case may use m = 4 and N = 97 with duplicated pairs such as
+  (1,−1) twice, so β = 1+θ.
+- `kat_local_nonresidue_certifies_not_square`: x²−3, m=4, N=13, and relation (2,−1). Then
+  γ = 2+θ and H = 24+12θ. Prime 3 is not squarefree, while 5 and 7 are inert. At 11, the roots are
+  5 and 6, and H(5) ≡ 7 is a nonresidue, giving `SplitLocalNonresidue { prime: 11, root: 5 }`.
+- `kat_local_false_positive_is_not_a_certificate`: use the same target with `first_candidate`
+  14. 17 and 19 are inert. At 23, the roots are 7 and 16, with H ≡ 16 and 9, both squares, so the
+  result is `Ready`. Row 7 must later reject it with `SignSearchExhausted`.
+- `kat_split_resource_outcomes`: cover `SplitPrimeSearch` with budget 1, `max_primes` 0,
+  `RootSearch` with max_evaluations 0 at a split prime, and `NonresidueSearch` with budget 0 at a
+  p ≡ 1 mod 4 split prime. Also cover a partial ell when the budget ends after one usable prime.
+- `kat_degree_one_every_prime_splits`: L = 1 and n = ell.
+- `kat_assemble_rejects_wrong_sign_count`
+
+The V4 field genuinely has no inert prime, so it requires the fallback. The NOTES V4 β = 1+θ+θ²
+is not obviously a product of relation factors (a − bθ). Row 7's V4 KAT should therefore use a
+relation-pair square in the V4 field. It may check the NOTES β identity separately as an exact
+algebra comment.
+
+**Flagged recommendations (driver surfaces; none blocks row 6):**
+- (a) Add `gnfs/src/sqrt/context.rs` to row 7's fileset only to delete the stale `dead_code`
+  allowance and its comment on `NonSquareCertificate::new`. While there, correct the `CrtLimits`
+  doc "modulo each prime power", which should say "modulo each split prime". This is a 3-line
+  anneal. Otherwise, the item remains a deferred note.
+- (b) Later consolidation of the duplicated prime cursor and helpers in `padic.rs` and `crt.rs`.
 
 ### C-VerifiedRoot — bounded canonical dispatch and exact sign matching
 
@@ -957,7 +1181,7 @@ unstaged and uncommitted.
 | 3 | Checked square-root contexts | done | e82b2eb | C-SqrtContext (dependency signatures freeze at 11) |
 | 4 | Normalized targets and bounds | done | e636477 | C-NormalizedTarget |
 | 5 | Direct p-adic reconstruction | done | 7898119 | C-DirectRoot |
-| 6 | Split-prime local contributions | pending | — | — |
+| 6 | Split-prime local contributions | done | 5da4883 | C-SplitContributions; manifest edge gnfs -> shared-padic |
 | 7 | CRT recombination and dispatch ◆ | pending | — | — |
 | 8 | Checked relations and algebraic parity | pending | — | — |
 | 9 | Elimination and XOR provenance | pending | — | — |
@@ -1030,6 +1254,29 @@ fileset includes `context.rs` (none currently; flag for the row-7 boundary annea
 fileset update); the V4 quartic x⁴−10x²+1 has no inert prime and needs the row-6/7 fallback.
 Texture: the per-precision Newton-invariant check is a unit test, not an integration KAT, because the
 quotient ring is private by design.
+
+### 6 — 2026-11-07
+Discovery/flex: Inflection fork returned `design-confident`; row 6 builds only the local pieces
+(`split_contributions`, `ContributionSet`, `assemble`) and never chooses signs; row 7 owns
+`recombine_signs`, `split_prime_root` and the `reconstruct_root` dispatcher. Frozen shapes
+(`CrtLimits`, `ReconstructionMethod::SplitPrimeCrt{primes, exponent}`, `ResourceKind`) were left
+unchanged. Implemented with no deviation; the only manifest change is the approved path edge
+`gnfs -> shared-padic` (Cargo.lock +1 line).
+Affected: C-SplitContributions (frozen); consumer row 7 (C-VerifiedRoot).
+Deferred: yes — (a) row 7's fileset needs `gnfs/src/sqrt/context.rs` added (~3 lines: drop the
+stale `#[allow(dead_code)]` on `NonSquareCertificate::new`, and correct the `CrtLimits` doc from
+"modulo each prime power" to "each split prime"); the driver applies this explicit fileset update
+before dispatching row 7. (b) `crt.rs` and `padic.rs` privately duplicate the prime-cursor and
+lifting-exponent/centering helpers (consolidation candidate, not enrolled). (c) Pinned limits at
+row 14 should use `max_primes = 1` because the sign search grows with ℓ·d. (d) Row 7's V4 test must
+use a relation-pair square in the same field (e.g. (1,−1) twice, m=4, N=97); NOTES' β=1+θ+θ² is
+not obviously buildable from relation pairs. (e) Row 7 matching is on the coefficient with the
+smallest bound, fixes the first contribution's sign, splits wrapped intervals exactly, checks list
+size before allocation and counts matches before examining each; zero matches after complete
+examination certifies NotSquare.
+Texture: the committer wrote its own commit body and it reads "contributions are kept unsigned
+here", which loosely contradicts "signed contributions" (meaning: the records carry a ± slot applied
+at assembly; no global sign is chosen). Left unamended: unpushed, wording is imprecise not false.
 
 ## Discoveries & risks
 
