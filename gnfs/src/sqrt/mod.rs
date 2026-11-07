@@ -37,6 +37,9 @@ pub mod rational;
 
 pub use algebraic::algebraic_sqrt;
 pub use assembly::{factor, factor_from_congruence};
+pub use context::normalize::{
+    CandidateRejection, CandidateVerdict, NormalizedTarget, TargetOutcome,
+};
 pub use context::{
     AlgebraicSqrtOutcome, CrtLimits, DirectLimits, FailureClass, IncidentalFactor,
     IncidentalSource, InputRejection, InvalidInput, InvariantViolation, NonSquareCertificate,

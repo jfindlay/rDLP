@@ -3575,6 +3575,106 @@ resource, the amount consumed, and the limit.
 
 ---
 
+## The Normalized Target and Exact Verification
+
+A reconstruction algorithm proposes an integer polynomial `z`; it never produces a trusted root.
+`gnfs::sqrt::context::normalize` owns the two things every algorithm shares: the *target* that `z`
+must square to, with a certified bound on its coefficients, and the *verifier* that is the only way
+to obtain a `VerifiedRoot`. It is a child of `context` so that it can call the private `seal`.
+
+### From relations to an integral target
+
+With `A = Q[t]/(F)`, `θ = c·α`, `k` relations and `h = ⌈k/2⌉`, the algebraic product is
+`γ = Π(a − b·α) = Π(c·a − b·θ) / c^k`. It need not be integral, but
+
+    η = c^(2h−k) · Π(c·a − b·θ) = c^(2h) · γ      (in Z[θ])
+    H = F'(θ)² · η                                (in Z[θ])
+
+are. If `β² = γ` then `w = c^h β` satisfies `w² = η` and is integral at every conjugate, and
+`z = F'(θ)·w` satisfies `z² = H` exactly modulo `F`. Multiplying by `F'` is what puts `z` in the power
+basis `Z[θ]` even when `Z[θ]` is not the maximal order: `z_i = Tr(w·h_i(θ))` with
+`h_i(t) = Σ_{ℓ>i} F_ℓ t^(ℓ−1−i)`, and each `w·h_i(θ)` is an algebraic integer, so its trace is an
+integer. The unscaled root is recovered over `Q` as `β = z / (c^h F'(θ))`.
+
+The root need not lie in `Z[θ]`. For `F = t² − 8` and `γ = 2`, the root is `β = θ/2`, with `β² =
+θ²/4 = 2`, but the integral root is `z = F'β = θ² = 8`; a search restricted to `w ∈ Z[θ]` would
+wrongly reject this square.
+
+### Certified coefficient bound
+
+All arithmetic is exact integer arithmetic:
+
+    R = 1 + max_{i<d} |F_i|           (Cauchy: every root of F has |θ_j| ≤ R)
+    E = Σ_{i<d} |η_i| R^i             (so |η(θ_j)| ≤ E and |w_j| ≤ √E)
+    U = ⌈√E⌉                          (ceiling of an exact integer square root)
+    B_i = d · U · Σ_{ℓ>i} |F_ℓ| R^(ℓ−1−i),    B = max_i B_i
+
+`|z_i| ≤ B_i` for every possible root, so a reconstruction modulus `M` with `M > 2B` determines `z`
+from its centered residues; the least such integer is `2B + 1`. `⌈√E⌉` is computed from the floor
+root, adding one unless it squares to `E`. The square root of a nonsquare is therefore neither
+truncated nor approximated, and floating point is never used. The inner sum is evaluated downward as
+`S_(i−1) = |F_i| + R·S_i`. For `F = t³ − 2t + 3` with `η = 3 − t`, `R = 4`, `E = 7`, `U = 3`
+(the floor would give 2), and `B = (162, 36, 9)`. The bound is deliberately conservative, trading
+extra precision for a proof that needs no numerical embeddings.
+
+`NormalizedTarget::new` checks `bits(2B + 1)` against `PrecisionLimits` before returning, so a
+caller learns of an unaffordable precision before it searches for a single prime. It also verifies
+the inverse of `F'` modulo `F` (computed over `Q` by the extended Euclidean algorithm) rather than
+trusting a generic field inverse; `F` squarefree makes it exist.
+
+### What `verify_candidate` checks, and what it concludes
+
+The checks run in a fixed order:
+
+1. `deg z < d`; 2. `|z_i| ≤ B_i`; 3. `z² ≡ H (mod F)` over `Z`. A failure here is a
+   `CandidateRejection`. It says that this `z` is not a root. It never says that no root exists.
+4. `β = z/(c^h F')` and `β² = γ` over `Q`. This follows from step 3 for an untampered target, so a
+   failure is an `Err(Invariant)`, a defect, never a rejection.
+5. Every reduced denominator of `β` is a unit modulo `N`. A denominator sharing a proper factor with
+   `N` yields an `Incidental` factor (source: map denominator), preferred over an unsupported one
+   found earlier. A denominator divisible by `N` yields `Unsupported(MapDenominatorNotUnit)`. A root
+   exists in both cases, only the coefficientwise map fails, and neither is a nonsquare
+   certificate. For `F = t² − 8` and `β = θ/2` the only denominator is 2: modulo `N = 4` that gives the
+   factor `2·2`, modulo `N = 2` it is unsupported, and modulo `N = 7` it is a unit.
+6. `y = β(c·m) mod N`. Writing `β = Σ b_i θ^i`, each `b_i` is reduced modulo `N` and the polynomial is
+   evaluated at `c·m`; this is a ring homomorphism on the localization because `F(c·m) = c^(d−1) f(m)
+   ≡ 0 (mod N)`.
+7. `y² ≡ P = Π(a − b·m) (mod N)`, again an invariant for the same reason.
+
+### The map is not the norm
+
+The image `y` squares to the rational product `P`, not to `Norm(γ)`. For `f = x² − 2`, `m = 3`,
+`N = 7` and the factor `9`: `β = 3`, `y = β(3) = 3` and `3² = 9 ≡ 2 ≡ P`. The norm `Norm(β) = 9 ≡ 2`
+squares to `4 ≢ 2`. A candidate built to satisfy the norm equation, such as `β = 2` (`z = 4θ`), has
+`z² = 32 ≠ 72 = H` and is rejected.
+
+### Non-monic fixtures
+
+For `f = 2x² − 1`, `m = 2`, `N = 7` and the factor `(3, −4)`: `θ = 2α`, `F = t² − 2`,
+`γ = 3 + 2θ = (1 + θ)²`, `η = 12 + 8θ`, and `z = 8 + 4θ` with `z² = 96 + 64θ = H`. The image is
+`y = β(4) = 5` with `5² ≡ 4 ≡ 11 = P`. A negative leading coefficient is handled the same way, with
+`c^h` carrying the sign.
+
+### KAT summary
+
+| Test file | Test | Mathematical fact verified |
+|-----------|------|---------------------------|
+| `sqrt_normalize_kat.rs` | `kat_bound_formula_hand_computed` | `R`, `E`, `U = ⌈√E⌉`, `B_i`, `B` for four hand-computed targets, including nonsquare `E` |
+| `sqrt_normalize_kat.rs` | `kat_target_identities_hold` | `γ`, `η = c^(2h)γ`, `H = F'²η`, and `F'·F'⁻¹ ≡ 1` for a non-monic input |
+| `sqrt_normalize_kat.rs` | `kat_odd_cardinality_non_monic_accepts` | `2x²−1` accepts `z = 8 + 4θ`, `y = 5`, both signs |
+| `sqrt_normalize_kat.rs` | `kat_even_cardinality_and_assembly_seam` | Even `k`, and `gcd(7 ∓ 24, 527)` gives 17 and 31 |
+| `sqrt_normalize_kat.rs` | `kat_negative_leading_coefficient_accepts` | `c = −2` carries the sign through `c^h` and the map |
+| `sqrt_normalize_kat.rs` | `kat_degree_one_target` | `d = 1`, `F' = 1`, a root exactly on its bound |
+| `sqrt_normalize_kat.rs` | `kat_outside_order_root_accepts` | `β = θ/2` is outside `Z[θ]` but `z = 8` verifies |
+| `sqrt_normalize_kat.rs` | `kat_zero_divisor_factors_are_rejected_before_a_target_exists` | A zero divisor is stopped at the relation boundary |
+| `sqrt_normalize_kat.rs` | `kat_wrong_norm_map_counterexample` | `y² ≡ P`, while `Norm(β)² ≢ P`; norm-equation candidates are rejected |
+| `sqrt_normalize_kat.rs` | `kat_noninvertible_denominators_have_typed_outcomes` | Proper gcd is incidental; `N \| denominator` is unsupported |
+| `sqrt_normalize_kat.rs` | `kat_candidate_rejections_are_classified_in_order` | Degree, bound, and square checks in order; inclusive bounds |
+| `sqrt_normalize_kat.rs` | `kat_modulus_precheck_precedes_any_search` | `bits(2B + 1)` against the precision budget |
+| `normalize.rs` unit tests | `corrupted_*`, `non_invertible_derivative_*`, `ceil_sqrt_*` | Invariant failures are errors, not rejections; exact ceiling root |
+
+---
+
 ## 51. What Comes Next
 
 The square-root and assembly stage is the final stage of the GNFS factoring pipeline. The

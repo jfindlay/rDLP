@@ -25,6 +25,8 @@ use shared_numfield::{discriminant, IntPoly, NonresidueSearchLimits, RatPoly, Ro
 
 use crate::polyselect::PolyPair;
 
+pub mod normalize;
+
 // ─── classification vocabulary ───────────────────────────────────────────────
 
 /// Coarse classification of every way the square-root stage can fail to produce a verified root.
@@ -775,8 +777,6 @@ pub struct VerifiedRoot {
 }
 
 impl VerifiedRoot {
-    // The exact verifier that calls this lives in a descendant module that does not exist yet.
-    #[allow(dead_code)]
     fn seal(parts: RootParts) -> Self {
         let RootParts {
             context,
