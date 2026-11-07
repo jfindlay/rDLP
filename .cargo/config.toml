@@ -6,7 +6,7 @@ jobs = -4
 # Libtest otherwise spawns one thread per core on top of cargo's own parallelism. Not `force`d,
 # so an exported RUST_TEST_THREADS (or `-- --test-threads`) still wins for one-off runs.
 [env]
-RUST_TEST_THREADS = "4"
+RUST_TEST_THREADS = "2"
 
 [alias]
 # Aliasing this to "audit" would shadow the real `cargo audit` binary: cargo resolves an
