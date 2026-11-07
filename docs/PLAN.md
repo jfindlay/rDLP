@@ -839,7 +839,27 @@ outside-order roots, zero divisors, the norm-map counterexample, and unsupported
 ### C-DirectRoot — inverse Newton reconstruction
 
 **Enforcement:** test + prose. **Defined-in:** 5. **Consumed-by:** 7.
-To be frozen at 5: bounded selection of odd p coprime to cN with irreducible F mod p and nonzero H;
+**Status:** **frozen at row 5 (commit 7898119, 2026-11-07)**; module `gnfs::sqrt::padic`, one
+public item re-exported at `gnfs::sqrt::*` (17 integration KATs plus 8 unit tests; the per-precision
+Newton invariant H·u² ≡ 1 is a unit test because the quotient ring is private):
+
+    pub fn direct_root(target: &NormalizedTarget, limits: DirectLimits)
+        -> Result<AlgebraicSqrtOutcome, SqrtError>;
+
+Outcomes: `Verified` with method `DirectNewton{prime, exponent}`; `NotSquare(InertLocalNonresidue
+{prime})`; `NotSquare(DirectBoundExhausted{prime, exponent})` (centered reduced z rejected at
+M > 2B); `Incidental`/`Unsupported` (a root exists, the map to Z/N failed — the dispatcher must
+return these, not retry); `ResourceExhausted` with a single-entry list (`InertPrimeSearch`,
+`MachinePrimeRange`, `NonresidueSearch`, `Precision`). Precision limits are enforced earlier, at
+`NormalizedTarget::new`, before any prime search; `direct_root` takes no precision argument. The
+prime search skips even p, p | cN, F reducible mod p and H ≡ 0 mod p; every prime examined counts
+against the budget. Lift exponent e = least with p^e >= 2B+1; the exponent chain has ceil(e/2)
+steps. `DegreeTooHigh` from the verifier is reported as an invariant error. Row 7 consumption:
+build the target with `limits.precision`, call `direct_root(&target, limits.direct)`, fall back to
+the split-prime method only on `ResourceExhausted` of `InertPrimeSearch`/`MachinePrimeRange`; never
+fall back on `NotSquare`, `Incidental` or `Unsupported`. Prime-search exhaustion does not certify
+anything. Original statement:
+bounded selection of odd p coprime to cN with irreducible F mod p and nonzero H;
 u <- u(3-Hu²)/2 doubles precision with Hu²=1. Center z=Hu at M>2B and use C-NormalizedTarget.
 Local obstruction or failed full-bound reconstruction certifies nonsquare; prime-search exhaustion
 does not. KATs cover nonconstant/even-degree/totally imaginary roots and precision boundaries.
@@ -936,7 +956,7 @@ unstaged and uncommitted.
 | 2 | Residue-field square roots | done | 237d353 | C-ResidueField |
 | 3 | Checked square-root contexts | done | e82b2eb | C-SqrtContext (dependency signatures freeze at 11) |
 | 4 | Normalized targets and bounds | done | e636477 | C-NormalizedTarget |
-| 5 | Direct p-adic reconstruction | pending | — | — |
+| 5 | Direct p-adic reconstruction | done | 7898119 | C-DirectRoot |
 | 6 | Split-prime local contributions | pending | — | — |
 | 7 | CRT recombination and dispatch ◆ | pending | — | — |
 | 8 | Checked relations and algebraic parity | pending | — | — |
@@ -998,6 +1018,18 @@ root at M > 2B means bound/sign-search exhaustion. `z` must be pre-reduced mod F
 Affected: C-NormalizedTarget (frozen); consumers 5–7, 11, 13.
 Deferred: yes — row 5/7 must reduce candidates mod F and only certify NotSquare from local
 obstruction or full-bound failure; row 13 must check P>0 and the exact integer square itself.
+
+### 5 — 2026-11-07
+Discovery/flex: Clean dispatch; `direct_root` kept the planned signature. The precision limit is
+enforced at target construction rather than in `direct_root` (the planned `DirectLimits` has no
+precision field). The `NonSquareCertificate::new` dead-code allowance in `context.rs` is now stale
+(row 5 is its first caller) but `context.rs` was outside row 5's fileset, so it remains.
+Affected: C-DirectRoot (frozen); consumer row 7.
+Deferred: yes — remove the stale `#[allow(dead_code)]` on `NonSquareCertificate::new` in a row whose
+fileset includes `context.rs` (none currently; flag for the row-7 boundary anneal or an explicit
+fileset update); the V4 quartic x⁴−10x²+1 has no inert prime and needs the row-6/7 fallback.
+Texture: the per-precision Newton-invariant check is a unit test, not an integration KAT, because the
+quotient ring is private by design.
 
 ## Discoveries & risks
 
