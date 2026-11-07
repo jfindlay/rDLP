@@ -19,6 +19,9 @@ upgrades, and a precise enforced-vs-declared breakdown of every check command. S
   `cargo test --workspace`, `cargo dep-policy` (dependency license/advisory/source policy),
   `cargo audit` (RustSec advisory cross-check), and `cargo coverage` (80% line-coverage floor,
   currently measuring around 92–93%).
+- `cargo dep-policy` and `cargo audit` also depend on the date: a new advisory can turn them red
+  against an unchanged tree. Treat that as a dependency-graph finding to triage, following
+  `docs/development.md`'s "Dependency maintenance" section, not as a regression from your change.
 - Declared and runnable, but not yet required to pass workspace-wide: `cargo fmt-check` and
   `cargo lint`. Both currently fail against the full codebase (a never-formatted tree and a large
   pre-existing lint backlog, respectively). Do not assume either is green, and do not "fix"

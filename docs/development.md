@@ -30,6 +30,35 @@ Bumping the toolchain is a deliberate, verified step, not a one-line edit:
    future `rustup` may drop the `llvm-tools-preview` alias in favor of `llvm-tools`; the pin already
    uses the legacy alias name because that is what the currently pinned release accepts).
 
+## Dependency maintenance
+
+`cargo dep-policy` and `cargo audit` differ in kind from the other enforced gates: they depend on
+the date as well as the tree. A new RustSec advisory can turn either red against an unchanged
+`Cargo.lock`, so a failure there is a finding about the dependency graph, not necessarily a
+regression from the change in hand. Triage it separately from the change being made.
+
+No scheduler or CI runs these checks. Run `cargo audit` and `cargo dep-policy` periodically and
+before cutting a release.
+
+When an advisory fires, work through these in order:
+
+1. **In-range fix.** `cargo update --dry-run`, then `cargo update -p <crate>` (or `--precise`).
+   A requirement such as `"0.5"` means `>=0.5.0, <0.6.0`, so this only reaches versions the
+   manifest already allows. It edits `Cargo.lock` only.
+2. **Breaking upgrade.** If the patched release is outside the allowed range (for `0.x` crates
+   the minor version is the breaking boundary), raise the requirement in every manifest that
+   declares it, and in every crate that pins the same dependency transitively (dev-dependencies
+   count, since `cargo audit` scans the whole lockfile). `cargo info <crate>` shows the current
+   and latest version. `cargo update --breaking` exists but is unstable (nightly only), so edit
+   the manifests directly. Do this on its own branch, then repeat every command in "Check
+   commands" below.
+3. **No fix available.** Only then add an entry to `deny.toml`'s `ignore` list, with the reason
+   and the condition that would remove it. `deny.toml` carries no ignores today.
+
+Dependencies that share a type across crate boundaries must move together. `crypto-bigint`'s
+`rand_core` feature fixes which `rand_core` major version the workspace's `rand`/`rand_chacha`
+must match, and `k256`/`p256` must match the `crypto-bigint` major version.
+
 ## Check commands
 
 Run from the workspace root.

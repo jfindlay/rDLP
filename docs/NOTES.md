@@ -760,3 +760,31 @@ tools.
 
 Runtime, fixture yield, useful dependency count, and performance of the certified bound remain
 unverified. These are implementation/discovery risks, not excuses to relax the proof obligations.
+
+---
+
+## Dependency advisory remediation: crypto-bigint 0.5 to 0.7 (2026-11-06)
+
+RUSTSEC-2026-0387 (published 2026-10-23, timing variability in constant-time operations) was
+fixed only in `crypto-bigint >=0.7.6`, outside the `"0.5"` requirement every manifest declared, so
+no lockfile-only fix existed. `cargo dep-policy` and `cargo audit` had both gone red with no code
+change, which is the date-dependence `docs/development.md` now documents.
+
+**Versions moved together:** `crypto-bigint` 0.5 to 0.7 (all seven manifests); `rand` 0.8 to 0.10
+and `rand_chacha` 0.3 to 0.10 (0.7 requires `rand_core` 0.10); `k256`/`p256` 0.13 to 0.14
+(dev-dependencies of `rho` that also pinned `crypto-bigint` 0.5, and `cargo audit` scans the whole
+lockfile).
+
+**Behavior changes worth knowing:**
+
+- `Uint::shl_vartime`/`shr_vartime` now panic when the shift is at least `BITS`; 0.5 returned zero.
+  The `shared_gf2m::BitLen` shifts use the `unbounded_*` variants to keep the old behavior.
+- `Uint::bits()`/`bit()` and the shift counts take `u32`; `BitLen` supplies `usize` accessors for
+  the degree arithmetic in `shared/gf2m` and `rho/ghs`.
+
+**Verification run (all executed):** `cargo check --workspace`, `cargo test --workspace` (0
+failures), `cargo dep-policy`, and `cargo audit` all pass; `cargo coverage`
+passes at 92.78-92.79% line coverage (two runs), matching the 92.78% baseline above.
+
+**Not measured:** `cargo bench`. The Montgomery type and RNG changed underneath the Criterion
+numbers in `docs/BENCHMARKS.md`, which predate this migration and were not re-measured.

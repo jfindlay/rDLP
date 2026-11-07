@@ -14,14 +14,14 @@ Prime: secp256k1 (256-bit, `p = 2^256 − 2^32 − 977`).
 | `square`  | 2.860 µs  | 46.2 ns  | ~62×    |
 | `inv`     | 1.335 ms  | 11.75 µs | ~114×   |
 
-The `mul`/`square` speedup is the core Montgomery-form gain: `crypto-bigint`'s `DynResidue`
-avoids the 8-limb widening division in `FpNaive::mul` by keeping values in Montgomery form and
+The `mul`/`square` speedup is the core Montgomery-form gain: `crypto-bigint`'s `FixedMontyForm`
+(formerly `DynResidue`; the numbers above were measured before that migration) avoids the 8-limb widening division in `FpNaive::mul` by keeping values in Montgomery form and
 reducing with a single CIOS multiply-then-reduce pass.
 
 The `inv` speedup compounds: both implementations use Fermat (`a^(p−2) mod p`, ~256
 squarings + ~128 multiplications), so the `inv` ratio approximately tracks the `mul` ratio.
 
-The `square` speedup is slightly larger than `mul` because `DynResidue::square` uses a
+The `square` speedup is slightly larger than `mul` because `FixedMontyForm::square` uses a
 dedicated squaring path that saves ~half the cross-term multiplications.
 
 ## Phase 2 — Integer factorization: Floyd vs Brent vs Brent+batched-GCD
