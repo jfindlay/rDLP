@@ -44,6 +44,17 @@ complexity from $L[1/2]$ (quadratic sieve) down to $L[1/3, (64/9)^{1/3}]$.
 **Code tour:** [`gnfs/docs/PEDAGOGY.md`](gnfs/docs/PEDAGOGY.md) §1–71 (polynomial selection,
 sieving, filtering, linear algebra, square root).
 
+**Tested end to end:** `gnfs/tests/factor_pipeline_kat.rs` factors $N = 45113 = 197 \cdot 229$ from
+relations that `line_sieve` generates at run time (degree 3, $m = 31$, $f = x^3 + 15x^2 + 29x + 8$,
+certified irreducible). The relations are validated exactly, filtered, given eight root characters,
+and solved with block Lanczos. A verified rational root and a verified algebraic root of the first
+computed dependency then give a congruence of squares and a proper divisor. That is one
+deterministic fixture at toy scale, run through the checked path (`build_checked_matrix`, root
+characters, `DependencyContext`, `factor`); it is not a claim that arbitrary inputs factor or a
+statement about production-scale performance. Other cases (a non-monic polynomial, a single
+relation with $b \ne 0$, retry past nonsquare candidates) are covered by the square-root and
+assembly KATs on hand-built relation sets.
+
 ---
 
 ### Track D — NFS-DL: discrete logarithm via the number field sieve

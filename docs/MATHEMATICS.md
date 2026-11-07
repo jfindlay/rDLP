@@ -1760,6 +1760,23 @@ $1/2$ for a semiprime (§2). A trivial congruence, a nonsquare candidate, and an
 budget are each reported distinctly, and the next candidate from the null space (including bounded
 XOR combinations of computed kernel vectors) is tried.
 
+**A worked run on generated relations.** Take $N = 45113 = 197 \cdot 229$, $m = 31$ and $f = x^3 +
+15x^2 + 29x + 8$, so $f(31) = 45113$. The cubic is irreducible: modulo $3$ it is $x^3 + 2x + 2$,
+which has no root. The line sieve over $|a| \le 400$, $1 \le b \le 41$ with factor-base bounds $30$
+(rational) and $90$ (algebraic) returns $60$ relations, all of which pass exact validation. The
+checked matrix has $39$ columns; clique pruning and column merging reduce $60$ rows to $47$, and
+eight root characters (at the primes $97, 101, 103, 107, 113, 139$, with $109 \mid \mathrm{disc}(f)$
+excluded) are filled by XOR over provenance. Block Lanczos returns kernel vectors spanning a space
+of rank $18$. The first computed vector lifts to a dependency of $22$ relations, each with
+$b \ge 1$. For it $P = \prod (a - bm)$ is a positive exact square $x_0^2$, the algebraic root
+$\beta$ verifies $\beta^2 = \prod (a - b\alpha)$ exactly (so it depends on those $b$-carrying
+relations), the image $y = \beta(m)$ satisfies $y^2 \equiv P \equiv x_0^2 \pmod N$ with $x \not\equiv \pm y$, and
+$\gcd(|x - y|, N)$ is $197$ or $229$. This is a single deterministic fixture with the stated
+options, run at toy scale. It shows that the stages compose on this input; it does not show that
+every input factors, and it says nothing about performance at cryptographic size. The first
+candidate was itself a computed kernel vector, so the combination search was not needed here (it
+is exercised separately on hand-built relation sets).
+
 ---
 
 ## §7 The $L$-Notation Subexponentiality Derivation
