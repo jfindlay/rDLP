@@ -788,3 +788,53 @@ passes at 92.78-92.79% line coverage (two runs), matching the 92.78% baseline ab
 
 **Not measured:** `cargo bench`. The Montgomery type and RNG changed underneath the Criterion
 numbers in `docs/BENCHMARKS.md`, which predate this migration and were not re-measured.
+
+---
+
+## The norm character carries no square-class information on a dependency (2026-11-07)
+
+Derived in the architect review of the G.5 `block`; it is the reason PLAN row 15 removes the
+legacy `populate_qc_columns`/`select_qc_primes` instead of leaving them as unused API.
+
+**Setting.** f has degree d and leading coefficient c, and α is a root of f. Take a prime
+q ∤ c·disc(f) that splits completely, so f ≡ c·Π_s (x − s) (mod q) over the d roots s. The legacy
+helper takes the Legendre symbol of the homogeneous form F(a,b) = b^d f(a/b) (`qc.rs`,
+`algebraic_norm_mod_q`). Recall F(a,b) = c·N_{K/ℚ}(a − bα).
+
+**Factorisation.** Modulo q, F(a,b) ≡ c·Π_s (a − bs), so
+
+    (F(a,b)/q) = (c/q) · Π_s ((a − bs)/q),
+
+the product of q's d root characters times a constant. The norm character never sees anything a
+single root character cannot see. The converse fails: each root character is finer.
+
+**Collapse on a dependency.** Suppose the matrix forces every prime's total exponent in
+Π_{S} N(a − bα) to be even. Even exponents at every degree-one ideal (p, r) give an even exponent
+of p in the norm, and the exceptional-parity columns cover the remaining primes. Then
+Π_S N(a − bα) = ±Y² with Y ∈ ℤ, and q ∤ Y because a smooth relation's norm has no prime factor
+q > B_alg. Therefore
+
+    Π_S (F(a,b)/q) = (c/q)^{|S|} · (±1/q).
+
+Over a dependency, the column's total depends only on the sign of the norm product and the parity
+of |S|. Neither is an invariant of the square class of γ = Π(a − bα). The constraint is either
+vacuous or a fixed sign or size-parity filter, with the same value at every q of a given residue
+symbol. It cannot detect a non-square unit or 2-torsion class-group element, which is what
+characters exist to do.
+
+**Contrast.** A root character χ_{q,s}(γ) = Π_S ((a − bs)/q) is a homomorphism on the finite
+obstruction group (units mod squares, extended by Cl[2], and enlarged at index primes and at c).
+Independent root characters cut that group down. Under the heuristic it halves the surviving
+non-squares per character, never to zero. The norm character is the product of the root
+characters at q, and the dependency condition has already made that product trivial apart from
+the sign and |S| terms above.
+
+**Consequence.** The old belief that QC columns ensure an algebraic square was wrong twice for
+this code. Finite characters never guarantee a square, and the legacy norm characters were not
+even the characters that do the filtering. Rows 10 and 14 used root characters; the norm helpers
+survived only as unused public API.
+
+**Status.** Inferred from confirmed code facts (the homogeneous-form computation in `qc.rs`, and
+the per-ideal and exceptional parity columns from row 8). The algebra is elementary. No KAT
+checks the collapse directly; a cheap one would compute the legacy column sum over a known
+dependency and compare it with (c/q)^{|S|}·(sign/q).
