@@ -2070,8 +2070,25 @@ The frozen evidence is a tested scope, not an all-input or production-performanc
 ### C-Obstruction — the square-class obstruction and the implemented congruence
 
 **Enforcement:** prose + grep (row-15 closure) + row-16 oracle. **Defined-in:** 15 (from this
-architect review, 2026-11-07). **Consumed-by:** 16, G.5 re-check. **Status:** pending. Mathematical
-obligations follow. Wording is the worker's, but every claim must hold at this precision. Cite a
+architect review, 2026-11-07). **Consumed-by:** 16, G.5 re-check. **Status:** **frozen at row 15 (commit 9d376f2, 2026-11-07)**; the
+canonical account is MATHEMATICS §5 ("Exponent vectors and GF(2)", "From dependency to congruence of
+squares", "The square-class obstruction", "Quadratic characters, the sign column, and the norm
+character"), and PEDAGOGY §22, §32–33, §56, §68 point to it. **Worker refinements, each judged by
+reading the code or the math (the architect text below is the original; the durable docs follow these):**
+(a) item 1: the checked matrix keeps the columns of ideals above primes dividing c·disc(F) but never
+sets them, so they constrain nothing; (b) item 4: the collapse (c/q)^{|S|}(±1/q) needs every prime,
+including those dividing c·disc(F), to have an even exponent in ΠN, which the checked matrix does not
+force; the redundancy (norm character = (c/q)·Π root characters) is stated unconditionally and the
+collapse under that explicit hypothesis, otherwise there is an extra factor (E/q); for non-monic f,
+N_{K/ℚ}(a−bα) = F/c can have a denominator, so Y ∈ ℚ^× is a q-unit; (c) item 2: "plus one for the
+torsion unit −1", and the matrix imposes no real-place positivity; (d) item 3: survival is an expected
+count (2^dim−1)·2^−t ≈ 2^−(t−dim) for t ≥ dim, labelled a heuristic. Code: `populate_qc_columns`,
+`select_qc_primes`, `DEFAULT_NUM_QC` and ten dead private helpers removed from `linalg/qc.rs`; KATs
+ported to root characters (`kat_2_character_columns_fill_a_checked_matrix`, `kat_4_determinism`);
+`gnfs/tests/sqrt_certificate_sites_kat.rs` (3 tests) enforces by file and count that non-test
+`NonSquareCertificate::new` calls are exactly `sqrt/padic.rs` ×2 and `sqrt/crt.rs` ×2 and
+`VerifiedRoot::seal` is called only from `sqrt/context/normalize.rs` ×1 (mutation-checked both ways;
+blind to `use … as` aliases and macros, neither used). Original obligations follow. Wording is the worker's, but every claim must hold at this precision. Cite a
 canonical source: Buhler–Lenstra–Pomerance, "Factoring integers with the number field sieve" (the
 character and square-root sections), or Crandall–Pomerance §6.2.
 
@@ -2140,7 +2157,7 @@ edits not made by any worker) were left unstaged and uncommitted.
 | 12 | Bounded kernel combinations | done | 2fd9ac4 | C-KernelSearch |
 | 13 | Verified factor API migration | done | d06032e | C-FactorReport |
 | 14 | Generated sieve-to-factor evidence ◆ | done | 95f63c9 | C-PipelineEvidence (boundary fork and final review: see digest) |
-| 15 | Obstruction and congruence correctness repair | pending | — | C-Obstruction |
+| 15 | Obstruction and congruence correctness repair | done | 9d376f2 | C-Obstruction |
 | 16 | External algebraic oracle ◆ | pending | — | C-AlgebraicOracle (then G.5 re-check) |
 
 ## Action-frame digest
@@ -2481,6 +2498,33 @@ intuitive simplification in both code and docs. Enrolled row 15 (full docs plus 
 row 16 (PARI oracle, ◆ with the G.5 re-check). Contracts C-Obstruction and C-AlgebraicOracle were
 added. The "possible Dedekind-gcd defect" stays deferred under NFS-DL; it is unexplained in the
 record, so whoever enrols NFS-DL must state or retract it.
+
+### 15 — 2026-11-08
+Discovery/flex: The correctness repair ran as one dispatch. Beyond the enrolled passages the worker
+found and fixed further false claims: the same O(k²)/O(k·w) cost error in MATHEMATICS §7 and the NFS-DL
+chapter (now O(k·W) iterative, O(k³) dense); PEDAGOGY §13/§14/§54 equating N_alg with Norm(a−bα)
+(false for non-monic f; F = c·N); MATHEMATICS §3 saying ℤ[α] ⊂ O_K unconditionally (true for monic f
+only); BENCHMARKS pointing at nonexistent gnfs benches; PEDAGOGY Principle-1 saying "none is a stub"
+while the oracle stubs exist. It also changed the `#[ignore = "…"]` reason string in `lanczos_kat.rs`
+(it claimed end-to-end factorisation), which exceeds the entry's "comment fix only" but stays within the
+enrolled file; the driver accepted it as a claims correction. Four statements in the architect's
+C-Obstruction text were refined against the code (recorded under C-Obstruction's Status).
+Affected: C-Obstruction (frozen); consumer row 16 and the G.5 re-check.
+Deferred: yes — (1) row 16 should check against the new text: the obstruction group for the fixtures
+(`bnfinit` on ℚ(√3) and ℚ(√−5): unit rank, torsion, rk₂Cl, dim V; 2+√3 a nonsquare norm-1 unit; in
+ℚ(√−5), 2 = J² with J = (2, 1+√−5) non-principal and 2 not a square); F = c·N on the non-monic
+2x²−1 fixture; the seam fixture x²−2, m=23, N=527, (3,−2): β = 1+α, Norm(β) = −1, y = 24, y² = 576 ≡
+49 = P, x = 7, gcd 17; x²−3 with u = 2+α (bits 00 at q = 23, 111 at (11,6), (13,4), (13,9)); 13+4α =
+(1+2α)² on x²−3; and the norm-character collapse KAT that NOTES records as unwritten. (2) NOT edited
+(NFS-DL, out of enrolment) but suspect, for the final re-check or a future NFS-DL design pass:
+MATHEMATICS §9.3's Schirokauer exponent ε = (p₀−1)/ℓ and its "fact 1"; §9.2's N_{K/ℚ}(a−bα) = Π𝔭^f;
+PEDAGOGY ≈5393 using β = a+bα in the DL code description; MATHEMATICS §7's unresolved "Wait — let us be
+more careful" derivation text. (3) The matrix never sets the exceptional-ideal columns, so the norm
+character collapse is unconditional only under an extra evenness hypothesis (see C-Obstruction).
+(4) The certificate-sites test is blind to `use … as` aliases and macros.
+Texture: this row ran after an architect review session (separate from the driver) edited PLAN and NOTES
+in the working tree; the driver's own duplicate enrolment of a narrower row 15 was removed unchanged
+in effect, and the human authorised committing both files (fd4a1ac NOTES, 0fd0343 PLAN).
 
 ## Discoveries & risks
 
