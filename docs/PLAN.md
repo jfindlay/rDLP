@@ -212,14 +212,25 @@ config: no flags (self-continue at junctures; no `may-reshard`, no `halt-at-boun
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
 | 1 | Square-free decomposition over prime fields | done | adf138e | C-SquarefreeDecomposition |
-| 2 | Canonical Dedekind index criterion | pending | | |
+| 2 | Canonical Dedekind index criterion | done | 0073ab8 | C-IndexTest (without `enlargement_exponent`) |
 | 3 | Honest degree-one prime report above p | pending | | |
 | 4 | Cross-check against PARI/GP ◆ | pending | | |
 | 5 | Anneal cleanup (skippable) | pending | | |
 
 ## Action-frame digest
 
-*(none yet)*
+### 2 — 2026-11-08
+Discovery/flex: `enlargement_exponent` dropped from C-IndexTest: Cohen §6.1 Theorem 6.1.4 could not
+be read to confirm deg T = log_p [O′ : ℤ[α]] (ring-ness of O′), as the plan's drop clause allowed.
+Affected: C-IndexTest (additive narrowing; internal). Row 4's `enlargement_exponent ≤ v_p` assertion
+is "if kept" and therefore void.
+Deferred: yes — if a later scope wants it back, confirm against the printed theorem; the module index
+p^{deg T} was derived independently by the implementer but not the ring property.
+Texture: old-code traces reproduced: x²−12@2 wrongly "not divisible", x²−3@3 wrongly "divisible".
+`DedekindError` did not previously exist (created, not reconciled); `RootSearchExhausted` is declared
+but unconstructed until row 3. `dedekind_factor_extended` now panics for non-prime p (documented).
+Lift-independence is tested as a unit test in `dedekind.rs` (private lift entry point), not in
+`dedekind_kat.rs`. Committer wrote the commit body unwrapped (off the 72-col convention).
 
 ## Discoveries & risks
 
