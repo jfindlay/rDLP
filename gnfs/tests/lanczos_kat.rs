@@ -289,42 +289,28 @@ fn kat_b_determinism() {
 
 // ─── KAT (c): CADO oracle ────────────────────────────────────────────────────
 
-/// KAT (c): CADO oracle — for a small N, a Lanczos kernel vector expands through
-/// provenance to a congruence of squares that yields the same nontrivial factor CADO-NFS
-/// finds.
+/// KAT (c): CADO oracle placeholder — a Lanczos kernel vector of a hand-built matrix is valid
+/// and expands through provenance to a nonempty set of original relation indices.
 ///
-/// # Setup
+/// # What it checks
 ///
-/// N = 35 = 5 × 7. The GNFS pipeline (polynomial selection, sieving, filtering) produces
-/// a matrix whose kernel vectors correspond to congruences of squares. A kernel vector
-/// `{i, j}` with `matrix.rows[i].cols XOR matrix.rows[j].cols = {}` means the product of
-/// relations `i` and `j` is a perfect square on both sides. Expanding through provenance
-/// gives the original relation indices, from which we recover `(a, b)` pairs and compute
-/// `gcd(x - y, N)` for the congruence `x^2 ≡ y^2 (mod N)`.
+/// The matrix below is hand-built for the label N = 35 = 5 × 7. It is not derived from
+/// sieving, and its relations are not tied to a polynomial with `f(m) ≡ 0 (mod 35)`. The body
+/// checks only that every kernel vector `block_lanczos` returns satisfies the GF(2) column
+/// condition (the rows it selects sum to zero) and that provenance expansion of the first
+/// vector is nonempty. It does not extract a factor, take a square root, or call CADO-NFS.
 ///
 /// # Why ignored
 ///
-/// CADO-NFS is not installed in this environment. The test structure is present for manual
-/// verification when CADO is available. The matrix below is hand-crafted to simulate the
-/// output of the GNFS pipeline for N = 35; it is NOT derived from actual sieving.
-///
-/// # Hand-crafted matrix for N = 35
-///
-/// We construct a matrix where rows {0, 1} form a valid nullspace vector, and the
-/// provenance expansion yields relation indices {0, 1}. The "congruence of squares" is
-/// verified by checking that the GF(2) sum of the selected rows is zero.
+/// The test is reserved for an external check against CADO-NFS, which is not installed in
+/// this environment and is not invoked by the body.
 #[test]
-#[ignore = "CADO-NFS not installed; run manually when available to verify end-to-end factorisation"]
+#[ignore = "placeholder for an external CADO-NFS cross-check; the body does not invoke CADO-NFS"]
 fn kat_c_cado_oracle_n35() {
-    // Hand-crafted matrix simulating GNFS output for N = 35 = 5 × 7.
-    // Rows represent relations; cols represent prime factors (GF(2) exponent parities).
+    // Hand-built matrix: rows are two identical GF(2) exponent-parity rows over two columns.
+    // The relations they stand for are illustrative only; nothing below uses an (a, b) pair.
     //
-    // Relation 0: (a=6, b=1) → rational norm = 6 = 2 × 3, algebraic norm = 6^2 - 35 = 1.
-    //   Exponent vector (mod 2): rational primes {2, 3} → cols {0, 1}.
-    // Relation 1: (a=6, b=1) → same as relation 0 (duplicate for testing).
-    //   Exponent vector (mod 2): cols {0, 1}.
-    //
-    // XOR of rows 0 and 1: {0,1} XOR {0,1} = {} → valid nullspace vector.
+    // XOR of rows 0 and 1: {0,1} XOR {0,1} = {} → valid kernel vector.
     // Provenance expansion: {0} XOR {1} = {0, 1} → original relations 0 and 1.
     let matrix = make_matrix(
         vec![
@@ -348,23 +334,13 @@ fn kat_c_cado_oracle_n35() {
     let kv = &results[0];
     let relation_indices = kv.expand_provenance(&matrix);
 
-    // The expanded relation indices should be {0, 1} (or a subset that yields a congruence).
-    // In a real GNFS run, we would then:
-    //   1. Collect (a, b) pairs for each relation index.
-    //   2. Compute x = product of (a + b*m) mod N, y = sqrt(product of norms) mod N.
-    //   3. Compute gcd(x - y, N) and gcd(x + y, N).
-    //   4. Verify that one of these is 5 or 7.
-    //
-    // Since this is a hand-crafted matrix (not from actual sieving), we just verify the
-    // provenance expansion is non-empty and the kernel vector is valid.
+    // This is the whole check: the expansion is nonempty and the kernel vectors are valid.
+    // No (a, b) pairs exist here, so no rational product, algebraic root, or gcd is formed and
+    // no factor of 35 is checked.
     assert!(
         !relation_indices.is_empty(),
         "provenance expansion should be non-empty"
     );
-
-    // CADO-NFS verification would go here:
-    // let factor = cado_verify_factor(35, &relation_indices, &relations);
-    // assert!(factor == 5 || factor == 7, "CADO factor should be 5 or 7");
 }
 
 // ─── Additional correctness tests ────────────────────────────────────────────

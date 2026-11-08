@@ -348,7 +348,7 @@ identifies them as kernel candidates. This phenomenon is fully exposed at toy sc
 
 | Test file | Tests | Scope |
 |-----------|-------|-------|
-| `tests/linalg_substrate_kat.rs` | 4 | Operator correctness (A·V, Aᵀ·V), QC column construction, provenance round-trip, determinism |
+| `tests/linalg_substrate_kat.rs` | 13 | Operator correctness (A·V, Aᵀ·V), root-character columns on a checked matrix, provenance round-trip, determinism, and the individual root-character tests |
 | `tests/lanczos_kat.rs` | 6 (+1 ignored) | Self-orthogonality path, single dependency, full-rank, determinism, multiple dependencies; CADO oracle (ignored) |
 | `tests/wiedemann_kat.rs` | 9 | Cross-validation with Lanczos, full-rank, empty matrix, single dependency, determinism, BM Fibonacci, BM period-4, BM all-ones, all-zero rows, multiple dependencies |
 
@@ -368,7 +368,7 @@ KATs complete in milliseconds in unoptimized debug builds (`cargo test`, no `--r
 | Stage | Input | Output | Notes |
 |-------|-------|--------|-------|
 | Rational root | P = ∏(a − b·m) = 3 + 46 = 49 | x = 7 (mod 527) | exact isqrt(49) = 7, P > 0 checked |
-| Algebraic root | γ = 3 + 2α = (1 + α)² | y = β(23) = 24 (up to sign) | y² = 576 ≡ 49 = P (mod 527); not Norm(β) = −1 |
+| Algebraic root | γ = 3 + 2α = (1 + α)² | y = β(c·m) = β(23) = 24 (up to sign; c = 1) | y² = 576 ≡ 49 = P (mod 527); not Norm(β) = −1 |
 | Congruence assembly | x = 7, y = 24, N = 527 | factor = **17** (cofactor 31) | gcd(7 − 24, 527) = gcd(17, 527) |
 
 **Interpretation.** The algebraic image is the normalized root evaluated at θ = c·m modulo N, so
@@ -402,9 +402,10 @@ Toy semiprime: N = 527 = 17 × 31. K = ℚ(√2), f(x) = x² − 2, m = 23 (f(23
 N = 35, m = 6 setup is not used: f(6) = 34 is not ≡ 0 (mod 35), so it violated f(m) ≡ 0 (mod N).
 The end-to-end KAT (`factor_end_to_end_kat.rs`) starts from checked relations and a genuine
 checked matrix (bypassing the sieve; the sieve is exercised separately in G.C), and covers the
-square-root stage only, not a generated sieve-to-factor run. Timings below are from the
-earlier hand-built run in unoptimized debug builds (`cargo test`, no `--release`) and apply to the
-earlier stages only; the square-root rows are not re-measured.
+square-root stage only. The run from generated relations to a verified factor is
+`factor_pipeline_kat.rs`, on a different fixture (N = 45113 = 197 · 229); no wall-clock figure is
+recorded for it here. The table below describes the N = 527 square-root stage, and none of its
+rows has been re-measured.
 
 **Square-root stage result (N = 527, 1 candidate tried):**
 
@@ -420,15 +421,11 @@ earlier stages only; the square-root rows are not re-measured.
 
 **Factor recovered: 17 from N = 527 = 17 × 31. Candidates tried: 1.**
 
-**Total pipeline wall time (debug, unoptimized): < 10 ms** (dominated by the Dickman-ρ table
-construction in Murphy-E scoring, ~30 ms per `score()` call in debug mode; the end-to-end KAT
-bypasses scoring and uses a hand-built polynomial pair, so the actual KAT time is < 1 ms).
-
-**Timing note.** No Criterion benchmark exists for the full end-to-end pipeline at this stage.
-Per-stage timings are from the individual stage KATs (G.B–G.F above). For release-mode
-timings, run `cargo bench` in the `gnfs` crate. The dominant measured cost is the Dickman-ρ table
-construction in Murphy-E scoring (~30 ms debug, < 1 ms release); the square-root stage was not
-re-measured.
+**Timing note.** No end-to-end wall time is recorded: the table rows are not re-measured, and no
+Criterion benchmark exists for the `gnfs` crate. The only per-stage figures in this file are those
+of the earlier sections (G.B–G.E) and were measured on their own fixtures. The end-to-end KAT
+bypasses Murphy-E scoring, whose Dickman-ρ table construction is the one measured cost in G.B
+(~30 ms per `score()` call in debug builds), and uses a hand-built polynomial pair.
 
 **Science↔engineering note (principle 4).** The toy semiprime N = 527 is far below the scale
 at which the GNFS complexity $L_N[1/3, (64/9)^{1/3}]$ is meaningful. At toy scale, the

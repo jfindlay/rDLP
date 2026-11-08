@@ -689,8 +689,9 @@ monic form of f, which the sieve uses for ideal-theoretic computations (Dedekind
 factor-base construction).
 
 The polynomial pair is also the input to the linear algebra step (G.D): the smooth pairs collected
-by the sieve form a matrix over 𝔽₂, and the null space of this matrix gives the congruence of
-squares that factors N.
+by the sieve form a matrix over 𝔽₂ whose rows are relations, and its left kernel gives candidate
+congruences of squares for N; the square-root step verifies each candidate and decides whether it
+factors N.
 
 ---
 
@@ -745,7 +746,9 @@ N_rat(a, b) = a − b·m          (rational side: the value of g(x) = x − m at
 N_alg(a, b) = b^d · f(a/b)     (algebraic side: the homogeneous form of f at (a, b))
 ```
 
-Both norms must be smooth — divisible only by primes up to their respective bounds B_rat and B_alg.
+The algebraic form is F(a, b) = b^d · f(a/b) = c · N_{K/ℚ}(a − b·α) with c = lc(f), so it equals the
+norm of a − b·α exactly when f is monic. Both norms must be smooth — divisible only by primes up to
+their respective bounds B_rat and B_alg.
 A pair that is smooth on only one side is not a relation; it contributes nothing to the factoring
 computation.
 
@@ -779,16 +782,19 @@ rel.verify(&poly, &fb).expect("relation must be valid");
 
 ### Why smoothness on both sides is required
 
-The factoring computation (G.F) requires finding a subset S of relations such that the product
-of all rational norms is a perfect square in ℤ and the product of all algebraic norms is a
-perfect square in the number field K = ℚ(α). This is the congruence of squares that yields a
-non-trivial factor of N.
+The factoring computation (G.F) looks for a subset S of relations whose rational product
+P = ∏(a − b·m) is a perfect square in ℤ and whose algebraic product γ = ∏(a − b·α) is a square
+β² in the number field K = ℚ(α). The image of β modulo N then squares to the same P, which is the
+congruence of squares that can factor N (MATHEMATICS §5–§6).
 
-For the product to be a perfect square, every prime must appear to an even total exponent across
-all selected relations. This is a linear algebra problem over GF(2): find a subset S such that
-the sum of all exponent vectors (mod 2) is the zero vector. The relation matrix has one row per
-relation and one column per prime (plus sign and quadratic-character columns). The null space of
-this matrix over GF(2) gives the subsets S.
+For P to be a square, every rational prime must appear to an even total exponent across all
+selected relations and the number of negative factors must be even. The algebraic columns record
+the exponent of each degree-one prime ideal (p, r) in (a − b·α), one column per ideal, and require
+each to be even; that is necessary for γ to be a square, and not sufficient (§22 and MATHEMATICS
+§5). This is a linear algebra problem over GF(2): find a subset S such that the sum of the
+selected rows (mod 2) is the zero vector. The relation matrix has one row per relation and one
+column per rational prime, per ideal, for the sign, and per character; the subsets S form its
+left kernel.
 
 A relation that is smooth on only one side has no algebraic (or rational) exponent vector, so it
 cannot participate in the square-root computation. Both sides must be smooth for the relation to
@@ -824,18 +830,22 @@ pub struct AlgebraicPrime {
 }
 ```
 
-The key sieve condition: the ideal (p, α − r) divides N_alg(a, b) if and only if a ≡ r·b (mod p).
-This is the algebraic analogue of the rational condition a ≡ b·m (mod p) for the rational side.
+The key sieve condition: the ideal (p, α − r) divides the element a − b·α if and only if
+a ≡ r·b (mod p), and then p divides the algebraic form F(a, b) = c·N_{K/ℚ}(a − b·α). This is the
+algebraic analogue of the rational condition a ≡ b·m (mod p) for the rational side.
 
 ### Why degree-1 ideals
 
-At toy scale, the degree-1 ideal (p, r) representation suffices because:
+Away from the primes dividing c·disc(F), the degree-1 ideals (p, r) are the only ones the sieve
+needs, because:
 
-1. The algebraic norm N_alg(a, b) = b^d · f(a/b) factors in ℤ[α] as a product of prime ideals.
+1. For a coprime pair (a, b) and a prime p ∤ c·disc(F), a prime ideal over p can divide
+   (a − b·α) only if it has degree one, namely (p, α − r) with r ≡ a·b⁻¹ (mod p); it is the
+   unique ideal over p that divides the element.
 2. For a prime p with f(r) ≡ 0 (mod p), the ideal (p, α − r) divides the principal ideal (a − b·α)
-   in ℤ[α], and hence divides N_alg(a, b) = Norm(a − b·α).
+   exactly when a ≡ r·b (mod p), and its exponent is then v_p(F(a, b)).
 3. The sieve condition a ≡ r·b (mod p) is the efficient way to enumerate which (a, b) pairs have
-   the ideal (p, r) dividing their algebraic norm.
+   the ideal (p, r) dividing (a − b·α).
 
 ### The `FactorBase` type
 
@@ -906,9 +916,9 @@ columns; the slot exists so the matrix-width calculation is stable across stages
 
 ### Why norms are signed BigInt but trial_smooth takes Uint<4>
 
-The rational norm N_rat(a, b) = a − b·m can be negative (when a < b·m). The algebraic norm
-N_alg(a, b) = b^d · f(a/b) can also be negative depending on f and (a, b). Both are computed as
-signed `BigInt` values.
+The rational norm N_rat(a, b) = a − b·m can be negative (when a < b·m). The algebraic form
+N_alg(a, b) = F(a, b) = b^d · f(a/b) can also be negative depending on f and (a, b). Both are
+computed as signed `BigInt` values.
 
 The smoothness predicate `trial_smooth` (from `shared-numth`) operates on `Uint<4>` — unsigned
 256-bit integers. The **norm bridge** in `gnfs/src/sieve/norms.rs` converts a signed norm to its
@@ -941,16 +951,18 @@ real embedding.
 
 ### The algebraic norm as a resultant
 
-The algebraic norm N_alg(a, b) = b^d · f(a/b) is computed as the homogeneous form:
+The algebraic form N_alg(a, b) = F(a, b) = b^d · f(a/b) is computed as the homogeneous form:
 
 ```text
 N_alg(a, b) = Σ_{i=0}^{d} f.coeffs[i] · a^i · b^{d−i}
 ```
 
-This equals Res(f, a − b·x) up to sign and leading-coefficient factors. The resultant
-relationship is the algebraic hook: N_alg(a, b) is the norm of the ideal (a − b·α) in ℤ[α],
-which equals the resultant of f and a − b·x. The implementation computes the homogeneous form
-directly (avoiding rational arithmetic) rather than via the resultant, which would be slower.
+With c = lc(f) the identity is F(a, b) = b^d · f(a/b) = c · N_{K/ℚ}(a − b·α), because
+f(x) = c·∏(x − αᵢ) over the roots αᵢ of f. It equals Res(f, a − b·x) exactly, taking the
+resultant with f as the first argument. For monic f the form is the norm of a − b·α; for c ≠ 1 the
+norm itself is F(a, b)/c and may have a denominator, and the sieve smooths F(a, b). The
+implementation computes the homogeneous form directly (avoiding rational arithmetic) rather than
+via the resultant, which would be slower.
 
 ---
 
@@ -1481,16 +1493,26 @@ the rational block — this is the re-mapping that `build_matrix` performs.
 ### Why GF(2): the parity condition
 
 The goal of the linear algebra step (G.E) is to find a subset S of relations such that the
-product of all rational norms is a perfect square in ℤ and the product of all algebraic norms
-is a perfect square in the number field K = ℚ(α). A product of integers is a perfect square
-iff every prime appears to an even total exponent. This is a **parity condition**: we need the
-sum of all exponent vectors (mod 2) to be the zero vector. Working over GF(2) encodes exactly
-this condition.
+rational product P = ∏(a − b·m) is a perfect square in ℤ and the algebraic product
+γ = ∏(a − b·α) is a candidate for a square in the number field K = ℚ(α). A product of integers
+is a perfect square iff every prime appears to an even total exponent. This is a **parity
+condition**: we need the sum of the selected exponent vectors (mod 2) to be the zero vector.
+Working over GF(2) encodes exactly this condition on the columns.
 
-The sign column encodes the sign parity: the product of all selected rational norms must be
-positive (an even number of negative norms). The quadratic-character columns (filled by G.E)
-encode additional algebraic-side parity conditions needed to guarantee that the algebraic square
-root is well-defined.
+The columns constrain exponents of *primes and prime ideals*, not norms. A rational prime p has
+one column. On the algebraic side each degree-one prime ideal (p, r) has its own column, holding
+the exponent of that ideal in (a − b·α). Two different ideals over the same p can each have an odd
+exponent in a product of relations while the exponent of p in the norm of the product, their sum,
+is even; that is why the columns are per ideal and not per prime. Where p divides c·disc(F) the
+checked matrix keeps the ideal's column but leaves it unconstrained (the "Checked Relations and
+Honest Algebraic Parity" section below).
+
+The sign column encodes the sign parity: the rational product P must be positive (an even number
+of relations with a − b·m < 0). The character columns (filled by G.E) add necessary conditions on
+the algebraic side. Even with every column satisfied, γ need not be a square in K: the units, the
+class group, and the unconstrained ideals can each obstruct, and finitely many characters only
+filter. The account, with its precise statement, is in MATHEMATICS §5 ("The square-class
+obstruction"); the square-root stage (§44) decides each candidate exactly.
 
 ---
 
@@ -1961,16 +1983,16 @@ mathematical fact each one verifies. All tests are in `gnfs/tests/merge_kat.rs`.
 Filtering is the fourth stage of the GNFS pipeline. The output — a `SparseMatrix` with
 provenance map — is the input to the linear algebra and square-root stages.
 
-**G.E (linear algebra over GF(2))** takes the filtered matrix and finds its null space. It
-fills in the quadratic-character obstruction columns (currently zero in the G.D output), then
-runs structured Gaussian elimination to find a basis for the null space. Each null-space vector
-identifies a subset of rows whose GF(2) column-sum is zero — a candidate congruence of squares.
+**G.E (linear algebra over GF(2))** takes the filtered matrix and finds its left kernel. It
+fills in the root-character columns (currently zero in the G.D output), then runs a block
+nullspace solver to find kernel vectors. Each kernel vector identifies a subset of rows whose
+GF(2) column-sum is zero — a candidate congruence of squares.
 
-**G.F (square root)** takes a null-space vector from G.E and expands it through the provenance
-map to recover the original (a, b) pairs. It then computes the product of all rational norms
-(a perfect square in ℤ) and the product of all algebraic norms (a perfect square in K = ℚ(α)),
-and extracts the square roots to form the congruence x² ≡ y² (mod N). A non-trivial GCD of
-x − y and N yields a factor.
+**G.F (square root)** takes a kernel vector from G.E and expands it through the provenance map to
+recover the original (a, b) pairs. It then computes the rational product P = ∏(a − b·m), which is
+a perfect square in ℤ, and tries to find β in K = ℚ(α) with β² = ∏(a − b·α); the algebraic product
+is only a candidate for a square. A verified β has an image y mod N with y² ≡ P, giving the
+congruence x² ≡ y² (mod N). A non-trivial GCD of x − y and N yields a factor.
 
 **D.A (NFS-DL)** adapts the same filtering infrastructure for discrete logarithm computation.
 The `SparseMatrix` and provenance map are reused directly; the difference is in the linear
@@ -2023,12 +2045,12 @@ the kernel-vector → provenance → original-relations thread, and the C-LinAlg
 
 The output of G.D filtering is a `SparseMatrix` — a sparse GF(2) matrix A with m rows and n
 columns. Each row corresponds to a filtered relation (or a merged aggregate of relations), and
-each column corresponds to a prime or obstruction entry in the factor base. The entry A[i][j]
-is 1 if the j-th prime appears to an odd total exponent in the i-th relation's norm product,
-and 0 otherwise.
+each column corresponds to a rational prime, a prime ideal, or an obstruction entry (sign or
+character). The entry A[i][j] is 1 if the j-th prime or ideal has an odd exponent in the i-th
+row's relation (or the sign or character bit is set), and 0 otherwise.
 
-The goal of G.E is to find vectors in the **left nullspace** of A: subsets of rows whose GF(2)
-column-sum is the zero vector. Formally, we seek non-zero vectors v ∈ GF(2)^m such that:
+The goal of G.E is to find vectors in the **left nullspace** (left kernel) of A: subsets of rows
+whose GF(2) column-sum is the zero vector. Formally, we seek non-zero vectors v ∈ GF(2)^m such that:
 
 $$
 v^T A = 0 \pmod{2}
@@ -2040,8 +2062,10 @@ Equivalently, we seek vectors in the nullspace of A^T (the right nullspace of th
 
 A left nullspace vector v is a 0/1 indicator over rows. The rows it selects are a subset S of
 filtered relations. The GF(2) column-sum being zero means: for every prime p in the factor
-base, the total exponent of p across all relations in S is even. This is exactly the condition
-for the product of the corresponding norms to be a perfect square.
+base, the total exponent of p across all relations in S is even (for an ideal column, the
+exponent of that prime ideal in the product of the elements a − b·α). This is exactly the parity
+condition the matrix encodes; it makes the rational product a perfect square and is a necessary
+condition, not a sufficient one, for the algebraic product to be a square (§32).
 
 ### The `SparseMatrix` contract (C-Matrix)
 
@@ -2067,13 +2091,13 @@ pub struct SparseMatrix {
 The column layout is:
 
 ```text
-[  rational primes  |  algebraic ideals  |  sign  |  QC columns  ]
+[  rational primes  |  algebraic ideals  |  sign  |  character columns  ]
  0 .. rational_size   rational_size ..      obs_start  obs_start+1 ..
-                       obs_start            (col 0)    (cols 1..num_qc)
+                       obs_start            (col 0)    (one per character pair)
 ```
 
 G.D populates the rational and algebraic columns and the sign column. G.E fills in the
-quadratic-character (QC) columns before running the nullspace solver.
+quadratic-character columns (one per root character pair) before running the nullspace solver.
 
 ### Toy-scale matrix dimensions
 
@@ -2100,48 +2124,42 @@ are identical), and `{0, 1, 2}` (the XOR of rows 0, 1, 2 is zero). The kernel di
 ### From nullspace vector to congruence
 
 A left nullspace vector v — a subset S of filtered-matrix rows — has a precise algebraic
-meaning. Let the rows in S correspond to relations with rational norms N_rat(aᵢ, bᵢ) and
-algebraic norms N_alg(aᵢ, bᵢ). The GF(2) column-sum being zero means:
+meaning. Let the rows in S correspond to relations (aᵢ, bᵢ). Put
 
 $$
-\prod_{i \in S} N_{\mathrm{rat}}(a_i, b_i) = X^2 \quad \text{for some } X \in \mathbb{Z}
+P = \prod_{i \in S} (a_i - b_i \cdot m) \in \mathbb{Z}, \qquad
+\gamma = \prod_{i \in S} (a_i - b_i \cdot \alpha) \in K = \mathbb{Q}(\alpha).
 $$
 
-$$
-\prod_{i \in S} N_{\mathrm{alg}}(a_i, b_i) = Y^2 \quad \text{for some } Y \in K = \mathbb{Q}(\alpha)
-$$
-
-The first equation holds because the rational exponent parities all cancel (every prime appears
-to an even total exponent). The second holds for the same reason on the algebraic side — with
-the additional guarantee provided by the sign and QC columns (§33).
+The GF(2) column-sum being zero makes P a positive perfect square, P = x₀² with x₀ ∈ ℤ: every
+rational prime appears to an even total exponent and the sign column counts an even number of
+negative factors. On the algebraic side it says that the exponent of each constrained prime ideal
+in γ is even. That is necessary for γ to be a square β² in K, and it is not sufficient: the full
+account of what remains open is in MATHEMATICS §5 ("The square-class obstruction") and in §33
+below.
 
 ### The congruence of squares
 
-The rational norm N_rat(a, b) = a − b·m is a linear form in (a, b). The product of the
-rational norms over S is:
+Suppose a verified β ∈ K with β² = γ exists. The ring homomorphism ψ: ℤ[θ] → ℤ/N, θ ↦ c·m (where
+θ = c·α is the integral generator and c = lc(f); it is α ↦ m for monic f) is well defined because
+f(m) ≡ 0 (mod N). It extends to the elements of K whose coordinates have denominators coprime to
+N, and it sends each a − b·α to a − b·m mod N. Therefore
 
 $$
-\prod_{i \in S} (a_i - b_i \cdot m) = X^2 \pmod{N}
+y = \psi(\beta) = \beta(c \cdot m) \bmod N, \qquad y^2 = \psi(\beta^2) = \psi(\gamma) = P \pmod{N}.
 $$
 
-The algebraic norm N_alg(a, b) = b^d · f(a/b) is the norm of the ideal (a − b·α) in ℤ[α].
-The product of the algebraic norms over S is the norm of the product ideal:
-
-$$
-\prod_{i \in S} (a_i - b_i \cdot \alpha) = \beta^2 \quad \text{in } K = \mathbb{Q}(\alpha)
-$$
-
-Taking the norm of both sides: Norm(β²) = Norm(β)² = Y² where Y = Norm(β) ∈ ℤ. Setting
-x = X mod N and y = Y mod N gives x² ≡ y² (mod N). If x ≢ ±y (mod N), then gcd(x − y, N)
-is a non-trivial factor of N.
+With x = x₀ mod N this gives x² ≡ y² (mod N). If x ≢ ±y (mod N), then gcd(x − y, N) is a
+non-trivial factor of N. No norm enters: the image y is an evaluation of β, not Norm(β), and §45
+gives a fixture where the two differ.
 
 ### Why the matrix encodes the right thing
 
-Each row of the matrix is the GF(2) exponent vector of a relation: the parity of each prime's
-exponent in the norm factorisation. The GF(2) column-sum of a subset S being zero is exactly
-the condition that every prime appears to an even total exponent — i.e., the product of norms
-is a perfect square. The linear algebra step is the bridge between the sieve output (individual
-smooth pairs) and the factoring step (a congruence of squares).
+Each row of the matrix is the GF(2) exponent vector of a relation: the parity of each rational
+prime's exponent in a − b·m and of each degree-one prime ideal's exponent in (a − b·α). The GF(2)
+column-sum of a subset S being zero is exactly the condition that every constrained prime and
+ideal appears to an even total exponent. The linear algebra step is the bridge between the sieve
+output (individual smooth pairs) and the factoring step (candidate congruences of squares).
 
 ---
 
@@ -2171,81 +2189,47 @@ their product is positive.
 
 ### The quadratic-character columns
 
-The algebraic side requires more care. Even if the product of algebraic norms is a perfect
-square integer, the algebraic square root β (satisfying Norm(β) = Y) might not exist in K.
-The issue is that the product of the ideals (aᵢ − bᵢ·α) might be a square in the ideal group
-of ℤ[α] without being a square of a principal ideal — i.e., the product might not be a
-principal ideal generated by a square element.
+The algebraic side requires more care. Even when every column is satisfied, γ need not be a square
+in K. The principal ideal (γ) is principal by construction, so that is not what can fail. When
+every valuation of γ is even, (γ) = J² for the ideal J = ∏ 𝔭^(v_𝔭(γ)/2), and three things can go
+wrong:
 
-The quadratic-character (QC) columns narrow this down. The columns that the checked matrix path
+- some valuation is odd at an ideal the matrix does not constrain (the primes dividing
+  c·disc(F), whose columns the checked matrix leaves empty);
+- J is not principal, so its class is a nontrivial element of the 2-torsion Cl(O_K)[2] of the class
+  group;
+- J = (β) is principal but β² = u·γ for a unit u that is not a square.
+
+Units and the class group both obstruct in factoring; neither is a discrete-logarithm
+phenomenon. The obstruction group is the group V of elements of K* with even valuation everywhere,
+modulo squares. It sits in an exact sequence with the unit group modulo squares and Cl(O_K)[2],
+and has dimension r₁ + r₂ + rk₂ Cl(O_K). MATHEMATICS §5 ("The square-class obstruction") states
+this precisely and cites Buhler–Lenstra–Pomerance and Crandall–Pomerance §6.2; this section is its
+code-facing summary.
+
+The quadratic-character columns narrow the obstruction. The columns that the checked matrix path
 fills are *individual root characters*, described in the section "Individual Root Characters and
-Provenance" below: they use the Legendre symbol of `a − b·s` at a root `s` of `f` modulo an
-auxiliary prime, and they are necessary filters that cannot certify a square. The legacy
-helper described in the rest of this section instead takes the Legendre symbol of the algebraic
-*norm* at a completely split prime:
+Provenance" below. For an odd prime q ∤ c·disc(f) and a root s of f modulo q, the character is
+the Legendre symbol of `a − b·s`. If γ = β² in K, the product of these symbols over the
+relations of a dependency is +1, so each character is a necessary condition. Each is a
+homomorphism on V, so independent characters cut V down. As a heuristic, with t independent
+characters on a group of dimension dim, the expected number of surviving nonsquare classes is
+about 2^−(t − dim); it is never zero, so characters never certify a square. Exact reconstruction
+and verification decide (§44).
 
-$$
-\text{QC}_{q}(a, b) = \left(\frac{N_{\mathrm{alg}}(a, b)}{q}\right) \bmod 2
-$$
+Characters at the roots of one prime q are individually finer than a Legendre symbol of the
+homogeneous norm form F(a, b) at q. On a completely split q, (F(a, b)/q) = (c/q)·∏_s ((a − b·s)/q):
+the norm character is the product of q's root characters times a constant, so it never sees
+anything a root character cannot. If every prime has an even exponent in the product of the norms
+of a dependency, its total over the dependency is (c/q)^|S|·(±1/q), which depends only on the sign
+of the norm product and the parity of |S| and carries no square-class information. The
+implementation therefore uses individual root characters and no norm characters
+(MATHEMATICS §5, "The norm character is redundant").
 
-where (·/q) is the Legendre symbol. Once the recorded norm exponents have even sum, this
-carries at most sign information about the norm, and it does not distinguish the unit square
-classes that obstruct an element square. It stays available for the callers that still use it,
-and it does not guarantee that a square root exists in K.
-
-### The legacy `populate_qc_columns` function
-
-The legacy helper fills its columns before running the nullspace solver:
-
-```rust
-pub fn populate_qc_columns(
-    matrix: &mut SparseMatrix,
-    relations: &[Relation],
-    fb: &FactorBase,
-    poly: &PolyPair,
-    qc_primes: &[u64],
-) {
-    for row in matrix.rows.iter_mut() {
-        for (k, &q) in qc_primes.iter().enumerate() {
-            let col = matrix.obstruction_col_start + 1 + k;
-            let mut parity = false;
-            for &rel_idx in &row.provenance {
-                let rel = &relations[rel_idx];
-                let norm = algebraic_norm_mod_q(&rel.a, &rel.b, &poly.f, q);
-                parity ^= legendre_parity(norm, q);
-            }
-            if parity {
-                // Insert col into row.cols (maintaining sorted order).
-                match row.cols.binary_search(&col) {
-                    Ok(_) => {}
-                    Err(pos) => { row.cols.insert(pos, col); }
-                }
-            }
-        }
-    }
-}
-```
-
-The QC primes are selected by `select_qc_primes`: the first `num_qc` primes q > B_alg such
-that f splits completely mod q (i.e., f has deg(f) distinct roots mod q). Splitting completely
-ensures the Legendre symbol is well-defined and non-degenerate.
-
-The Legendre symbol is computed via Euler's criterion: (a/q) ≡ a^((q−1)/2) (mod q). The
-parity is 1 iff the symbol is −1 (a is a quadratic non-residue mod q):
-
-```rust
-fn legendre_parity(norm: u64, q: u64) -> bool {
-    if norm == 0 { return false; }
-    let exp = (q - 1) / 2;
-    let result = pow_mod(norm, exp, q);
-    result == q - 1
-}
-```
-
-**Principle-4 annotation.** At toy scale, `DEFAULT_NUM_QC = 10` QC columns suffice. At NFS
-scale, 20–50 QC columns are typical. The number of QC columns is a scale knob: more columns
-filter out more candidates that are not squares, at the cost of a wider matrix, but no number of
-sampled characters certifies that a square root exists.
+**Principle-4 annotation.** The number of character columns is a scale knob: more characters
+shrink the surviving nonsquares, by half per independent character under the heuristic above, at
+the cost of a wider matrix, but no number of sampled characters certifies that a square root
+exists. The generated-relation run (§47) fixes eight.
 
 ---
 
@@ -2755,9 +2739,9 @@ The complete kernel-vector → original-relations thread:
 
 3. **G.F** looks up the original `Relation` objects by index to recover the (a, b) pairs.
 
-4. **G.F** computes the product of all rational norms (a perfect square in ℤ) and the product
-   of all algebraic norms (a perfect square in K = ℚ(α)), and extracts the square roots to
-   form the congruence x² ≡ y² (mod N).
+4. **G.F** computes the rational product P = ∏(a − b·m) (a perfect square in ℤ) and tries to
+   find β in K = ℚ(α) with β² = ∏(a − b·α), which is only a candidate for a square; a verified β
+   has an image y with y² ≡ P (mod N), which forms the congruence x² ≡ y² (mod N).
 
 The KAT `kat_3_round_trip_provenance` in `linalg_substrate_kat.rs` verifies this thread end-
 to-end before G.F exists. For a matrix with hand-crafted provenance:
@@ -2856,7 +2840,7 @@ are scale-dependent and either under-exposed or over-exposed at toy scale.
 | **Block width** | Single 64-bit word suffices; blocking overhead invisible | 64-wide block amortises memory bandwidth; ~64× speedup over single-vector | `BLOCK_WIDTH = 64` |
 | **Self-orthogonality** | Exposed by duplicate rows in KAT matrices; winnowing path exercised | Same algorithm; more frequent at scale due to larger nullspace | — (algorithm feature) |
 | **Wiedemann parallelism** | Invisible; 4 sequential attempts, no distributed computation | Krylov sequences computed in parallel across machines; no per-step sync | `num_attempts` / block width |
-| **QC column count** | `DEFAULT_NUM_QC = 10` suffices | 20–50 QC columns typical | `DEFAULT_NUM_QC` |
+| **Character column count** | A handful of characters filters most nonsquare candidates | More characters shrink the surviving nonsquares (heuristically by half per independent character); none certifies a square | `count` argument of `select_root_characters` |
 | **Excess floor** | `EXCESS_FLOOR = 20` never approached in practice | Floor is a tuning parameter: too low → few null-space vectors; too high → denser matrix | `EXCESS_FLOOR` |
 
 The self-orthogonality phenomenon is the one that IS fully exposed at toy scale: the KAT
@@ -2875,14 +2859,14 @@ mathematical fact each one verifies.
 | Test file | Test | Mathematical fact verified |
 |-----------|------|---------------------------|
 | `linalg_substrate_kat.rs` | `kat_1_operator_correctness` | `A·V` and `Aᵀ·V` match hand-computed GF(2) products for a 3×4 matrix |
-| `linalg_substrate_kat.rs` | `kat_2_qc_column_construction` | QC column parities match hand-computed Legendre symbols for toy relations |
+| `linalg_substrate_kat.rs` | `kat_2_character_columns_fill_a_checked_matrix` | Filled character columns equal brute-force Legendre bits; width, obstruction block, row order, and column weights stay consistent |
 | `linalg_substrate_kat.rs` | `kat_3_round_trip_provenance` | `expand_provenance` returns the correct symmetric difference of provenance sets |
-| `linalg_substrate_kat.rs` | `kat_4_determinism` | Operator products and QC columns are deterministic for a fixed matrix |
+| `linalg_substrate_kat.rs` | `kat_4_determinism` | Character selection, character columns, and operator products are deterministic for a fixed relation set |
 | `lanczos_kat.rs` | `kat_a_correctness_with_self_orthogonality` | Block Lanczos finds valid kernel vectors for a 6×4 matrix with duplicate rows (self-orthogonality path exercised) |
 | `lanczos_kat.rs` | `kat_a2_single_dependency` | Block Lanczos finds the single dependency `{0,3}` for a 4×3 matrix |
 | `lanczos_kat.rs` | `kat_a3_full_rank_no_nullspace` | Block Lanczos returns only valid vectors for a full-rank 3×3 identity matrix |
 | `lanczos_kat.rs` | `kat_b_determinism` | Block Lanczos is deterministic for a fixed matrix and seed |
-| `lanczos_kat.rs` | `kat_c_cado_oracle_n35` | (Ignored) CADO oracle for N=35 — gated when CADO absent |
+| `lanczos_kat.rs` | `kat_c_cado_oracle_n35` | (Ignored placeholder) Kernel validity and nonempty provenance on a hand-built matrix; it does not call CADO-NFS or extract a factor |
 | `lanczos_kat.rs` | `kat_multiple_dependencies` | Block Lanczos finds at least one of three known dependencies in an 8×6 matrix |
 | `wiedemann_kat.rs` | `kat_a_cross_validation_with_lanczos` | Wiedemann and Lanczos cross-validate: both find valid kernel vectors for the shared 6×4 matrix |
 | `wiedemann_kat.rs` | `kat_a4_single_dependency` | Wiedemann finds the single dependency `{0,3}` for a 4×3 matrix |
@@ -2899,10 +2883,11 @@ each with its provenance expansion thread back to the original relations — is 
 square-root stage.
 
 **G.F (square root)** takes a `KernelVector` from G.E and expands it through the provenance
-map to recover the original (a, b) pairs. It then computes the product of all rational norms
-(a perfect square in ℤ) and the product of all algebraic norms (a perfect square in K = ℚ(α)),
-and extracts the square roots to form the congruence x² ≡ y² (mod N). A non-trivial GCD of
-x − y and N yields a factor.
+map to recover the original (a, b) pairs. It then computes the rational product
+P = ∏(a − b·m) (a perfect square in ℤ) and tries to find β in K = ℚ(α) with
+β² = ∏(a − b·α), which is only a candidate for a square; a verified β has an image y with
+y² ≡ P (mod N), giving the congruence x² ≡ y² (mod N). A non-trivial GCD of x − y and N yields a
+factor.
 
 **D.B (NFS-DL linear algebra)** generalises the G.E linear algebra from GF(2) to F_ℓ. The
 `BlockVec`, `MatrixOperator`, and `KernelVector` types are the frozen seam; D.B may introduce
@@ -4018,9 +4003,8 @@ a necessary condition and never a proof.
   factorization is not provided.
 - Omitting exceptional parity weakens the candidate filter. It does not weaken exact verification
   of a square root.
-- Quadratic characters, like the other columns, are necessary filters: earlier chapters' wording
-  that they guarantee a square root is superseded by this section. Duplicate detection is
-  exact-pair, not ideal-level.
+- Quadratic characters, like the other columns, are necessary filters and never certify a square
+  root (MATHEMATICS §5). Duplicate detection is exact-pair, not ideal-level.
 
 ### KAT summary
 
@@ -4110,7 +4094,6 @@ of the root remain authoritative.
 | `linalg_substrate_kat.rs` | `kat_root_character_merged_rows_equal_xor_of_original_bits` | After elimination, filled-before and filled-after matrices both satisfy the provenance-XOR identity; a shortened provenance is detected |
 | `linalg_substrate_kat.rs` | `kat_root_character_overlapping_provenance_cancels` | `[0,1] ⊕ [1,2] = [0,2]` cancels relation 1's bits |
 | `linalg_substrate_kat.rs` | `kat_root_character_layout_and_checker_mismatch_rejected` | Foreign checker, layout, slot count, shape, and malformed rows are refused |
-| `linalg_substrate_kat.rs` | `kat_legacy_select_qc_primes_unchanged` | The legacy split-prime helper returns the same primes |
 
 ---
 
@@ -4310,7 +4293,7 @@ residue-field reduction to compute Schirokauer maps in $\mathbb{F}_\ell$.
 5. **Buhler, J., Lenstra, H. W. Jr., and Pomerance, C. (1993).** *Factoring integers with the
    number field sieve.* In: Lenstra, A. K., and Lenstra, H. W. Jr. (eds.) The Development of
    the Number Field Sieve, LNM 1554. Springer. The original description of the full GNFS
-   pipeline, including the square-root stage and the role of the QC columns.
+   pipeline, including the square-root stage and the role of the character columns.
 
 6. **Kleinjung, T., Aoki, K., Franke, J., et al. (2010).** *Factorization of a 768-bit RSA
    modulus.* CRYPTO 2010. The RSA-768 factorisation, which used the full GNFS pipeline
@@ -4500,23 +4483,23 @@ pub struct FactorBase {
     pub algebraic_ideals: Vec<AlgebraicPrime>, // degree-1 prime ideals (p, r)
     pub b_rat: u64,                      // rational smoothness bound
     pub b_alg: u64,                      // algebraic smoothness bound
-    pub obstruction_count: usize,        // sign + QC columns (initially 1)
+    pub obstruction_count: usize,        // sign + character columns (initially 1)
 }
 ```
 
 The algebraic factor base consists of **degree-1 prime ideals** (p, α − r) where r is a root
-of f mod p. The sieve condition for the algebraic side is: the ideal (p, r) divides the
-algebraic norm N_alg(a, b) if and only if a ≡ r·b (mod p). This is the algebraic analogue of
-the rational condition a ≡ b·m (mod p).
+of f mod p. The sieve condition for the algebraic side is: the ideal (p, r) divides the element
+a − b·α if and only if a ≡ r·b (mod p), and then p divides the algebraic form N_alg(a, b). This
+is the algebraic analogue of the rational condition a ≡ b·m (mod p).
 
 The `obstruction_count` field is initialised to 1 (the sign/−1 column). G.E adds quadratic-
 character columns; the slot exists so the matrix-width calculation is stable across stages.
 
-**Why degree-1 ideals.** The algebraic norm N_alg(a, b) = b^d · f(a/b) factors in ℤ[α] as a
-product of prime ideals. For a prime p with f(r) ≡ 0 (mod p), the ideal (p, α − r) divides
-the principal ideal (a − b·α) in ℤ[α], and hence divides N_alg(a, b) = Norm(a − b·α). The
-sieve condition a ≡ r·b (mod p) is the efficient way to enumerate which (a, b) pairs have the
-ideal (p, r) dividing their algebraic norm.
+**Why degree-1 ideals.** For a coprime pair (a, b) and a prime p ∤ c·disc(F), the only prime
+ideal over p that can divide (a − b·α) is the degree-one ideal (p, α − r) with r ≡ a·b⁻¹ (mod p).
+It divides the principal ideal (a − b·α) in ℤ[α] exactly when a ≡ r·b (mod p), and then p divides
+N_alg(a, b) = b^d · f(a/b) = c·N_{K/ℚ}(a − b·α). The sieve condition is the efficient way to
+enumerate which (a, b) pairs have the ideal (p, r) dividing (a − b·α).
 
 ### The C-Relation contract (frozen G.C.1, commit c1dc0b6)
 
@@ -4537,9 +4520,9 @@ not pre-reduced GF(2) parities. This is the load-bearing cross-track decision: G
 integer exponents to detect exact duplicates; G.E reduces them mod 2 on demand; D.A reads them
 mod ℓ for GF(ℓ) linear algebra. Pre-reducing to GF(2) would destroy the information D.A needs.
 
-The `rational_sign` field is the "−1 column" for G.E's linear algebra: the product of all
-selected relations' rational norms must be positive (an even number of negative norms). The
-sign column encodes this constraint.
+The `rational_sign` field is the "−1 column" for G.E's linear algebra: the rational product
+∏(a − b·m) over the selected relations must be positive (an even number of negative factors).
+The sign column encodes this constraint.
 
 The `verify()` method checks four invariants: gcd(a, b) = 1; the rational exponent vector
 reconstructs |N_rat(a, b)|; the algebraic exponent vector reconstructs |N_alg(a, b)|; and the
@@ -4630,16 +4613,22 @@ non-obstruction column remains.
 
 Linear algebra (G.E, §31–§41) finds the left nullspace of the filtered matrix over GF(2). A
 left nullspace vector v is a 0/1 indicator over rows: the rows it selects form a subset S of
-filtered relations such that, for every prime p in the factor base, the total exponent of p
-across all relations in S is even. This is the condition for the product of the corresponding
-norms to be a perfect square.
+filtered relations such that, for every rational prime and every constrained degree-one prime
+ideal (p, r) in the factor base, the total exponent across all relations in S is even, and the
+number of negative rational factors is even. These are exponents of primes and ideals, not of
+norms, and the condition makes the rational product a perfect square. It is necessary, and not
+sufficient, for the algebraic product γ = ∏(a − b·α) to be a square in K.
 
-Before running the nullspace solver, G.E fills in the quadratic-character (QC) columns. These
-columns are the load-bearing guarantee that the algebraic square root β exists *in K*, not
-merely as an ideal square. For each auxiliary prime q that splits completely in K, the QC
-column records the Legendre-symbol parity of the algebraic norm at q. A kernel vector that
-satisfies all QC column constraints guarantees that the product of the algebraic norms is a
-square in K.
+Before running the nullspace solver, G.E fills in the root-character columns. For each pair (q, s)
+of an odd prime q ∤ c·disc(f) and a root s of f modulo q, the column records the Legendre-symbol
+parity of a − b·s. If γ is a square in K, the character values over S multiply to +1, so each
+column is a necessary condition. Characters are filters: units, the class group, and ideals the
+matrix leaves unconstrained can still obstruct, and no finite number of characters certifies a
+square, so the exact square-root stage decides. The precise account is in MATHEMATICS §5 ("The
+square-class obstruction"); the character mechanics are in the "Individual Root Characters and
+Provenance" section. The linear-algebra cost is O(k·W) for iterative solvers, with W the number of
+nonzeros, and O(k³) for dense elimination; block Lanczos divides its matrix-product cost by the
+word width (MATHEMATICS §5, the linear-algebra paragraph).
 
 ### The C-LinAlg contract (frozen G.E.1, commit 416f6db)
 
@@ -4757,7 +4746,7 @@ first time.
 | **C-PolyPair** | G.B.1 (2f43f99) | `PolyPair`: polynomial pair + number-field constructor | G.B.2–4, G.C, G.F, D.A |
 | **C-Score** | G.B.2 (00aa32d) | `score(pair) -> f64`: Murphy-E scoring | G.B.3–4, D.A, E.K |
 | **C-Relation** | G.C.1 (c1dc0b6) | `Relation`: (a, b) + two exponent vectors + sign bit | G.D, G.E, G.F, D.A |
-| **C-FactorBase** | G.C.1 (c1dc0b6) | `FactorBase`: two-sided factor base + sign/QC columns | G.D, G.E, G.F, D.A |
+| **C-FactorBase** | G.C.1 (c1dc0b6) | `FactorBase`: two-sided factor base + sign/character columns | G.D, G.E, G.F, D.A |
 | **C-Matrix** | G.D.1 (a0e854b) | `SparseMatrix`: filtered sparse GF(2) matrix + provenance map | G.E, G.F, D.B |
 | **C-LinAlg** | G.E.1 (416f6db) | `BlockVec`, `MatrixOperator`, `KernelVector` + `expand_provenance` | G.E.2–3, G.F, D.B |
 | **C-AlgSqrt** | G.F.3 (c80a855 + ec69a1f) | Original square-root contract; since replaced by `algebraic_sqrt` over a `CheckedDependency` returning a verified root or a typed outcome | G.F.4, D.B |
@@ -4847,10 +4836,11 @@ correct.
   (greedy excess-floor), and `merge_columns` (weight-2 and weight-3 XOR merges) are all
   implemented and KAT-verified. The provenance map is maintained throughout. **Complete.**
 
-- **G.E (linear algebra).** QC column construction (`populate_qc_columns`), block Lanczos
-  (three-term recurrence + self-orthogonality winnowing), block Wiedemann (Krylov sequence +
-  Berlekamp-Massey + Horner extraction), and `expand_provenance` are all implemented and
-  KAT-verified. **Complete.**
+- **G.E (linear algebra).** Root-character selection and column filling
+  (`select_root_characters`, `RootCharacters::fill_columns`), block Lanczos (three-term recurrence
+  + self-orthogonality winnowing), block Wiedemann (Krylov sequence + Berlekamp-Massey + Horner
+  extraction), and `expand_provenance` are all implemented and KAT-verified. The characters are
+  necessary filters, never square certificates (MATHEMATICS §5). **Complete.**
 
 - **G.F (square root and assembly).** The exact rational square root (`rational_sqrt`), the
   verified algebraic square root (`algebraic_sqrt`: direct Newton lifting, split-prime lifting
@@ -4860,9 +4850,12 @@ correct.
   non-monic polynomial, and 197 · 229 from N = 45113 on relations generated by `line_sieve`.
   **Complete** for these tested fixtures.
 
-**Verdict: Principle 1 — pass.** Every stage of the GNFS algorithm is implemented and none is a
-stub. The stages compose on the tested fixtures, including one run from generated relations to a
-verified factor (§47); that is a tested scope, not a claim for arbitrary inputs.
+**Verdict: Principle 1 — pass, for the tested scope.** Every stage of the GNFS algorithm is
+implemented. The stages compose on the tested fixtures, including one run from generated relations
+to a verified factor (§47); that is a tested scope, not a claim for arbitrary inputs. Some oracle
+cross-checks are ignored placeholders that do not yet invoke an external tool (for example
+`kat_c_cado_oracle_n35`, §40), so the external-oracle evidence for the algebraic facts is not part
+of this verdict.
 
 ### Principle 3: No new engineering optimisations
 
@@ -4937,8 +4930,9 @@ omitted or misrepresented.
 - Principle 4 (scale-only at demonstration fidelity): **pass** — all scale-dependent
   phenomena annotated explicitly; one over-exposed phenomenon (bad primes) noted.
 
-No divergence requiring a corrective follow-on session was found. Every stage is implemented and
-KAT-green; whole-chain evidence is limited to the tested fixtures of §62.
+Every stage is implemented and KAT-green on the default test path; whole-chain evidence is limited
+to the tested fixtures of §62, and the external-oracle cross-checks of the algebraic facts are
+ignored placeholders.
 
 ---
 
@@ -5170,7 +5164,7 @@ factoring problem is an open question.
 - **G.D (filtering):** §22–§30 of this document — the relation corpus as a sparse matrix, the
   graph view, singleton removal, excess and clique pruning, column merging, C-Matrix contract.
 - **G.E (linear algebra):** §31–§41 of this document — the filtered matrix as a GF(2) linear
-  system, sign and QC columns, block Lanczos, block Wiedemann, the kernel-vector →
+  system, sign and character columns, block Lanczos, block Wiedemann, the kernel-vector →
   provenance → original-relations thread, C-LinAlg contract.
 - **G.F (square root and assembly):** §42–§51 of this document — the kernel vector as a
   candidate dependency, exact rational square root, verified algebraic square root, checked
@@ -5761,7 +5755,7 @@ $g(x) = x - m$.
 
 In NFS-DL, the same two-polynomial structure is used, but the interpretation is different: both
 the rational side and the algebraic side contribute to the discrete-log linear system. The
-rational norm $a - bm$ and the algebraic norm $b^d \cdot f(a/b)$ are both smooth, and both
+rational norm $a - bm$ and the algebraic form $b^d \cdot f(a/b)$ are both smooth, and both
 contribute exponent columns to the DL matrix. The "two number fields" of NFS-DL are the rational
 field $\mathbb{Q}$ (via the rational norm) and the algebraic field $K = \mathbb{Q}(\alpha)$
 (via the algebraic norm) — the same two fields as in factoring, but now both contribute to a
@@ -5770,23 +5764,28 @@ single linear system over $\mathbb{F}_\ell$ rather than to a congruence of squar
 **2. Schirokauer maps replacing quadratic-character columns.**
 
 In NFS-factoring (G.E), the obstruction columns are the **sign column** (one column, encoding
-the parity of the rational norm's sign) and the **quadratic-character (QC) columns** (several
-columns, encoding Legendre-symbol parities). These columns guarantee that the algebraic square
-root $\beta$ exists in $K$, not merely as an ideal square. The obstruction is the
-**class-group obstruction**: the product of the algebraic norms may be a square in the ideal
-group without being a square of a principal ideal.
+the parity of the rational factor's sign) and the **quadratic-character columns** (several
+columns, encoding Legendre-symbol parities of $a - b\cdot s$ at roots $s$ modulo auxiliary
+primes). The factoring target is that $\gamma = \prod (a - b\cdot\alpha)$ be a *square* in $K$,
+and the matrix cannot ensure it. The obstruction group is the group $V$ of elements of $K^*$ with
+even valuation at every prime ideal, modulo squares: it has the units modulo squares as a subgroup
+with quotient the 2-torsion of the class group, so **both units and the class group obstruct** in
+factoring (MATHEMATICS §5, "The square-class obstruction"). The characters are necessary filters on
+that group, and the exact square-root stage decides.
 
-In NFS-DL, the obstruction is different: the **unit-group obstruction**. The units of $\mathcal{O}_K$
-(the ring of integers of $K$) are not accounted for by the exponent vectors alone. The
-**Schirokauer map** $\lambda: K^* \to (\mathbb{Z}/\ell)^r$ is the correction that resolves this
-obstruction. For each prime ideal $\varphi_i = (p_i, \alpha - r_i)$ with $p_i \equiv 1
-\pmod{\ell}$, the map computes the ℓ-adic virtual-log coordinate $\lambda_i(\beta) \in
-\mathbb{Z}/\ell$ — the "fractional part" of the discrete log that the exponent vectors miss.
+NFS-DL faces the same group; it is not specific to either problem. What differs is the condition
+to be met. Factoring needs squareness, which finitely many characters can only filter. NFS-DL
+needs the unit contribution of each relation to be *linear* modulo $\ell$. The **Schirokauer map**
+$\lambda: K^* \to (\mathbb{Z}/\ell)^r$ supplies that: for each prime ideal
+$\varphi_i = (p_i, \alpha - r_i)$ with $p_i \equiv 1 \pmod{\ell}$, the map computes the ℓ-adic
+coordinate $\lambda_i(\beta) \in \mathbb{Z}/\ell$ that the exponent vectors miss, and it is a
+homomorphism that vanishes on $\ell$-th powers, so the unit contribution of a product of relations
+is the sum of its factors' contributions. For the class group the argument assumes $\ell \nmid h_K$
+so that there is no $\ell$-torsion to obstruct.
 
-The Schirokauer columns replace the QC columns in the DL matrix. Both serve the same structural
-role (resolving an obstruction to the linear system's solvability), but the obstruction is
-different (unit group vs class group) and the correction is different (ℓ-adic log vs Legendre
-symbol).
+The Schirokauer columns take the place of the character columns in the DL matrix, but they do not
+serve the same purpose: characters filter a square, Schirokauer columns make a unit part linear
+modulo $\ell$ (and the correction is an ℓ-adic log, not a Legendre symbol).
 
 **3. F_ℓ (prime-field) linear algebra replacing GF(2).**
 
@@ -5836,7 +5835,7 @@ The side-by-side comparison:
 | Stage | NFS-factoring | NFS-DL |
 |-------|--------------|--------|
 | Relation collection | Smooth (a, b) pairs → exponent vectors | Same, plus Schirokauer columns |
-| Obstruction columns | Sign + QC columns (class-group correction) | Schirokauer columns (unit-group correction) |
+| Obstruction columns | Sign + character columns (necessary filters on a square) | Schirokauer columns (unit contribution linear mod ℓ; ℓ ∤ h_K assumed) |
 | Linear algebra | GF(2) null space → kernel vector | F_ℓ null space → virtual-log table |
 | Output of linalg | Congruence of squares (subset of relations) | Virtual logs of factor-base elements |
 | Final step | Square root + GCD assembly | Individual-log descent + log assembly |

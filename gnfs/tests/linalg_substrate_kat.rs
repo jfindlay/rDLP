@@ -1,40 +1,33 @@
 //! Known-answer tests (KATs) for the GF(2) linear-algebra substrate.
 //!
-//! Four KATs:
+//! Four substrate KATs and the individual root-character tests:
 //!
 //! - **KAT 1 — Operator correctness**: for a small hand-built `SparseMatrix`, `A·V` and
 //!   `Aᵀ·V` match the hand-computed GF(2) products for several block vectors `V`.
 //!
-//! - **KAT 2 — QC column construction**: widening `obstruction_count` to `1 + num_qc`
-//!   yields a matrix of width `matrix_width()` with the sign column at
-//!   `obstruction_col_start` and `num_qc` QC columns following; each row's QC parity
-//!   matches the hand-computed Legendre-symbol parity for a toy relation set.
+//! - **KAT 2 — Character columns on a checked matrix**: filling the character columns leaves
+//!   the matrix width and obstruction block unchanged, sets exactly the bits of the
+//!   brute-force Legendre symbols, keeps every row sorted, and keeps `col_weights` equal to
+//!   the column counts of the rows.
 //!
 //! - **KAT 3 — Round-trip with provenance**: a hand-built kernel vector expands through
 //!   the filtering provenance map to the expected set of original relation indices (the
 //!   linear algebra → square root seam exercised early).
 //!
-//! - **KAT 4 — Determinism**: the operator products and QC columns are deterministic for
-//!   a fixed matrix.
-//!
-//! # Toy setup
-//!
-//! KATs 1–4 use `f(x) = x³ − x − 1` (coefficients: [−1, −1, 0, 1] least-significant
-//! first) with `B_rat = B_alg = 13`. KATs 2 and 4 exercise the legacy norm-character helpers
-//! (`populate_qc_columns`, `select_qc_primes`), whose behaviour is unchanged.
+//! - **KAT 4 — Determinism**: character selection, character columns, and the operator
+//!   products over the filled matrix are deterministic for a fixed relation set.
 //!
 //! # Individual root characters
 //!
-//! The `kat_root_character_*` tests exercise the characters `(q, s)` that send a relation
-//! `(a, b)` to the Legendre symbol of `a − b·s` modulo `q`. They use `f = x² − 3` with `m = 7`,
-//! `N = 23` (`f(7) = 46`) and `f = 3x² + x − 1` with `m = 3`, `N = 29` (`f(3) = 29`). Every
-//! root list, bit, and selection below was recomputed with an independent brute-force script
-//! that shares no code with the library.
+//! The `kat_root_character_*` tests and KATs 2 and 4 exercise the characters `(q, s)` that
+//! send a relation `(a, b)` to the Legendre symbol of `a − b·s` modulo `q`. They use
+//! `f = x² − 3` with `m = 7`, `N = 23` (`f(7) = 46`) and `f = 3x² + x − 1` with `m = 3`,
+//! `N = 29` (`f(3) = 29`). Every root list, bit, and selection below was recomputed with an
+//! independent brute-force script that shares no code with the library.
 
 use gnfs::{
-    build_matrix, ExponentVector, FactorBase, Relation,
-    linalg::{BlockVec, BLOCK_WIDTH, KernelVector, MatrixOperator, populate_qc_columns,
-             select_qc_primes},
+    ExponentVector, FactorBase, Relation,
+    linalg::{BlockVec, BLOCK_WIDTH, KernelVector, MatrixOperator},
 };
 use gnfs::filter::{build_checked_matrix, merge_columns, MatrixLayout, MatrixRow, SparseMatrix};
 use gnfs::linalg::{
@@ -54,11 +47,6 @@ use shared_numfield::{IntPoly, NonresidueSearchLimits, RootSearchLimits};
 
 fn bi(n: i64) -> BigInt {
     BigInt::from(n)
-}
-
-/// f(x) = x³ − x − 1.
-fn f_cubic() -> IntPoly {
-    IntPoly::from_coeffs(vec![bi(-1), bi(-1), bi(0), bi(1)])
 }
 
 /// Construct a Relation directly from field values (bypasses smoothness checks).
@@ -250,129 +238,59 @@ fn kat_1_operator_correctness() {
     }
 }
 
-// ─── KAT 2: QC column construction ───────────────────────────────────────────
+// ─── KAT 2: Character columns on a checked matrix ────────────────────────────
 
-/// KAT 2: QC column construction with hand-computed Legendre-symbol parities.
+/// KAT 2: filling character columns sets exactly the brute-force Legendre bits and keeps the
+/// matrix well-formed.
 ///
-/// Setup: `f(x) = x³ − x − 1`, `B_rat = B_alg = 13`.
-/// We widen `obstruction_count` to `1 + num_qc` and call `populate_qc_columns`.
-/// For each row, we verify the QC parity matches the hand-computed Legendre symbol.
+/// Fixture: `x² − 3`, `m = 7`, `N = 23`, relations `u = (2, −1)` and `s = (13, −4)`, characters
+/// `(11, 6)`, `(13, 4)`, `(13, 9)` (see `unit_and_square`). The expected bits are the Legendre
+/// symbols of `a − b·s` recomputed from the list of squares, so no library arithmetic decides
+/// them: `u` has bits `[1, 1, 1]` and `s` has none.
 ///
-/// # Hand computation
-///
-/// For a relation with `(a, b)`, the algebraic norm is `N_alg(a, b) = b³·f(a/b)`.
-/// For `b = 1`: `N_alg(a, 1) = f(a) = a³ − a − 1`.
-///
-/// We use `select_qc_primes` to find the first QC prime `q > 13` that splits completely
-/// in K, then verify the QC parity for each relation by computing the Legendre symbol
-/// `(N_alg(a,b) / q)` directly.
+/// Matrix-level facts checked, all of which a column filler could break: the width and the
+/// obstruction block are those of the layout before and after the fill; the character columns
+/// are empty before the fill; after it every row is strictly ascending and `col_weights` equals
+/// the column counts of the rows.
 #[test]
-fn kat_2_qc_column_construction() {
-    use gnfs::polyselect::PolyPair;
+fn kat_2_character_columns_fill_a_checked_matrix() {
+    let (checker, relations) = unit_and_square();
+    let characters = RootCharacters::new(&checker, &[pair(11, 6), pair(13, 4), pair(13, 9)])
+        .expect("the pairs are valid roots");
+    let pairs = [(2, -1), (13, -4)];
+    let (mut matrix, layout) = build_checked_matrix(&relations, characters.len()).unwrap();
 
-    let f = f_cubic();
-    let mut fb = FactorBase::new(&f, 13, 13);
-
-    // Select 2 QC primes.
-    let num_qc = 2usize;
-    let qc_primes = select_qc_primes(&f, 13, num_qc);
-    assert_eq!(qc_primes.len(), num_qc, "should have {num_qc} QC primes");
-    for &q in &qc_primes {
-        assert!(q > 13, "QC prime {q} should be > b_alg = 13");
-    }
-
-    // Widen obstruction_count to 1 + num_qc.
-    fb.obstruction_count = 1 + num_qc;
-
-    // Verify matrix_width() reflects the widened obstruction_count.
-    let expected_width = fb.rational_size() + fb.algebraic_size() + 1 + num_qc;
-    assert_eq!(fb.matrix_width(), expected_width, "matrix_width should include QC columns");
-
-    // Build a toy PolyPair for norm computation.
-    // N = 503 (prime), m = 7: f(7) = 343 - 7 - 1 = 335; 335 mod 503 ≠ 0.
-    // Use m = 8: f(8) = 512 - 8 - 1 = 503 ≡ 0 (mod 503). ✓
-    let n = bi(503);
-    let m = bi(8);
-    let g = IntPoly::from_coeffs(vec![-m.clone(), bi(1)]);
-    let poly = PolyPair::new(f.clone(), g, m, n);
-
-    // Build relations with known (a, b) pairs.
-    // We use b=1 so N_alg(a, 1) = f(a) = a³ - a - 1.
-    // Relations: (a=2, b=1), (a=3, b=1), (a=4, b=1).
-    // N_alg(2, 1) = 8 - 2 - 1 = 5
-    // N_alg(3, 1) = 27 - 3 - 1 = 23
-    // N_alg(4, 1) = 64 - 4 - 1 = 59
-    let idx_p5 = fb.rational_index(5).unwrap_or(2);
-    let idx_p23 = fb.rational_index(23).unwrap_or(0); // 23 > 13, not in base
-    let idx_p59 = fb.rational_index(59).unwrap_or(0); // 59 > 13, not in base
-
-    // Use simple relations with rational primes in the factor base.
-    // The exact exponent vectors don't matter for QC testing; we just need valid (a, b).
-    let relations = vec![
-        make_relation(2, 1, vec![(idx_p5, 1)], vec![], false),
-        make_relation(3, 1, vec![(idx_p5, 1)], vec![], false),
-        make_relation(4, 1, vec![(idx_p5, 1)], vec![], false),
-    ];
-    let _ = (idx_p23, idx_p59); // suppress unused warnings
-
-    // Build the matrix with the widened obstruction_count.
-    let mut matrix = build_matrix(&relations, &fb);
-
-    // Verify the matrix width matches fb.matrix_width().
-    assert_eq!(matrix.num_cols, fb.matrix_width(), "matrix num_cols should equal fb.matrix_width()");
-
-    // Verify obstruction_col_start is correct.
-    let expected_obs_start = fb.rational_size() + fb.algebraic_size();
+    let shape = |m: &SparseMatrix| (m.num_cols, m.obstruction_col_start, m.obstruction_count);
+    let before_shape = shape(&matrix);
     assert_eq!(
-        matrix.obstruction_col_start, expected_obs_start,
-        "obstruction_col_start should be rational_size + algebraic_size"
+        before_shape,
+        (layout.num_cols(), layout.obstruction_col_start(), layout.obstruction_count())
     );
-
-    // Before populate_qc_columns: QC columns should all be zero.
-    for (row_idx, row) in matrix.rows.iter().enumerate() {
-        for k in 0..num_qc {
-            let qc_col = matrix.obstruction_col_start + 1 + k;
-            assert!(
-                !row.cols.contains(&qc_col),
-                "row {row_idx}: QC column {qc_col} should be zero before populate_qc_columns"
-            );
-        }
+    for row in 0..matrix.rows.len() {
+        assert!(character_bits_absent(&matrix.rows[row], &layout), "row {row} before the fill");
     }
 
-    // Populate QC columns.
-    populate_qc_columns(&mut matrix, &relations, &fb, &poly, &qc_primes);
+    characters.fill_columns(&mut matrix, &layout, &relations).unwrap();
 
-    // Verify QC parities match hand-computed Legendre symbols.
-    // For each relation (a, b), compute N_alg(a, b) mod q and check the Legendre symbol.
-    let norms = vec![5u64, 23u64, 59u64]; // N_alg(2,1), N_alg(3,1), N_alg(4,1)
-
-    for (row_idx, row) in matrix.rows.iter().enumerate() {
-        let norm = norms[row_idx];
-        for (k, &q) in qc_primes.iter().enumerate() {
-            let qc_col = matrix.obstruction_col_start + 1 + k;
-            let norm_mod_q = norm % q;
-            // Legendre symbol via Euler's criterion.
-            let exp = (q - 1) / 2;
-            let symbol = pow_mod_test(norm_mod_q, exp, q);
-            let expected_parity = symbol == q - 1;
-            let actual_parity = row.cols.contains(&qc_col);
-            assert_eq!(
-                actual_parity, expected_parity,
-                "row {row_idx}, QC prime {q}: expected parity {expected_parity}, got {actual_parity} \
-                 (norm={norm}, norm mod q={norm_mod_q}, symbol={symbol})"
-            );
-        }
+    assert_eq!(shape(&matrix), before_shape, "filling does not change the shape");
+    for (row, &(a, b)) in pairs.iter().enumerate() {
+        let expected: Vec<bool> = characters
+            .characters()
+            .iter()
+            .map(|c| {
+                nonresidue(a - b * c.root() as i64, c.prime()).expect("no chosen pair vanishes")
+            })
+            .collect();
+        assert_eq!(character_bits(&matrix, &layout, row), expected, "bits of row {row}");
     }
-
-    // Verify col_weights are consistent with row contents.
+    assert_eq!(character_bits(&matrix, &layout, 0), [true, true, true]);
+    assert_eq!(character_bits(&matrix, &layout, 1), [false, false, false]);
+    for (i, row) in matrix.rows.iter().enumerate() {
+        assert!(row.cols.windows(2).all(|w| w[0] < w[1]), "row {i} is strictly ascending");
+    }
     for col in 0..matrix.num_cols {
-        let actual_weight =
-            matrix.rows.iter().filter(|r| r.cols.binary_search(&col).is_ok()).count();
-        assert_eq!(
-            matrix.col_weights[col] as usize,
-            actual_weight,
-            "col_weights[{col}] should be consistent with row contents after populate_qc_columns"
-        );
+        let weight = matrix.rows.iter().filter(|r| r.cols.binary_search(&col).is_ok()).count();
+        assert_eq!(matrix.col_weights[col] as usize, weight, "weight of column {col}");
     }
 }
 
@@ -456,91 +374,48 @@ fn kat_3_round_trip_provenance() {
 
 // ─── KAT 4: Determinism ──────────────────────────────────────────────────────
 
-/// KAT 4: Operator products and QC columns are deterministic for a fixed matrix.
+/// KAT 4: character selection, character columns, and operator products are deterministic.
 ///
-/// Calls the operator and QC functions twice on the same input and asserts identical
-/// results. This verifies there is no hidden state or randomness.
+/// Runs the whole chain twice on the 43-pair corpus — select six characters, build the checked
+/// matrix, fill the character columns, apply `A·V` and `Aᵀ·V` to the same block vectors — and
+/// asserts identical results. This verifies there is no hidden state or randomness.
 #[test]
 fn kat_4_determinism() {
-    use gnfs::polyselect::PolyPair;
+    let (_, relations) = checked(&F_UNIT, 7, 23, (41, 11), &CORPUS);
+    let run = || {
+        let (characters, report) =
+            select_root_characters(&relations, 6, RootCharacterLimits::default())
+                .unwrap()
+                .into_parts();
+        let (mut matrix, layout) = build_checked_matrix(&relations, characters.len()).unwrap();
+        characters.fill_columns(&mut matrix, &layout, &relations).unwrap();
+        let (apply, transpose) = {
+            let op = MatrixOperator::new(&matrix);
+            let mut columns = BlockVec::zeros(op.num_cols());
+            for j in 0..BLOCK_WIDTH.min(op.num_cols()) {
+                columns.set(j % op.num_cols(), j % BLOCK_WIDTH, true);
+            }
+            let mut rows = BlockVec::zeros(op.num_rows());
+            for j in 0..BLOCK_WIDTH.min(op.num_rows()) {
+                rows.set(j % op.num_rows(), j % BLOCK_WIDTH, true);
+            }
+            (op.apply(&columns), op.apply_transpose(&rows))
+        };
+        (characters, report, matrix, apply, transpose)
+    };
 
-    let f = f_cubic();
-    let mut fb = FactorBase::new(&f, 13, 13);
+    let (characters1, report1, matrix1, apply1, transpose1) = run();
+    let (characters2, report2, matrix2, apply2, transpose2) = run();
 
-    let num_qc = 2usize;
-    let qc_primes = select_qc_primes(&f, 13, num_qc);
-    fb.obstruction_count = 1 + num_qc;
-
-    let n = bi(503);
-    let m = bi(8);
-    let g = IntPoly::from_coeffs(vec![-m.clone(), bi(1)]);
-    let poly = PolyPair::new(f.clone(), g, m, n);
-
-    let idx_p5 = fb.rational_index(5).unwrap_or(2);
-    let relations = vec![
-        make_relation(2, 1, vec![(idx_p5, 1)], vec![], false),
-        make_relation(3, 1, vec![(idx_p5, 1)], vec![], false),
-    ];
-
-    // First run: build matrix, populate QC columns, apply operator.
-    let mut matrix1 = build_matrix(&relations, &fb);
-    populate_qc_columns(&mut matrix1, &relations, &fb, &poly, &qc_primes);
-    let op1 = MatrixOperator::new(&matrix1);
-
-    // Build a test block vector.
-    let mut bv1 = BlockVec::zeros(op1.num_cols());
-    for j in 0..BLOCK_WIDTH.min(op1.num_cols()) {
-        bv1.set(j % op1.num_cols(), j % BLOCK_WIDTH, true);
-    }
-    let result1_apply = op1.apply(&bv1);
-    let mut bv1t = BlockVec::zeros(op1.num_rows());
-    for j in 0..BLOCK_WIDTH.min(op1.num_rows()) {
-        bv1t.set(j % op1.num_rows(), j % BLOCK_WIDTH, true);
-    }
-    let result1_transpose = op1.apply_transpose(&bv1t);
-
-    // Second run: identical inputs.
-    let mut matrix2 = build_matrix(&relations, &fb);
-    populate_qc_columns(&mut matrix2, &relations, &fb, &poly, &qc_primes);
-    let op2 = MatrixOperator::new(&matrix2);
-
-    let mut bv2 = BlockVec::zeros(op2.num_cols());
-    for j in 0..BLOCK_WIDTH.min(op2.num_cols()) {
-        bv2.set(j % op2.num_cols(), j % BLOCK_WIDTH, true);
-    }
-    let result2_apply = op2.apply(&bv2);
-    let mut bv2t = BlockVec::zeros(op2.num_rows());
-    for j in 0..BLOCK_WIDTH.min(op2.num_rows()) {
-        bv2t.set(j % op2.num_rows(), j % BLOCK_WIDTH, true);
-    }
-    let result2_transpose = op2.apply_transpose(&bv2t);
-
-    // Assert identical results.
-    assert_eq!(
-        result1_apply, result2_apply,
-        "KAT 4: apply results must be identical across runs"
-    );
-    assert_eq!(
-        result1_transpose, result2_transpose,
-        "KAT 4: apply_transpose results must be identical across runs"
-    );
-
-    // Assert identical matrix contents (QC columns are deterministic).
-    assert_eq!(matrix1.rows.len(), matrix2.rows.len(), "KAT 4: row counts must match");
-    for i in 0..matrix1.rows.len() {
-        assert_eq!(
-            matrix1.rows[i].cols, matrix2.rows[i].cols,
-            "KAT 4: row {i} cols must be identical across runs"
-        );
-    }
+    assert_eq!(characters1, characters2, "KAT 4: selected characters must be identical");
+    assert_eq!(report1, report2, "KAT 4: selection reports must be identical");
+    assert_eq!(matrix1.rows, matrix2.rows, "KAT 4: filled rows must be identical across runs");
     assert_eq!(
         matrix1.col_weights, matrix2.col_weights,
         "KAT 4: col_weights must be identical across runs"
     );
-
-    // Assert QC primes are deterministic.
-    let qc_primes2 = select_qc_primes(&f, 13, num_qc);
-    assert_eq!(qc_primes, qc_primes2, "KAT 4: select_qc_primes must be deterministic");
+    assert_eq!(apply1, apply2, "KAT 4: apply results must be identical across runs");
+    assert_eq!(transpose1, transpose2, "KAT 4: apply_transpose results must be identical");
 }
 
 // ─── Individual root characters ──────────────────────────────────────────────
@@ -683,7 +558,8 @@ fn unit_and_square() -> (RelationChecker, CheckedRelations) {
 fn kat_root_character_unit_passes_some_characters_but_is_not_a_square() {
     let (checker, relations) = unit_and_square();
     let u = &relations.relations()[0];
-    // The old norm characters see nothing: the algebraic norm of `u` is 1, a square at every q.
+    // The norm of `u` is 1, a square at every q, yet `u` is not a square: a norm carries no
+    // square-class information about the element.
     assert_eq!(*u.algebraic_norm(), bi(1));
     assert_eq!(u.rational_norm(), &bi(9));
 
@@ -1169,38 +1045,4 @@ fn kat_root_character_errors_are_described() {
     }
     let arithmetic = RootCharacterError::Arithmetic(shared_numfield::FpPolyError::ZeroPolynomial);
     assert!(std::error::Error::source(&arithmetic).is_some());
-}
-
-/// The legacy helper is unchanged: `x³ − x − 1` has three distinct roots mod 59 (4, 13, 42: sum
-/// 59 ≡ 0 and product 2184 = 37·59 + 1 ≡ 1, as Vieta requires) and mod 101 (20, 89, 93), 167
-/// (73, 127, 134), and 173 (97, 110, 139). A brute-force count over `[14, 100)` finds 59 as the
-/// only prime that splits completely there, so the first three primes above 13 are 59, 101, 167
-/// and above 100 they are 101, 167, 173 (checked with an independent script).
-#[test]
-fn kat_legacy_select_qc_primes_unchanged() {
-    let f = f_cubic();
-    assert_eq!(select_qc_primes(&f, 13, 3), vec![59, 101, 167]);
-    assert_eq!(select_qc_primes(&f, 100, 3), vec![101, 167, 173]);
-    assert_eq!(select_qc_primes(&f, 13, 0), Vec::<u64>::new());
-    let constant = IntPoly::from_coeffs(vec![bi(5)]);
-    assert!(select_qc_primes(&constant, 13, 3).is_empty());
-}
-
-// ─── Helper: modular exponentiation (for KAT 2 hand computation) ─────────────
-
-/// Compute `base^exp mod q` using fast exponentiation.
-fn pow_mod_test(mut base: u64, mut exp: u64, q: u64) -> u64 {
-    if q == 1 {
-        return 0;
-    }
-    let mut result = 1u64;
-    base %= q;
-    while exp > 0 {
-        if exp & 1 == 1 {
-            result = ((result as u128 * base as u128) % q as u128) as u64;
-        }
-        base = ((base as u128 * base as u128) % q as u128) as u64;
-        exp >>= 1;
-    }
-    result
 }

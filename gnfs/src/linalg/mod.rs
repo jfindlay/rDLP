@@ -11,8 +11,7 @@
 //!   `search_kernel_combinations`: budgeted enumeration of distinct nonzero XOR combinations of
 //!   kernel vectors.
 //! - [`qc`] — individual root characters `(q, s)`: `select_root_characters`, `RootCharacters`
-//!   (fill and verify the matrix's character columns by XOR over original provenance); plus the
-//!   legacy norm-character helpers `populate_qc_columns`, `select_qc_primes`, `DEFAULT_NUM_QC`.
+//!   (fill and verify the matrix's character columns by XOR over original provenance).
 //!   Characters are necessary filters, never square certificates.
 //! - [`lanczos`] — `block_lanczos`: Montgomery's block Lanczos nullspace solver.
 //! - [`wiedemann`] — `block_wiedemann`: Coppersmith's block Wiedemann nullspace solver.
@@ -45,9 +44,9 @@ pub use kernel::{
     KernelSearchResource, KernelSearchStatus, KernelVector,
 };
 pub use qc::{
-    populate_qc_columns, select_qc_primes, select_root_characters, CharacterResource,
-    CharacterValue, PairRejection, RejectedPair, RootCharacter, RootCharacterError,
-    RootCharacterLimits, RootCharacterSelection, RootCharacters, SelectionReport, DEFAULT_NUM_QC,
+    select_root_characters, CharacterResource, CharacterValue, PairRejection, RejectedPair,
+    RootCharacter, RootCharacterError, RootCharacterLimits, RootCharacterSelection,
+    RootCharacters, SelectionReport,
 };
 pub use lanczos::block_lanczos;
 pub use wiedemann::block_wiedemann;
