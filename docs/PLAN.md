@@ -2088,7 +2088,13 @@ ported to root characters (`kat_2_character_columns_fill_a_checked_matrix`, `kat
 `gnfs/tests/sqrt_certificate_sites_kat.rs` (3 tests) enforces by file and count that non-test
 `NonSquareCertificate::new` calls are exactly `sqrt/padic.rs` ×2 and `sqrt/crt.rs` ×2 and
 `VerifiedRoot::seal` is called only from `sqrt/context/normalize.rs` ×1 (mutation-checked both ways;
-blind to `use … as` aliases and macros, neither used). Original obligations follow. Wording is the worker's, but every claim must hold at this precision. Cite a
+blind to `use … as` aliases and macros, neither used). **Further refinement after the final re-check
+(commit d3063d3, 2026-11-08): item 4's closing inference is superseded and its text below is kept only
+as the original.** The norm character is redundant with q's root characters (norm character =
+(c/q)^{|S|}·Π root characters) and, on a dependency, carries at most the SIGN of N(γ), which is a
+genuine square-class invariant (γ = β² ⇒ N(γ) = N(β)² > 0), visible only when q ≡ 3 mod 4 and not
+imposed by any matrix column; it is not "no square-class information". Counterexample (gp): ℚ(√2),
+γ = −1−√2, norm −1, nonsquare, (−1/7) = −1. Removing the helpers stays correct. Original obligations follow. Wording is the worker's, but every claim must hold at this precision. Cite a
 canonical source: Buhler–Lenstra–Pomerance, "Factoring integers with the number field sieve" (the
 character and square-root sections), or Crandall–Pomerance §6.2.
 
@@ -2160,7 +2166,7 @@ edits not made by any worker) were left unstaged and uncommitted.
 | 13 | Verified factor API migration | done | d06032e | C-FactorReport |
 | 14 | Generated sieve-to-factor evidence ◆ | done | 95f63c9 | C-PipelineEvidence (boundary fork and final review: see digest) |
 | 15 | Obstruction and congruence correctness repair | done | 9d376f2 | C-Obstruction |
-| 16 | External algebraic oracle ◆ | done | 64f37cb | C-AlgebraicOracle (G.5 re-check: see digest) |
+| 16 | External algebraic oracle ◆ | done | 64f37cb | C-AlgebraicOracle (boundary: still-on-intent; G.5 re-check findings corrected at d3063d3, see digest) |
 
 ## Action-frame digest
 
@@ -2547,6 +2553,44 @@ stubs (`kat_c_oracle_80_100_bit_challenge`, `merge_kat.rs`, `line_sieve_kat.rs`)
 Texture: gates re-run by the driver (not taken from the worker): check, test (8 new tests ignored, CADO
 stub ignored), dep-policy, audit, coverage 93.77% lines all exit 0; `--ignored` runs 6 + 2 pass. The
 driver's shell was permission-denied on a first attempt (a plain retry without `awk` worked).
+
+### 16 ◆ boundary and G.5 re-check — 2026-11-08
+Discovery/flex: Anneal gate (driver, mechanical) over lines added between 0fd0343 and HEAD in all non-PLAN/
+NOTES/ROADMAP files: zero plan coordinates (one hit, the bibliography key `[S93]`, a keyword match).
+Boundary fork returned **`still-on-intent`**: relations generated and never injected, reconstruction exact,
+Newton primary and CRT fallback, the new oracle tests compute each side independently (PARI on fixture
+inputs, crate through its own APIs; β is handed to PARI as an input to be *checked*, β² = γ, and is one of
+PARI's own `nfroots`). It ran all 8 `kat_pari_*` tests under `--ignored` itself (8/8 pass), re-derived the
+seam fixture and the 45113 cubic in gp, confirmed leaving the CADO stub untouched was sound, and judged
+digest-16's deferred items honestly scoped and non-blocking. **G.5 re-check: findings** — no code defect, but
+three blocking documentation errors the repair itself wrote or left: **C1** the norm character was said to
+carry "no square-class information" / "cannot detect a nonsquare unit", false (it carries the sign of N(γ);
+driver independently confirmed the ℚ(√2) counterexample in gp); **C2** MATHEMATICS said only complete
+matching exhaustion certifies a nonsquare, omitting the `SplitLocalNonresidue` local certificate; **C3**
+PEDAGOGY still said linear algebra yields a "perfect square on both sides" / "congruence of squares" /
+"the non-trivial factor". Non-blocking: C4 ("directly yields a factor", MATHEMATICS), C5 (numfield PEDAGOGY:
+"norm is an integer" false for non-monic f; same over-claim), the "never certify … finitely many" reason
+(true reason: a dependency lands in a finite group V_T that some finite character set does separate, but one
+cannot know a given set does without computing V_T), the PEDAGOGY ≈2193–2201 failure-mode list, and the CADO
+ignore string. All were corrected in one bounded `@build` dispatch (Fix-loop 1 of 2 used), commit d3063d3
+(six durable files, no behaviour change). The driver re-ran grep for every named phrase (gone from every
+durable file) and check, test, dep-policy, audit, coverage (exit 0) and the 8 `--ignored` PARI tests (pass).
+Affected: C-Obstruction item 4 (prose only; refinement recorded in its Status); no code contract.
+Deferred: yes — human sign-off wanted on (1) amending C-Obstruction item 4's text (the Status note is a
+record, the original body is untouched, matching how row 15 recorded its own refinements); (2) the superseded
+"no square-class information" claim survives, as dated historical record, in docs/NOTES.md:794 and 819–823 and
+docs/PLAN.md:341 and 2113 — NOTES is the human's file, so no correction was made; (3) pre-existing plan-label
+text in PEDAGOGY (the stage names "G.D/G.E/G.F", ≈944) is unrelated historical text, untouched; (4) still
+open and honestly labelled, not enrolled: duplicated `PrimeCursor`/`centered`, regression-pinned pipeline
+counts, the CADO and NFS-DL placeholder stubs. **NFS-DL: do not auto-enrol.** The fork recommends sharding
+it next only through its own design pass: the Schirokauer exponent/"fact 1" (MATHEMATICS §9.3,
+`dl/schirokauer.rs`, inferred not Schirokauer's construction), the virtual-log/log_g(p_i) conflation
+(PEDAGOGY ≈5838), descent and Shor/index-calculus fallback masking, the unexplained "Dedekind-gcd defect"
+(state or retract), the leftover "Wait — let us be more careful" text at MATHEMATICS ≈1967, and the DL PARI
+stubs. It would reuse C-FpPoly, C-ResidueField and C-CheckedRelations.
+Texture: the committer's shell was permission-denied twice in one session and succeeded in a fresh session.
+**Campaign status:** all 16 rows done and every enrolled durable surface clean under the re-check grep;
+closure of the G.5 finding set is complete pending the sign-off in (1) and the human's decision on (2).
 
 ## Discoveries & risks
 
