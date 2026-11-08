@@ -579,8 +579,9 @@ disc(f), so is bad. The converse fails. A bad prime is a necessary but not suffi
 dividing the index.
 
 Dedekind's theorem (§8) reads the factorisation of (p) off f mod p exactly when p does not divide
-the index. For a prime dividing the index, f may be non-squarefree mod p and the primes of ℤ[α]
-above p are not the primes of ℤ_K.
+the index. For a prime dividing the index, f mod p must be non-squarefree (if it were squarefree,
+h̄ = 1 and T = 1 in the criterion below), though the converse fails, and the primes of ℤ[α] above p
+need not be the primes of ℤ_K.
 
 ### The Dedekind criterion
 
@@ -598,8 +599,9 @@ algorithm, as implemented by `dedekind_index_test`, is:
 
 Two points are easy to get wrong.
 
-- **F comes from f, not from f mod p.** The quotient by p discards exactly what is being measured
-  if f has already been reduced: g·h − f̄ would be an identity over ℤ and F would vanish.
+- **F comes from f, not from f mod p.** F̄ depends on f modulo p², but reducing f first keeps only
+  f mod p, which does not determine it: x² − 2 and x² − 12 both reduce to x² mod 2 yet have
+  different obstructions, as the example below shows.
 - **The lifts do not matter.** Replacing g by g + p·u changes F by −u·h, and replacing h by
   h + p·v changes F by −g·v; after reduction these are multiples of h̄ and ḡ respectively, so the
   gcd with ḡ and h̄ is unaffected. The implementation lifts with representatives in [0, p) and a

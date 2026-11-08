@@ -74,7 +74,7 @@ use crate::resultant::resultant;
 /// Invariant: the sum of the multiplicities of `degree_one` plus `nonlinear_degree` equals
 /// deg f.
 ///
-/// If `index` does not divide the index, each listed ideal is a prime of ℤ_K of residue degree 1
+/// If p does not divide the index (`!index.divides_index()`), each listed ideal is a prime of ℤ_K of residue degree 1
 /// whose ramification index is its multiplicity, and `nonlinear_degree` is Σ eᵢfᵢ over the
 /// remaining primes (those with fᵢ > 1). If it does divide the index, each listed ideal is a prime
 /// of ℤ[α] of norm p and nothing is claimed about the factorisation of (p) in ℤ_K.
@@ -107,7 +107,7 @@ pub struct DegreeOnePrime<'a> {
     pub multiplicity: usize,
 }
 
-/// Failure of [`dedekind_index_test`].
+/// Failure of [`dedekind_index_test`] or [`dedekind_factor`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DedekindError {
     /// The polynomial is not monic.
