@@ -558,8 +558,8 @@ fn unit_and_square() -> (RelationChecker, CheckedRelations) {
 fn kat_root_character_unit_passes_some_characters_but_is_not_a_square() {
     let (checker, relations) = unit_and_square();
     let u = &relations.relations()[0];
-    // The norm of `u` is 1, a square at every q, yet `u` is not a square: a norm carries no
-    // square-class information about the element.
+    // The norm of `u` is +1, a positive square at every q, so a norm character accepts it; yet `u`
+    // is not a square. On a dependency the norm sees only the sign of N(γ), and here it is positive.
     assert_eq!(*u.algebraic_norm(), bi(1));
     assert_eq!(u.rational_norm(), &bi(9));
 
@@ -578,7 +578,8 @@ fn kat_root_character_unit_passes_some_characters_but_is_not_a_square() {
         assert!(matrix.rows[0].cols.is_empty());
         characters.fill_columns(&mut matrix, &layout, &relations).unwrap();
         assert_eq!(matrix.rows[0].cols.is_empty(), survives);
-        // `s` has the 41 column set and no character bit, so characters never certify it either.
+        // `s` has the 41 column set and no character bit; a zero bit is a necessary condition for a
+        // square, not a certificate of one.
         assert_eq!(matrix.rows[1].cols.len(), 1);
     }
 

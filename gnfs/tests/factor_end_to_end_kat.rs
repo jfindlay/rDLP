@@ -855,8 +855,8 @@ fn kat_pari_confirms_the_nonsquare_kernel_vectors_have_no_algebraic_root() {
 /// cargo test --test factor_end_to_end_kat kat_c_oracle -- --ignored
 /// ```
 #[test]
-#[ignore = "CADO-NFS not installed; run manually when available to verify end-to-end \
-            factorisation of 80-100 bit challenge"]
+#[ignore = "unimplemented placeholder: the body is todo!(), so this fails if run; it needs the \
+            full pipeline wired and a CADO-NFS or msieve oracle for an 80-100 bit challenge"]
 fn kat_c_oracle_80_100_bit_challenge() {
     // Placeholder: factor a published 80–100-bit semiprime using the full GNFS pipeline.
     // The pipeline stages (polyselect → sieve → filter → linalg → sqrt) must all be

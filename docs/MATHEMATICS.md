@@ -1386,8 +1386,9 @@ $\mathbb{Z}$ embed into a number field $K = \mathbb{Q}(\alpha)$, and the norm ma
 $N_{K/\mathbb{Q}}: K \to \mathbb{Q}$ connects factorisation in $K$ to factorisation in
 $\mathbb{Z}$. By sieving for elements of $K$ with smooth norms, GNFS collects relations that
 encode multiplicative structure modulo $N$. A linear-algebra step over $\mathrm{GF}(2)$ then
-assembles these relations into a congruence of squares $x^2 \equiv y^2 \pmod{N}$, from which a
-non-trivial factor of $N$ follows by a GCD computation.
+finds candidate dependencies among these relations; a verified algebraic square root of a
+dependency gives a congruence of squares $x^2 \equiv y^2 \pmod{N}$, from which a factor of $N$
+follows by a GCD computation unless the congruence is trivial.
 
 The generic approach to finding a congruence of squares — collecting random squares and hoping
 for a dependency — costs $L_N[1/2, 1]$. The number-field bridge reduces this to $L_N[1/3,
@@ -1772,9 +1773,10 @@ of $t$ independent characters cuts the finite group the dependency lands in. *As
 treating the characters as independent uniformly random homomorphisms, the expected number of
 nonsquare classes that pass all $t$ is $(2^{\dim} - 1)\,2^{-t}$, about $2^{-(t - \dim)}$, where
 $\dim$ is the dimension of the group in which $\gamma$ lies. This figure is a heuristic, not a
-theorem, and it is never zero: finitely many characters do not exclude every nonsquare.
-Characters are *necessary* conditions on a square, not certificates of one, so exact verification
-of the root decides.
+theorem, and it is never zero. The dependency lands in a finite group $V_T$, and some finite set
+of characters does separate $V_T$ from the squares (Chebotarev), but one cannot know that a given
+set does so without computing $V_T$ itself. Characters are therefore *necessary* conditions on a
+square, not certificates of one, and exact verification of the root decides.
 
 **The norm character is redundant.** One may be tempted to use the Legendre symbol of the
 homogeneous norm form $F(a, b)$ instead. For a completely split $q \nmid c \cdot \mathrm{disc}(f)$,
@@ -1793,11 +1795,20 @@ $\prod_S F(a, b) = c^{|S|}\prod_S N_{K/\mathbb{Q}}(a - b\alpha)$, so
 
 $$\prod_{(a,b) \in S} \left(\frac{F(a,b)}{q}\right) = \left(\frac{c}{q}\right)^{|S|}\left(\frac{\pm 1}{q}\right).$$
 
-The total depends only on the sign of the norm product and the parity of $|S|$. It is not an
-invariant of the square class of $\gamma$ and cannot detect a nonsquare unit or class-group
-element. (If some primes have an odd exponent, the total acquires one more factor, the symbol of
-the product of those primes; the redundancy statement is unaffected.) The implementation therefore
-uses individual root characters, never norm characters.
+The total depends only on the sign of the norm product, which is the sign of
+$N_{K/\mathbb{Q}}(\gamma)$, and on the parity of $|S|$. That sign is a genuine square-class
+invariant: if $\gamma = \beta^2$ then $N_{K/\mathbb{Q}}(\gamma) = N_{K/\mathbb{Q}}(\beta)^2 > 0$,
+and no matrix column imposes it. So for $q \equiv 3 \pmod 4$ the norm character can reject a
+candidate with $N_{K/\mathbb{Q}}(\gamma) < 0$. Example: the unit $\gamma = -1 - \sqrt{2}$ of
+$\mathbb{Q}(\sqrt{2})$ has norm $-1$ and is not a square, and its norm character at $q = 7$ is
+$(-1/7) = -1$. That one bit is all the norm character carries beyond the parity of $|S|$: it cannot
+separate two classes whose norms have the same sign, so a nonsquare unit or class-group element of
+positive norm passes it (such as $2 + \sqrt{3}$ above). It is also redundant with the root
+characters of the same $q$, because it is $(c/q)^{|S|}$ times their product (in the example the
+root characters at $q = 7$ already reject $\gamma$). (If some primes have an odd exponent, the
+total acquires one more factor, the symbol of the product of those primes; the redundancy
+statement is unaffected.) The filter the implementation uses is therefore the individual root
+character; it has no norm-character column.
 
 **The sign column.** The rational product $P = \prod_{(a,b) \in S} (a - bm)$ must be positive for
 $x_0 = \sqrt{P}$ to exist. The *sign column* has a $1$ for each relation with $a - bm < 0$, and the
@@ -1851,8 +1862,10 @@ verifier.
 - *Split-prime fallback* (after Thomé). At completely split primes the algebra decomposes into
   copies of $\mathbb{F}_p$, each root of $F$ giving $\pm$ a local square root; the roots are lifted
   and interpolated, combined by CRT, and the sign pattern is found by an exact
-  meet-in-the-middle search with only one global sign fixed. Only a complete matching search at
-  the proved bound certifies a nonsquare.
+  meet-in-the-middle search with only one global sign fixed. A nonsquare is certified either by a
+  local obstruction (the target is a nonresidue at a root of a split prime) or by a complete
+  matching search in which every sign combination was rejected within the proved bound. An
+  incomplete search is never a certificate.
 
 Neither a real embedding nor a norm is used. Both $\pm z$ verify, so the global sign is
 immaterial, and a real root of $f$ need not exist. The classical method of Couveignes assumes odd
@@ -2241,16 +2254,18 @@ this equality is the payoff proof of this chapter (§9.7).
 - **Schirokauer maps** take the place of the quadratic-character columns of GNFS. The two
   problems share the same obstruction group (units modulo squares and the class group; see §5),
   and neither is specific to one of them. What differs is the condition imposed. Factoring needs
-  $\gamma$ to be a *square*, a condition that finitely many quadratic characters can only filter,
-  never certify. NFS-DL needs the unit contribution of each relation to be *linear* modulo $\ell$:
+  $\gamma$ to be a *square*, a condition that quadratic characters can only filter: no given
+  finite set is known to separate the dependency's group from the squares, so exact verification
+  decides. NFS-DL needs the unit contribution of each relation to be *linear* modulo $\ell$:
   the Schirokauer maps are homomorphisms to $\mathbb{Z}/\ell$ that vanish on $\ell$-th powers, so
   with enough of them the unit part of a dependency is an $\ell$-th power. The class group is
   handled by assuming $\ell \nmid h_K$.
 - **$\mathbb{F}_\ell$ linear algebra** replaces GF(2). The system is solved over a prime field
   rather than the field with two elements.
 - **Individual-logarithm descent** has no factoring analogue. In GNFS, the linear algebra step
-  directly yields a factor; in NFS-DL, it yields only the factor-base logs, and a separate
-  descent is needed for each target $h$.
+  yields a candidate dependency, and a verified algebraic root turns it into a congruence of
+  squares; in NFS-DL, it yields only the factor-base logs, and a separate descent is needed for
+  each target $h$.
 
 ---
 
@@ -2340,11 +2355,13 @@ moment. It has no counterpart in the GNFS factoring chapter.*
 
 ### The obstruction to principality
 
-In GNFS, the linear algebra step finds a subset $S$ of relations such that the product
-$\prod_{(a,b) \in S} (a - b\alpha)$ is a square in $K$. Even valuations at the ideals the matrix
-constrains do not give that: the square-class obstruction group of §5 has a unit part and a
-class-group part, and both obstruct. The quadratic characters (§5 of the GNFS chapter) filter this
-obstruction but, being finitely many, can never certify a square; exact verification decides.
+In GNFS, the linear algebra step finds a subset $S$ of relations for which the product
+$\prod_{(a,b) \in S} (a - b\alpha)$ is a *candidate* square in $K$; it need not be one. Even
+valuations at the ideals the matrix constrains do not give that: the square-class obstruction
+group of §5 has a unit part and a class-group part, and both obstruct. The quadratic characters
+(§5 of the GNFS chapter) filter this obstruction but are necessary conditions only, because one
+cannot know that a given finite set separates the dependency's group from the squares without
+computing that group; exact verification decides.
 
 The same group is present in NFS-DL, where the condition to be met is different. The linear system
 $A \cdot x = 0$ over $\mathbb{F}_\ell$ has a solution only if the exponent vectors correctly
@@ -2749,7 +2766,8 @@ $\square$
 
 #### Delta 2: Individual-logarithm descent is asymptotically subdominant
 
-In GNFS, there is no descent step: the linear algebra step directly yields a factor. In NFS-DL,
+In GNFS, there is no descent step: the linear algebra step yields a candidate dependency, and a
+verified algebraic root turns it into a congruence of squares. In NFS-DL,
 the individual-logarithm descent is an additional stage. Could it dominate the total cost?
 
 **The descent cost.** The descent for a single target $h$ consists of:

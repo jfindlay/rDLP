@@ -27,8 +27,10 @@
 //!
 //! The characters are individual roots, not norms. On a completely split prime the Legendre
 //! symbol of the homogeneous norm `F(a, b)` is the product of that prime's root characters times
-//! a constant, and on a dependency it carries no square-class information (see the quadratic
-//! characters discussion in `docs/MATHEMATICS.md` §5).
+//! a constant, so it is redundant with them. On a dependency whose norm product has every prime to
+//! an even exponent it carries at most the sign of `N(γ)` (a square-class invariant, visible only
+//! when `q ≡ 3 (mod 4)`) beyond the parity of the dependency size (see the quadratic characters
+//! discussion in `docs/MATHEMATICS.md` §5).
 //!
 //! # Provenance
 //!

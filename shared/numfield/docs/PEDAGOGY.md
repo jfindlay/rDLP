@@ -20,12 +20,14 @@ The General Number Field Sieve factors a large integer N by exploiting a homomor
 rings: the rational integers ℤ and the ring of integers of a number field K = ℚ(α). The key idea
 is to find many pairs (a, b) ∈ ℤ² such that both a + bm (the rational norm, for a suitable integer
 m) and Norm_{K/ℚ}(a + bα) (the algebraic norm) are B-smooth — divisible only by primes up to a
-bound B. When enough such pairs are collected, linear algebra over 𝔽₂ produces a congruence of
-squares mod N, and hence a non-trivial factor.
+bound B. When enough such pairs are collected, linear algebra over 𝔽₂ finds candidate dependencies;
+a verified square root of one gives a congruence of squares mod N, whose gcd with N is a
+non-trivial factor unless the congruence is trivial.
 
 The algebraic side of the sieve requires computing Norm_{K/ℚ}(a + bα) for each sieve pair (a, b).
-This norm is an integer, and its prime factorisation determines which algebraic prime ideals divide
-the ideal (a + bα) in ℤ[α]. The factor base on the algebraic side consists of prime ideals above
+For monic f this norm is an integer. For a leading coefficient c ≠ 1 the integer is instead
+c · Norm_{K/ℚ}(a + bα) = (−b)^d f(−a/b), because the norm itself can have a denominator. Its prime
+factorisation determines which algebraic prime ideals divide the ideal (a + bα) in ℤ[α]. The factor base on the algebraic side consists of prime ideals above
 rational primes p ≤ B — specifically, the prime ideals (p, α − r) where r is a root of f mod p.
 
 This is why the `shared/numfield` crate exists: it provides the arithmetic of K = ℚ(α), the norm

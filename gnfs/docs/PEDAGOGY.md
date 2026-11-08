@@ -15,7 +15,8 @@ Coppersmith multi-poly, and the public contracts that downstream stages consume.
 The General Number Field Sieve factors a large integer N by finding many pairs (a, b) ∈ ℤ² such
 that both the rational norm G(a, b) = a − bm and the algebraic norm F(a, b) = b^d · f(a/b) are
 B-smooth — divisible only by primes up to a bound B. When enough such pairs are collected, linear
-algebra over 𝔽₂ produces a congruence of squares mod N, and hence a non-trivial factor.
+algebra over 𝔽₂ finds candidate dependencies, and a verified square root of one gives a congruence
+of squares mod N, whose gcd with N is a non-trivial factor unless the congruence is trivial.
 
 The key insight is that the smoothness probability of F(a, b) depends heavily on the polynomial f.
 A polynomial with small coefficients, many real roots, and many roots modulo small primes produces
@@ -945,9 +946,13 @@ The sign of the rational norm is tracked separately in the `rational_sign: bool`
 relations' rational norms must be a perfect square, which requires the sign product to be +1
 (an even number of negative norms). The sign column encodes this constraint.
 
-The algebraic norm's sign is not stored separately because the algebraic square root computation
-(G.F) matches signs exactly during reconstruction (both ±z verify), not via a matrix column or a
-real embedding.
+The algebraic norm's sign is not stored. It is a function of (a, b) alone (the sign of F(a, b)
+times the sign of c) and could be recomputed, and its product over a dependency, the sign of
+N_{K/ℚ}(γ), is a necessary condition for γ to be a square, since a square has positive norm. The
+matrix does not impose it: no column carries it, and the exact verification of the algebraic root
+catches a violation. The rational sign differs in that x₀ = √P needs P > 0 outright, so the
+matrix must guarantee it. The ±z ambiguity of the root (both ±z verify) is unrelated to the sign of
+the norm.
 
 ### The algebraic norm as a resultant
 
@@ -1305,8 +1310,10 @@ the sum of all exponent vectors (mod 2) is the zero vector. This is the null spa
    and quadratic-character columns). Each row is `rational_row_gf2` concatenated with
    `algebraic_row_gf2`.
 2. Find the null space of this matrix over GF(2) (e.g., via structured Gaussian elimination).
-3. Each null-space vector identifies a subset S of relations whose exponent product is a perfect
-   square on both sides.
+3. Each null-space vector identifies a subset S of relations for which every recorded exponent is
+   even, a *candidate*. The rational product is then a perfect square, but the algebraic product
+   need not be a square in K (see MATHEMATICS, "The square-class obstruction"), so exact
+   reconstruction of the root decides, and bounded combinations of kernel vectors are retried.
 
 The `matrix_width()` method on `FactorBase` gives the total column count:
 rational_size + algebraic_size + obstruction_count.
@@ -1370,13 +1377,15 @@ relations. The `ExponentVector` entries and the `FactorBase` column indices are 
 between G.C and G.D.
 
 **G.E (linear algebra over GF(2))** takes the filtered corpus and finds a subset S of relations
-whose exponent product is a perfect square on both sides. The `rational_row_gf2` and
+for which every recorded exponent is even, a candidate dependency: the algebraic product need not
+be a square in K (MATHEMATICS, "The square-class obstruction"). The `rational_row_gf2` and
 `algebraic_row_gf2` methods on `Relation` produce the GF(2) matrix rows. The `matrix_width()`
 method on `FactorBase` gives the column count.
 
-**G.F (square root)** takes the subset S from G.E and computes the congruence of squares
-mod N that yields the non-trivial factor. This stage uses the number-field arithmetic from
-`shared-numfield` and the algebraic structure of K = ℚ(α).
+**G.F (square root)** takes the subset S from G.E and tries to reconstruct an exact algebraic
+square root. Only a verified root gives a congruence of squares mod N, and its gcd with N may
+still be trivial, in which case the next candidate is tried. This stage uses the number-field
+arithmetic from `shared-numfield` and the algebraic structure of K = ℚ(α).
 
 **D.A (NFS-DL)** adapts the same relation structure for discrete logarithm computation. The
 integer exponents in `ExponentVector` are read directly (not reduced mod 2) and used in GF(ℓ)
@@ -1510,8 +1519,9 @@ Honest Algebraic Parity" section below).
 The sign column encodes the sign parity: the rational product P must be positive (an even number
 of relations with a − b·m < 0). The character columns (filled by G.E) add necessary conditions on
 the algebraic side. Even with every column satisfied, γ need not be a square in K: the units, the
-class group, and the unconstrained ideals can each obstruct, and finitely many characters only
-filter. The account, with its precise statement, is in MATHEMATICS §5 ("The square-class
+class group, and the unconstrained ideals can each obstruct, and characters are necessary
+conditions only, since no given finite set is known to separate the dependency's group from the
+squares. The account, with its precise statement, is in MATHEMATICS §5 ("The square-class
 obstruction"); the square-root stage (§44) decides each candidate exactly.
 
 ---
@@ -2190,14 +2200,14 @@ their product is positive.
 ### The quadratic-character columns
 
 The algebraic side requires more care. Even when every column is satisfied, γ need not be a square
-in K. The principal ideal (γ) is principal by construction, so that is not what can fail. When
-every valuation of γ is even, (γ) = J² for the ideal J = ∏ 𝔭^(v_𝔭(γ)/2), and three things can go
-wrong:
+in K. The principal ideal (γ) is principal by construction, so that is not what can fail. The
+matrix makes the valuations of γ even at the ideals it constrains, and three things can go wrong:
 
-- some valuation is odd at an ideal the matrix does not constrain (the primes dividing
-  c·disc(F), whose columns the checked matrix leaves empty);
-- J is not principal, so its class is a nontrivial element of the 2-torsion Cl(O_K)[2] of the class
-  group;
+- some valuation is odd at an exceptional ideal the matrix does not constrain (the primes dividing
+  c·disc(F), whose columns the checked matrix leaves empty), so (γ) is not the square of an ideal
+  at all;
+- every valuation is even, so (γ) = J² for the ideal J = ∏ 𝔭^(v_𝔭(γ)/2), but J is not principal,
+  and its class is a nontrivial element of the 2-torsion Cl(O_K)[2] of the class group;
 - J = (β) is principal but β² = u·γ for a unit u that is not a square.
 
 Units and the class group both obstruct in factoring; neither is a discrete-logarithm
@@ -2214,16 +2224,21 @@ the Legendre symbol of `a − b·s`. If γ = β² in K, the product of these sym
 relations of a dependency is +1, so each character is a necessary condition. Each is a
 homomorphism on V, so independent characters cut V down. As a heuristic, with t independent
 characters on a group of dimension dim, the expected number of surviving nonsquare classes is
-about 2^−(t − dim); it is never zero, so characters never certify a square. Exact reconstruction
-and verification decide (§44).
+about 2^−(t − dim); it is never zero. A dependency lands in a finite group, and some finite set of
+characters does separate it from the squares (Chebotarev), but one cannot know that a given set
+does so without computing that group, so characters are necessary conditions only. Exact
+reconstruction and verification decide (§44).
 
 Characters at the roots of one prime q are individually finer than a Legendre symbol of the
 homogeneous norm form F(a, b) at q. On a completely split q, (F(a, b)/q) = (c/q)·∏_s ((a − b·s)/q):
 the norm character is the product of q's root characters times a constant, so it never sees
 anything a root character cannot. If every prime has an even exponent in the product of the norms
-of a dependency, its total over the dependency is (c/q)^|S|·(±1/q), which depends only on the sign
-of the norm product and the parity of |S| and carries no square-class information. The
-implementation therefore uses individual root characters and no norm characters
+of a dependency, its total over the dependency is (c/q)^|S|·(±1/q), where ± is the sign of
+N_{K/ℚ}(γ). That sign is a square-class invariant (a square has positive norm) that no matrix
+column imposes, so for q ≡ 3 (mod 4) the norm character can reject a candidate of negative norm
+(the unit −1 − √2 of ℚ(√2) has norm −1, is not a square, and has (−1/7) = −1). Beyond that one
+bit and the parity of |S| it carries nothing, and it is redundant with the root characters of the
+same q. The implementation therefore uses individual root characters and no norm characters
 (MATHEMATICS §5, "The norm character is redundant").
 
 **Principle-4 annotation.** The number of character columns is a scale knob: more characters
@@ -4041,8 +4056,9 @@ a necessary condition and never a proof.
   factorization is not provided.
 - Omitting exceptional parity weakens the candidate filter. It does not weaken exact verification
   of a square root.
-- Quadratic characters, like the other columns, are necessary filters and never certify a square
-  root (MATHEMATICS §5). Duplicate detection is exact-pair, not ideal-level.
+- Quadratic characters, like the other columns, are necessary filters, not certificates of a square
+  root: one cannot know that a given finite set of characters separates a dependency's group from
+  the squares without computing that group (MATHEMATICS §5). Duplicate detection is exact-pair, not ideal-level.
 
 ### KAT summary
 
@@ -5814,7 +5830,8 @@ factoring (MATHEMATICS §5, "The square-class obstruction"). The characters are 
 that group, and the exact square-root stage decides.
 
 NFS-DL faces the same group; it is not specific to either problem. What differs is the condition
-to be met. Factoring needs squareness, which finitely many characters can only filter. NFS-DL
+to be met. Factoring needs squareness, which characters can only filter, since no given finite
+set is known to separate a dependency's group from the squares. NFS-DL
 needs the unit contribution of each relation to be *linear* modulo $\ell$. The **Schirokauer map**
 $\lambda: K^* \to (\mathbb{Z}/\ell)^r$ supplies that: for each prime ideal
 $\varphi_i = (p_i, \alpha - r_i)$ with $p_i \equiv 1 \pmod{\ell}$, the map computes the ℓ-adic
@@ -5830,7 +5847,9 @@ modulo $\ell$ (and the correction is an ℓ-adic log, not a Legendre symbol).
 **3. F_ℓ (prime-field) linear algebra replacing GF(2).**
 
 In NFS-factoring (G.E), the linear system is over GF(2): find a subset of relations whose
-exponent parities sum to zero. The null-space vector identifies a congruence of squares.
+exponent parities sum to zero. The null-space vector is a candidate dependency: its algebraic
+product need not be a square in K (MATHEMATICS §5, "The square-class obstruction"), so exact
+reconstruction decides, and a verified root then yields a congruence of squares.
 
 In NFS-DL (D.B), the linear system is over $\mathbb{F}_\ell$: find a vector $x$ such that
 $A \cdot x = 0$ over $\mathbb{F}_\ell$, where $A$ is the DL relation matrix (exponents reduced
@@ -5846,8 +5865,10 @@ The implementation difference is the scalar type: GF(2) uses bit-packed `u64` wo
 **4. Virtual logs replacing the congruence of squares.**
 
 In NFS-factoring, the output of the linear algebra step is a `KernelVector` — a subset of
-relations whose exponent product is a perfect square on both sides. The square-root stage
-(G.F) extracts the congruence $X^2 \equiv Y^2 \pmod{N}$ and computes $\gcd(X - Y, N)$.
+relations for which every recorded exponent is even, a candidate whose algebraic product need not
+be a square in $K$. The square-root stage (G.F) tries to reconstruct an exact root; only a
+verified root yields the congruence $X^2 \equiv Y^2 \pmod{N}$, and $\gcd(X - Y, N)$ may still be
+trivial, in which case bounded combinations of kernel vectors are retried.
 
 In NFS-DL, the output of the linear algebra step is a `VirtualLogTable` — the discrete
 logarithms $\log_g(p_i) \bmod \ell$ for each factor-base prime $p_i$. There is no square-root
@@ -5858,7 +5879,8 @@ descent (D.C) then uses the virtual-log table to compute $\log_g(h)$ for a speci
 
 The individual-logarithm descent (D.C) is the stage that has **no counterpart** in the
 NFS-factoring pipeline. In NFS-factoring, once the linear algebra step produces a kernel vector,
-the square-root stage directly computes the factor — there is no "individual target" computation.
+the square-root stage works on that candidate directly and its verified root gives the
+congruence — there is no "individual target" computation.
 
 In NFS-DL, the linear algebra step gives the virtual logs of the factor-base elements, but not
 the log of the specific target $h$. The descent bridges this gap: it finds a path from $h$ down
@@ -5877,7 +5899,7 @@ The side-by-side comparison:
 | Relation collection | Smooth (a, b) pairs → exponent vectors | Same, plus Schirokauer columns |
 | Obstruction columns | Sign + character columns (necessary filters on a square) | Schirokauer columns (unit contribution linear mod ℓ; ℓ ∤ h_K assumed) |
 | Linear algebra | GF(2) null space → kernel vector | F_ℓ null space → virtual-log table |
-| Output of linalg | Congruence of squares (subset of relations) | Virtual logs of factor-base elements |
+| Output of linalg | Candidate dependency (subset of relations; a verified root gives the congruence of squares) | Virtual logs of factor-base elements |
 | Final step | Square root + GCD assembly | Individual-log descent + log assembly |
 | No-factoring-analogue | — | **Special-q descent** |
 
