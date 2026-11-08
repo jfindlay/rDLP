@@ -213,7 +213,7 @@ config: no flags (self-continue at junctures; no `may-reshard`, no `halt-at-boun
 |---|---------|--------|--------|-------|
 | 1 | Square-free decomposition over prime fields | done | adf138e | C-SquarefreeDecomposition |
 | 2 | Canonical Dedekind index criterion | done | 0073ab8 | C-IndexTest (without `enlargement_exponent`) |
-| 3 | Honest degree-one prime report above p | pending | | |
+| 3 | Honest degree-one prime report above p | done | 17b1604 | C-DedekindReport (report types carry no derives) |
 | 4 | Cross-check against PARI/GP ◆ | pending | | |
 | 5 | Anneal cleanup (skippable) | pending | | |
 
@@ -231,6 +231,19 @@ Texture: old-code traces reproduced: x²−12@2 wrongly "not divisible", x²−3
 but unconstructed until row 3. `dedekind_factor_extended` now panics for non-prime p (documented).
 Lift-independence is tested as a unit test in `dedekind.rs` (private lift entry point), not in
 `dedekind_kat.rs`. Committer wrote the commit body unwrapped (off the 72-col convention).
+
+### 3 — 2026-11-08
+Discovery/flex: `DedekindReport`/`DegreeOnePrime` carry no `Debug`/`Clone`/`PartialEq`/`Eq`, because
+`Ideal` derives nothing and `ideal.rs` is outside the row's expected files; tests use `.err()` and
+`matches!`. Reducible monic fixtures are used for mixed-multiplicity cases (`NumberField::new` does
+not check irreducibility).
+Affected: C-DedekindReport (derive set only; compiler-visible signature unchanged).
+Deferred: yes — row 4 must not assume `enlargement_exponent` (dropped in 2; the C-IndexTest text in
+this PLAN still lists it) and cannot `assert_eq!` on reports; boundary adjudicator should also check
+that durable prose no longer lists `enlargement_exponent`.
+Texture: no callers of the removed functions outside `shared/numfield` (confirmed by the
+implementer; `gnfs` factor base does its own root search and uses only `is_bad_prime`). Truncated
+budget on x²−2 at 7: budgets 0–4 exhaust, 5 succeeds; a rootless reduction needs no budget.
 
 ## Discoveries & risks
 
