@@ -387,6 +387,13 @@ copies of the same task. The candidates below are an initial set, not an exhaust
   code and repeated test/GP scaffolding. Weigh readability and independent checks against shared
   bugs and extra coupling. The deliberate primality-code duplicate avoids a crate edge; it is not
   automatically a deduplication defect.
+- The `gp(script) -> Vec<String>` PARI/GP invocation helper (spawn `gp`, fail on a missing binary,
+  stderr or a non-zero exit, return output lines) is copied in three oracle test files:
+  `gnfs/tests/factor_end_to_end_kat.rs`, `gnfs/tests/sqrt_pari_oracle_kat.rs` and
+  `shared/numfield/tests/dedekind_pari_oracle_kat.rs`. Sharing it across crates needs a small
+  test-support crate (or a dev-dependency edge), so first decide whether that coupling is worth
+  removing about thirty duplicated lines. Keep each file's own GP scripts and fixtures independent
+  either way; dedupe only the process-spawning and error-handling wrapper.
 - Reassess `shared/numth/src/smooth.rs::factor_base_up_to`'s large-bound sieve TODO against current
   primality implementation and measured need. Remove future-session prose regardless; optimisation
   is optional and its stated complexity rationale must be checked first.
