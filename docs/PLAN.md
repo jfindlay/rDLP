@@ -48,8 +48,9 @@ without authorizing an automatic installation; stop for a missing tool or failin
 All workers are T1/Sonnet `@build`. `@architect` marks a T0/Opus inflection-design fork **before**
 implementation, not an Opus implementation worker. `◆` marks delivery-group boundaries, not proof
 that the entire campaign is repaired. Rows 1–7 deliver reconstruction; rows 8–14 deliver checked
-composition. Each row freezes the corresponding contract listed below. File braces denote exactly
-the named paths, not permission to edit an entire directory. New paths are identified in the detail.
+composition; rows 15–16 remediate the G.5 block (correctness repair, then external oracle). Each
+row freezes the corresponding contract listed below. File braces denote exactly the named paths,
+not permission to edit an entire directory. New paths are identified in the detail.
 
 | # | Session | Cat | Tier | Consumes | Expected files |
 |---|---------|-----|------|----------|----------------|
@@ -67,6 +68,8 @@ the named paths, not permission to edit an entire directory. New paths are ident
 | 12 | Enumerate bounded combinations of kernel vectors | B | T1 | C-Design, C-Dependency | `gnfs/src/linalg/{kernel,mod}.rs`, `gnfs/tests/kernel_combinations_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 | 13 | Migrate factor assembly to verified root reports | I | T1 | C-Design, C-SqrtContext, C-NormalizedTarget, C-VerifiedRoot, C-CheckedRelations, C-Dependency, C-KernelSearch | `gnfs/src/sqrt/{algebraic,rational,assembly,mod}.rs`, `gnfs/src/lib.rs`, `gnfs/tests/{sqrt_algebraic_kat,sqrt_rational_kat,factor_end_to_end_kat}.rs`, `gnfs/docs/PEDAGOGY.md`, `docs/{MATHEMATICS,BENCHMARKS}.md` |
 | 14 | Demonstrate factorization from generated relations ◆ | I | T1; T0 boundary | C-Design, C-VerifiedRoot, C-CheckedRelations, C-XorLift, C-RootCharacters, C-Dependency, C-KernelSearch, C-FactorReport | `gnfs/tests/factor_pipeline_kat.rs`, `README.md`, `gnfs/docs/PEDAGOGY.md`, `docs/MATHEMATICS.md` |
+| 15 | Repair obstruction and congruence claims; retire norm characters | I | T1 | C-Design, C-RootCharacters, C-NormalizedTarget, C-VerifiedRoot, C-PipelineEvidence | `docs/{MATHEMATICS,BENCHMARKS}.md`, `gnfs/docs/PEDAGOGY.md`, `gnfs/src/linalg/{qc,mod}.rs`, `gnfs/tests/{linalg_substrate_kat,lanczos_kat}.rs`, new `gnfs/tests/sqrt_certificate_sites_kat.rs` |
+| 16 | Cross-check square roots against PARI/GP ◆ | B | T1; T0 boundary | C-Design, C-NormalizedTarget, C-VerifiedRoot, C-Obstruction | `gnfs/tests/factor_end_to_end_kat.rs`, new `gnfs/tests/sqrt_pari_oracle_kat.rs`, `gnfs/docs/PEDAGOGY.md` |
 
 ## Session detail
 
@@ -280,6 +283,103 @@ Discovery and its qualifying fixture remain one unit: do not reset budgets betwe
 retries, or resumed workers. Record the winning configuration as a deterministic ordinary KAT; its
 subsequent verification runs are not further parameter search. At closure, anneal the enrolled
 durable surface and state only the supported scope established by the tests.
+
+### 15 — Obstruction and congruence correctness repair (G.5 remediation)
+
+Enrolled by human decision after the G.5 `block`. Principle: where a simplification that is easy to
+grasp conflicts with what the code needs to be correct, the durable text states the correct account
+and then explains it. A readable falsehood never stays in as the "intuitive" version. Durable text
+carries no plan coordinate (anneal gate below).
+
+**Documentation: one canonical account, cited everywhere.** Write the obstruction account
+(C-Obstruction) once, in MATHEMATICS §5, and make PEDAGOGY §22, §32–33, §56 and §68 state it
+consistently and point to it rather than restating a weaker variant. Then correct every passage
+below; each is confirmed present.
+
+- G.5 finding 1: "finite characters guarantee a square root" — PEDAGOGY §22 (≈1492), §56
+  (≈4637–4642; also describes the legacy *norm* character as the construction in use), §68 (≈5774).
+- G.5 finding 2: the norm map — MATHEMATICS §5 theorem (≈1644–1656); PEDAGOGY §32 (≈2111, 2134),
+  §33 (≈2175). Replace it with the map the code implements: x = √P with P = Π(a − bm) ∈ ℤ an exact
+  square; y = β(θ ↦ c·m) mod N with y² ≡ P; no norm anywhere. Use the `a − bm` sign convention
+  throughout, which matches the code (MATHEMATICS §5 currently writes `a + bm`).
+- G.5 findings 3–5: `lanczos_kat.rs` stub comment (≈352–357); BENCHMARKS (≈403–446): remove the
+  self-contradictory "< 10 ms … dominated by ~30 ms" timing and name `factor_pipeline_kat.rs`;
+  PEDAGOGY Principle-1 text (≈4850, 4940).
+- Missed by G.5: **null-space orientation.** MATHEMATICS §5 (≈1658–1662) puts relations in
+  columns but says *left* null space. Fix the orientation to agree with PEDAGOGY (relations as
+  rows, left kernel).
+- Missed by G.5: **complexity.** "O(k²), or O(k·w) sparse" is wrong. Wiedemann and Lanczos perform
+  O(k) operator applications of cost O(W), where W is the total number of nonzeros, giving O(k·W).
+  Block Lanczos divides by the word width. Dense elimination is O(k³).
+- Missed by G.5: **norm of a − bα for non-monic f.** PEDAGOGY §32 (≈2127) says b^d f(a/b) is the
+  norm. The correct identity is F(a,b) = b^d f(a/b) = c·N_{K/ℚ}(a − bα), with c = lc(f). This is
+  load-bearing because the code supports c ≠ 1.
+- Missed by G.5: **principal-ideal conflation.** PEDAGOGY §33 (≈2176–2178) says the product "might
+  not be principal". (γ) is principal by construction. What can fail is that the ideal square root J
+  (J² = (γ)) is not principal, or that J = (β) with β² = uγ for a non-square unit u.
+- Missed by G.5: **primes vs prime ideals.** PEDAGOGY §22 (≈1483–1488) and §56 (≈4633–4635) speak
+  of "every prime" and "the product of norms" being square. The matrix constrains exponents of the
+  degree-one prime ideals (p, r), one column each. Two ideals over the same p can each have odd
+  exponent while the norm's p-exponent is even. That is why the columns are per ideal.
+- Missed by G.5: **partial and contradictory obstruction stories.** MATHEMATICS §5 (≈1666–1669)
+  says units only. PEDAGOGY §68 (≈5776–5779) says class group only for factoring, and calls units the
+  discrete-log difference. Both are replaced by C-Obstruction. The NFS-DL paragraph then states the
+  true difference: Schirokauer maps make the unit contribution linear modulo ℓ, and ℓ ∤ h_K is
+  assumed for the class group.
+- Missed by G.5: **map notation.** MATHEMATICS §6 worked run (≈1773) writes y = β(m), while §6
+  fixes β in the θ basis evaluated at c·m. Make them agree. The run is monic, so the arithmetic is
+  unaffected.
+
+**Code: retire the legacy norm characters.** Remove `populate_qc_columns`, `select_qc_primes`,
+`DEFAULT_NUM_QC` from `linalg/qc.rs` and the `linalg/mod.rs` re-export, along with their KATs
+(`kat_2_qc_column_construction`, the KAT-4 determinism block,
+`kat_legacy_select_qc_primes_unchanged`) and module-doc mentions. Grep confirmed no production caller and no use outside `gnfs`.
+
+The removal is a correctness change, not a tidy-up. On a split prime q,
+(F(a,b)/q) = (c/q)·Π_s ((a − bs)/q), so the norm character is the product of that prime's root
+characters, up to a constant. On any dependency the norm's prime exponents are even, so its total
+collapses to (c/q)^{|S|}·(±1/q). That carries no square-class information (NOTES, 2026-11-07). The helper also panics on a bad width.
+Keeping it public preserves an API that embodies the refuted theory. If a KAT exercised a
+matrix-substrate property through these helpers rather than the helpers themselves, port it to
+`select_root_characters`; do not delete coverage silently.
+
+**Code: mechanise the certificate rule.** Add `gnfs/tests/sqrt_certificate_sites_kat.rs`. It reads
+the `gnfs/src` tree via `CARGO_MANIFEST_DIR` and asserts that the non-test call sites of
+`NonSquareCertificate::new` are exactly the ones in `sqrt/padic.rs` and `sqrt/crt.rs`, and that
+`VerifiedRoot::seal` is called only from `sqrt/context/normalize.rs`. Match by file and count, not
+line number, so ordinary edits do not break it. This replaces a grep-only convention with an
+enforced invariant.
+
+**Out of scope:** `PrimeCursor`/`centered` duplication (G.5 obs. 7); NFS-DL and its placeholder
+oracle stubs (`dl_*_kat.rs`); the CADO placeholder stubs in `merge_kat.rs` and `line_sieve_kat.rs`
+(not in this fileset; recorded as a known gap). In `lanczos_kat.rs`, which is in the fileset, the
+stub's comment must not describe a check the body doesn't perform. Row 16 handles the factoring
+PARI stub.
+
+**Closure:** all adopted gates green. Grep of the enrolled docs finds no surviving "guarantee",
+"Norm(β)", "Y = Norm", "square in K" (said of norms), or "left null space" (said of a
+relations-as-columns matrix) in a refuted sense. Each corrected passage points to the canonical
+MATHEMATICS §5 account or the implemented map, by section and topic and never by plan label.
+Anneal is clean.
+
+### 16 — External algebraic oracle (G.5 remediation) ◆
+
+Replace the `todo!()` body of the ignored PARI test at `factor_end_to_end_kat.rs` (≈725) and add
+`sqrt_pari_oracle_kat.rs`, `#[ignore]`-gated and named `kat_pari_*` per the oracle policy. Each test
+runs `gp -q` on the fixture and compares PARI's answer with the crate's output; neither side
+supplies the other's answer.
+
+- **Polynomials:** irreducibility of f and disc(f) for NM, V4, x³−2, the 45113 cubic, and the
+  non-monic 2x²−1 fixture.
+- **Roots:** for each verified root, PARI confirms β² = γ in K (`nfeltmul`/`nfalgtobasis` or
+  `nffactor` on t² − γ).
+- **Non-squares:** for each `NonSquareCertificate` fixture, PARI confirms t² − γ has no root in K.
+- **Map:** PARI recomputes y² ≡ P (mod N) from β independently.
+
+If `gp` is not on PATH, the row halts for a human; do not install it (per Notes for executors). The
+default `cargo test --workspace` path is unchanged. At the ◆, run the G.5 re-check: the row-15
+closure grep plus an independent read of C-Obstruction against MATHEMATICS §5–6. Record the verdict
+in the digest. A clean re-check closes the campaign.
 
 ### Final independent correctness and claim review (G.5; boundary, not a delivery row)
 
@@ -1967,6 +2067,50 @@ computed kernels, irreducibility, nonzero b participation, exact square identiti
 and proper factor provenance are mandatory. No manufactured relations or incidental-gcd shortcut.
 The frozen evidence is a tested scope, not an all-input or production-performance claim.
 
+### C-Obstruction — the square-class obstruction and the implemented congruence
+
+**Enforcement:** prose + grep (row-15 closure) + row-16 oracle. **Defined-in:** 15 (from this
+architect review, 2026-11-07). **Consumed-by:** 16, G.5 re-check. **Status:** pending. Mathematical
+obligations follow. Wording is the worker's, but every claim must hold at this precision. Cite a
+canonical source: Buhler–Lenstra–Pomerance, "Factoring integers with the number field sieve" (the
+character and square-root sections), or Crandall–Pomerance §6.2.
+
+1. **What the matrix constrains.** Each relation contributes the parities of the exponents of the
+   recorded degree-one prime ideals (p, r) of ℤ[α], one column each, plus the rational primes, the
+   rational sign, and the exceptional-parity columns. These are not parities of norm exponents.
+   Away from primes dividing c and the index [O_K : ℤ[α]], these exponents are the O_K valuations.
+2. **The obstruction group.** Let V be the elements of K* whose valuations at every prime ideal of
+   O_K are even, taken modulo K*². Then 1 → O_K*/O_K*² → V → Cl(O_K)[2] → 1 is exact, so
+   dim_{F₂} V = r₁ + r₂ + rk₂ Cl(O_K): the unit rank r₁ + r₂ − 1 plus one for −1, which accounts
+   for the signs at real places, plus the 2-rank of the class group. Primes of the index, of c,
+   and ideals outside the factor base enlarge the finite group a dependency can land in. The
+   F'(θ)² and c^(2h) normalization makes the target integral; it does not remove that enlargement.
+   Both units and the class group obstruct in factoring. Neither is DL-specific.
+3. **Characters.** For q ∤ c·disc(f) with f(s) ≡ 0 (mod q) and q ∤ (a − bs) for every relation,
+   χ_{q,s}(γ) = Π((a − bs)/q). If γ = β² with β ∈ K, then χ_{q,s}(γ) = +1. Each character is a
+   homomorphism on the group in (2). t independent characters leave a non-square surviving with
+   probability about 2^−(t − dim). That figure is a heuristic, and it should be labelled as one.
+   It is never zero. Characters are necessary conditions; exact verification decides.
+4. **The norm character is redundant.** At a completely split q, (F(a,b)/q) = (c/q)·Π_s((a − bs)/q).
+   On a dependency its total is (c/q)^{|S|}·(±1/q). That depends only on the sign of the norm
+   product and the parity of |S|, so it carries no square-class information (NOTES, 2026-11-07).
+5. **Norm identity.** F(a,b) = b^d f(a/b) = c·N_{K/ℚ}(a − bα).
+6. **The implemented congruence.** P = Π(a − bm) ∈ ℤ, and x = √P exactly (checked positive square).
+   β satisfies β² = γ = Π(a − bα), verified exactly; y = β(θ ↦ c·m) mod N, with denominators
+   checked invertible modulo N, and y² ≡ P (mod N). Neither Norm(β) nor Norm(γ) enters. The fixture
+   f = x² − 2, m = 23, relation (3, −2), with Norm(1 + α) = −1 and y = 24, shows the norm is not
+   the image.
+7. **Linear algebra.** With relations as rows, dependencies are the left kernel. Iterative solvers
+   cost O(k·W) for W nonzeros; dense elimination costs O(k³).
+
+### C-AlgebraicOracle — PARI/GP cross-check of algebraic facts
+
+**Enforcement:** ignored KATs (`kat_pari_*`), run manually with `gp` on PATH. **Defined-in:** 16.
+**Consumed-by:** G.5 re-check. **Status:** pending. Covers the irreducibility and discriminant of
+each fixture polynomial, β² = γ for verified roots, the absence of a root in K for certificate
+fixtures, and y² ≡ P (mod N). Each side computes independently; no oracle-supplied answer enters a
+non-ignored test.
+
 ## Progress ledger
 
 Preflight bindings: VERIFY_TYPES=`cargo check --workspace`; VERIFY_TEST=`cargo test --workspace`;
@@ -1975,9 +2119,10 @@ self-continue (chosen by the user at run start over `halt-at-boundaries`). Basel
 green at 0e974ab on 2026-11-06 (check, test, dep-policy, audit, coverage 92.76% lines). C-Design is
 accepted input, not an uncompleted producer row. Concrete interfaces await their listed freezes.
 Final G.5 independent review: **block (documentation findings only; no code defect found)** — see
-the "14 ◆ boundary and final review" digest entry; closure awaits a human decision. Row 1 allowed extras: none; unrelated dirty
-`.cargo/config.toml` and `Cargo.toml` (build-tuning edits not made by any worker) were left
-unstaged and uncommitted.
+the "14 ◆ boundary and final review" digest entry. Human decision 2026-11-07: enrol rows 15
+(correctness repair, docs and code) and 16 (external oracle); closure follows row 16's G.5 re-check.
+Row 1 allowed extras: none; unrelated dirty `.cargo/config.toml` and `Cargo.toml` (build-tuning
+edits not made by any worker) were left unstaged and uncommitted.
 
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
@@ -1995,6 +2140,8 @@ unstaged and uncommitted.
 | 12 | Bounded kernel combinations | done | 2fd9ac4 | C-KernelSearch |
 | 13 | Verified factor API migration | done | d06032e | C-FactorReport |
 | 14 | Generated sieve-to-factor evidence ◆ | done | 95f63c9 | C-PipelineEvidence (boundary fork and final review: see digest) |
+| 15 | Obstruction and congruence correctness repair | pending | — | C-Obstruction |
+| 16 | External algebraic oracle ◆ | pending | — | C-AlgebraicOracle (then G.5 re-check) |
 
 ## Action-frame digest
 
@@ -2323,6 +2470,17 @@ The driver did not enrol that row: the run was not invoked with `may-reshard`, a
 asks for a human decision.
 Texture: the review fork's shell was refused, so it reviewed by reading code and tests rather than
 re-running gates; its gate evidence is the driver's per-row green record.
+**Human decision and architect re-review (2026-11-07).** Findings 1–2 were re-confirmed by reading
+the files. The re-review also found errors G.5 missed: null-space orientation and complexity in
+MATHEMATICS §5; the norm of a − bα for non-monic f; the principal-ideal conflation; primes versus
+prime ideals; contradictory unit-only and class-group-only obstruction stories (MATHEMATICS §5
+versus PEDAGOGY §68); and β(m) versus β(cm) notation. The legacy norm character was found to be
+redundant on dependencies (C-Obstruction item 4), not merely unused. The placeholder-oracle problem
+is wider than G.5 listed: the DL and CADO stubs are placeholders too. Rule adopted: correctness over
+intuitive simplification in both code and docs. Enrolled row 15 (full docs plus code repair) and
+row 16 (PARI oracle, ◆ with the G.5 re-check). Contracts C-Obstruction and C-AlgebraicOracle were
+added. The "possible Dedekind-gcd defect" stays deferred under NFS-DL; it is unexplained in the
+record, so whoever enrols NFS-DL must state or retract it.
 
 ## Discoveries & risks
 
