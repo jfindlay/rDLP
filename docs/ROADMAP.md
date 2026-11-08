@@ -12,6 +12,11 @@ for established factoring and discrete-logarithm algorithms. Subject coverage, a
 correct final answers, and production performance are different claims; establish each separately.
 Neither a green test suite nor a completed implementation graph proves all four.
 
+**Scope boundary.** rDLP surveys DLP strategies, algorithms and phenomena; DLP topicality sets its
+scope, not exhaustiveness in mathematics, code or exposition. Mathematics always offers a nearby
+reason to include more, so draw the boundary between the umbra and the penumbra of the topic:
+neighbouring results may be mentioned and linked, but not expounded or implemented.
+
 **Current baseline, confirmed by source inspection:** checked GNFS reconstruction, modular mapping,
 dependency validation, XOR provenance and elimination are implemented. An ordinary KAT factors
 45113 from runtime-generated relations. Real opt-in PARI/GP comparisons cover reconstruction and
@@ -49,7 +54,7 @@ their presence here. Shard a selected scope into `PLAN.md` only after its contra
 
 | Scope | Current state | Dependency / priority |
 |---|---|---|
-| Dedekind criterion | Static counterexamples | Correctness first; no CADO dependency |
+| Dedekind criterion | Sharded into PLAN; repair in progress | Correctness first; no CADO dependency |
 | NFS-DL composition | Placeholder and unresolved maths | Design before implementation |
 | Shor / elliptic index calculus | Fallback-masked evidence | Independent correctness scopes |
 | Oracles / CADO sidecar | Early GNFS slice selected | Design separately; parallel with repairs |
@@ -385,6 +390,10 @@ copies of the same task. The candidates below are an initial set, not an exhaust
 - Reassess `shared/numth/src/smooth.rs::factor_base_up_to`'s large-bound sieve TODO against current
   primality implementation and measured need. Remove future-session prose regardless; optimisation
   is optional and its stated complexity rationale must be checked first.
+- `gnfs/src/sieve/factor_base.rs` finds degree-one primes above p by its own root search, while
+  numfield's `dedekind_factor` was designed for that role and has no production consumer. Adoption
+  is blocked because `NumberField` is monic-only and GNFS polynomials need not be; whether the
+  factor base or NFS-DL adopts the corrected report is for the NFS-DL contract design to decide.
 - Make independent-fixture provenance reproducible where tests cite unavailable Python/numpy/sympy
   scripts: retain the derivation or generator, or narrow the claim to what a reader can check.
 
@@ -445,8 +454,9 @@ test-length principle without old counts: split by coherent subject, not an arbi
 Add mechanism-specific evidence and oracle-honesty guidance where absent. Keep real algorithmic
 phase terminology while removing planning residue.
 
-**Proposal requiring separate approval:** retire the completed GNFS PLAN after checking that its
-still-useful contracts and derivations are represented in code, tests and focused human docs. Prune
+**Proposal requiring separate approval:** retire the completed GNFS PLAN (superseded in `PLAN.md`;
+recover it with `git show dd3aca4:docs/PLAN.md`) after checking that its still-useful contracts
+and derivations are represented in code, tests and focused human docs. Prune
 or delete NOTES after the same transfer rather than maintaining a museum of old decisions. In
 particular, the superseded norm-character argument must not remain authoritative: the corrected
 account recognises retained norm-sign information and the limits of a sampled character set. Use the
