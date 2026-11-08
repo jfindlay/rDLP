@@ -38,6 +38,13 @@ design; their names say so (`kat_pari_*`, `kat_c_cado_*`, and similar). Run them
 `cargo test -- --ignored` once the corresponding oracle binary is on `PATH`. Never promote an oracle
 test onto the default test path, and never substitute a benchmark run for a test run.
 
+## Solver outcomes
+
+Every solver success is exactly verified; failure classes stay distinct (budget exhaustion is never
+a negative or a success); a fallback must be another published method through the same verifier,
+never exhaustive search over the answer space. Full rules: `docs/development.md`, "Solver outcomes
+and fallbacks".
+
 ## Register discipline
 
 Source comments, identifiers, and this project's durable text (this file, `README.md`) carry only

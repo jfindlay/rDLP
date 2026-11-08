@@ -38,8 +38,7 @@ Preserve these constraints while planning the work:
   can change independently of the source. Formatting and lint adoption remain separate work below.
 - External tools validate rDLP's answers, never supply its implementation's answers. Tests requiring
   them stay opt-in. Do not treat every ignored test as an implemented oracle.
-- Preserve exact success checks and distinguish invalid input, invariant failure, unsupported
-  domains, resource exhaustion, mathematical negatives and verified results.
+- Follow `docs/development.md`'s "Solver outcomes and fallbacks" in new and repaired code.
 - Keep the existing crate layout; attacks can share their baseline's crate and arithmetic types.
   New algorithms, domain reductions, dependency edges and broad refactors require explicit review.
 - Correct directly affected mathematical claims with the code. Artifact type must not force a
@@ -54,9 +53,9 @@ their presence here. Shard a selected scope into `PLAN.md` only after its contra
 
 | Scope | Current state | Dependency / priority |
 |---|---|---|
-| Dedekind criterion | Sharded into PLAN; repair in progress | Correctness first; no CADO dependency |
 | NFS-DL composition | Placeholder and unresolved maths | Design before implementation |
-| Shor / elliptic index calculus | Fallback-masked evidence | Independent correctness scopes |
+| Shor / elliptic index calculus | Sharded into PLAN; repair in progress | Correctness first; no CADO dependency |
+| Solver-outcome audit | Contract adopted; other solvers unaudited | Shard by topic; NFS-DL via its design |
 | Oracles / CADO sidecar | Early GNFS slice selected | Design separately; parallel with repairs |
 | GNFS assurance | Coverage limits, not proven defects | After urgent repairs |
 | Mathematical exposition | Errors and unsupported claims | Correct with algorithm adjudication |
@@ -82,25 +81,6 @@ refactoring, do it first; refactor dependent test scaffolding after interfaces s
 claims with their repairs. Use targeted annealing at delivery boundaries to prevent recurrence.
 
 ## Correctness
-
-### Dedekind index criterion
-
-**Confirmed:** `shared/numfield/src/dedekind.rs::dedekind_criterion` uses an integer/rational
-polynomial gcd as though it were an F_p gcd, obtains the supposed squarefree part as f/gcd(f,f'),
-and forms `(g*h - f_mod)/p` rather than retaining the original integer f. Its modular division
-helper also needs review of the pseudo-division scale for non-monic divisors.
-
-**Inferred by exact static traces:** these are wrong-result defects, not merely missing oracle
-evidence. For f=x²−12 at p=2, the implementation gets g=1, h=x², t=0 and T=1, returning false.
-But alpha=2√3 and O_K=Z[√3], so the index of Z[alpha] is 2. Conversely, for f=x²−3 at p=3,
-it gets g=h=x, t=0 and T=x, returning true although Z[√3] is already maximal. Neither trace was
-executed during this review. No production consumer of `dedekind_factor_extended` or its
-`index_divisible` result was found in the checked GNFS path.
-
-Repair against a canonical index criterion, including inseparable reductions and valid integer
-lifts. Turn both traces into independent positive/negative regressions and cross-check further
-cases with PARI. Audit the public ideal-factorisation result's stated scope and consumers before
-changing representations; do not infer complete bad-prime factorisation from an index test.
 
 ### NFS-DL contract and composition
 
@@ -152,12 +132,34 @@ mod-r relation. Audit relation validity, consistency/rank handling and returned-
 the elliptic solver. Correct comments claiming unused kernel provenance or measurement influence.
 An exhaustive fallback may remain honestly labelled; it cannot certify the advertised mechanism.
 
+**Inferred during sharding (static reading, not executed):** the ECDLP extraction applies the
+subgroup relation a+bk≡0 to the measured pair instead of the dual relation d≡k·c, and reduces mod r
+without rescaling the M=2^t register by r/M. The elliptic solver's kernel is a right kernel over
+factor-base columns; recovery needs a left kernel, a combination of relations.
+The factoring path has no fallback, but its exponent register is n_bits(N) qubits rather than the
+textbook ≈2·n_bits(N), `order_from_phase` can return a multiple of the order, and its end-to-end
+fixtures use tuned seeds. These are factoring-fidelity findings outside the current repair.
+
+### Solver-outcome audit
+
+`docs/development.md`'s "Solver outcomes and fallbacks" generalises the GNFS reconstruction failure
+contract. It binds new and repaired code at once; existing solvers have not been checked against it.
+Audit each remaining solver for unverified success, conflated failure classes (especially budget
+exhaustion read as a negative), non-method fallbacks and missing provenance where several paths can
+succeed: rho factoring and ECDLP (including distinguished-point parallelism), MOV, GHS,
+hyperelliptic, Semaev/SSA, Pohlig–Hellman, Shor factoring and NFS-DL.
+
+**Confirmed instance:** NFS-DL's `solve_dl` returns `Ok(0)` for an empty frontier; that belongs to
+the NFS-DL contract design, not this audit. Bare `Option` returns are not violations by themselves:
+a documented single failure class conforms. Shard findings by topic; record conforming solvers as
+checked instead of listing them.
+
 ## Oracles and assurance
 
 ### Implement comparisons, not just tool installation
 
-**Confirmed:** meaningful `kat_pari_*` tests exist in `gnfs/tests/sqrt_pari_oracle_kat.rs` and
-`factor_end_to_end_kat.rs`. Keep them opt-in and independently computed. The remaining inventory is:
+**Confirmed:** meaningful `kat_pari_*` tests exist in `gnfs/tests/sqrt_pari_oracle_kat.rs`,
+`factor_end_to_end_kat.rs` and `shared/numfield/tests/dedekind_pari_oracle_kat.rs`. Keep them opt-in and independently computed. The remaining inventory is:
 
 - CADO placeholders in `gnfs/tests/{line_sieve,merge,lanczos,factor_end_to_end}_kat.rs`: a count
   compared with itself, `unimplemented!`, a hand-built matrix with no CADO invocation, and `todo!`.
@@ -244,6 +246,12 @@ test succeed. Preserve the distinction between exact per-instance validation and
 - NFS-DL equations, capability descriptions and full-implementation verdicts must follow the
   correctness adjudication above. Remove blanket claims that every described algorithm is already
   implemented and verified. A completed-history pass verdict is not current evidence.
+- Four `gnfs` passages conflate p | disc(f) ("bad prime") with p | [O_K : ℤ[α]] or misstate
+  consumers: `gnfs/docs/PEDAGOGY.md`'s bad-prime and `PolyPair::number_field()` passages, and
+  `gnfs/src/sieve/factor_base.rs`'s module comment and residue-degree note. Some bad primes are
+  maximal (x²−2 at 2); the factor base does its own root search, and `number_field()` serves only
+  NFS-DL relation code. The same comment's "p | c can be invisible" describes a different flag:
+  for non-monic f, `discriminant` returns lc(f)·disc(f), so `is_bad_prime` does flag p | c.
 - `docs/development.md` incorrectly says there is no proptest layer. Describe the actual KAT-first
   mix and mathematical assertions, not stale counts or unconditional correctness guarantees.
 
@@ -401,6 +409,8 @@ copies of the same task. The candidates below are an initial set, not an exhaust
   numfield's `dedekind_factor` was designed for that role and has no production consumer. Adoption
   is blocked because `NumberField` is monic-only and GNFS polynomials need not be; whether the
   factor base or NFS-DL adopts the corrected report is for the NFS-DL contract design to decide.
+- `iqft_on_qubits` is duplicated privately in `shor/src/ecdlp/mod.rs` and `shor/src/shor/mod.rs`
+  beside the public `qft` module.
 - Make independent-fixture provenance reproducible where tests cite unavailable Python/numpy/sympy
   scripts: retain the derivation or generator, or narrow the claim to what a reader can check.
 
@@ -503,6 +513,10 @@ an explicit affine boundary and the checked matrix leaves exceptional algebraic 
 unconstrained. Exact root verification protects accepted results; collection completeness is not
 claimed. Additional square-root families such as Montgomery/Nguyen are optional coverage, not
 prerequisites to the correctness repairs above.
+
+The Dedekind obstruction degree as log_p of the one-step enlargement index (Cohen §6.1) is not
+exposed: the ring property was not confirmed against the printed theorem. Restore it only after
+that confirmation.
 
 ## Maintenance rule
 

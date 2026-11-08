@@ -108,6 +108,35 @@ workspace currently measures around 92–93%) does not by itself establish that 
 correct — only its KATs do that. A change that raises coverage without adding or strengthening a
 KAT has not, by itself, improved confidence in correctness.
 
+## Solver outcomes and fallbacks
+
+A solver's return value is evidence. These rules keep it honest.
+
+1. **Success is verified.** Return success only after checking the answer exactly and
+   independently of the method that found it (z² = H, k·G = Q, a nontrivial divisor of N).
+   Where practical, make the unverified state unconstructible: `VerifiedRoot`
+   (`gnfs/src/sqrt/context.rs`) and `NormalizedTarget::verify_candidate`
+   (`gnfs/src/sqrt/context/normalize.rs`) are the exemplars.
+2. **Failures stay distinct.** Invalid input, invariant failure, unsupported domain, resource
+   exhaustion and a mathematical negative mean different things; never report one as another. An
+   invariant failure (internally contradictory data) is surfaced, never retried or masked. Use a
+   typed outcome when more than one failure class can occur; a documented `Option` is enough when
+   exactly one can.
+3. **Exhaustion is not a negative.** Only a search proved complete can certify a negative (a
+   nonresidue at a proved bound). Spending a budget proves nothing; report it as resource
+   exhaustion.
+4. **Retrying is not a fallback.** Repeating the same randomized mechanism with fresh randomness
+   within a budget is the algorithm itself (Shor's measure–verify–repeat).
+5. **A fallback is another published method.** It solves the same problem, returns through the
+   same verifier, and has its own fixtures. Exhaustive search over the answer space, or any path
+   that bypasses the advertised mechanism, is not a fallback for that mechanism; if kept, it is a
+   separately named baseline that the solver never calls.
+6. **Success carries provenance** whenever more than one path can produce it: which method ran,
+   plus enough intermediate evidence (the measured pair, the relation combination, the
+   dependency) for a test to recheck the mechanism's own identities. A self-certifying final
+   answer (a factor, a log) proves the answer, not the mechanism; tests of a mechanism assert its
+   provenance.
+
 ## Opt-in oracles
 
 Some tests need an external number-theory tool that is not part of this workspace's own dependency
