@@ -205,9 +205,13 @@ a prime of ℤ[α] of norm p and nothing is claimed about pO_K. No sentinel idea
 
 ## Progress ledger
 
+Bindings: PLAN = `docs/PLAN.md`; VERIFY_TYPES = `cargo check --workspace`; VERIFY_TEST = `cargo test
+--workspace`; mandatory extras per row: `cargo dep-policy`, `cargo audit`, `cargo coverage`. Run
+config: no flags (self-continue at junctures; no `may-reshard`, no `halt-at-boundaries`).
+
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
-| 1 | Square-free decomposition over prime fields | pending | | |
+| 1 | Square-free decomposition over prime fields | done | adf138e | C-SquarefreeDecomposition |
 | 2 | Canonical Dedekind index criterion | pending | | |
 | 3 | Honest degree-one prime report above p | pending | | |
 | 4 | Cross-check against PARI/GP ◆ | pending | | |
