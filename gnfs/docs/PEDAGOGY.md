@@ -3383,9 +3383,47 @@ mathematical fact each one verifies.
 | `factor_end_to_end_kat.rs` | `kat_incidental_divisor_has_its_own_provenance` | Incidental divisor reported separately from a factor |
 | `factor_end_to_end_kat.rs` | `kat_exhausted_distinguishes_complete_from_resource_limited` | `Exhausted` with and without `resource_limited()` |
 | `factor_end_to_end_kat.rs` | `kat_invalid_candidate_aborts_instead_of_retrying` | An invalid candidate aborts with its position |
+| `factor_end_to_end_kat.rs` | `kat_pari_confirms_the_root_and_congruence_behind_each_verified_factor` | (Ignored; needs `gp`.) PARI re-derives γ, P, √P and the gcd and confirms β² = γ, y = β(m) mod N, y² ≡ P on four factoring fixtures |
+| `factor_end_to_end_kat.rs` | `kat_pari_confirms_the_nonsquare_kernel_vectors_have_no_algebraic_root` | (Ignored; needs `gp`.) PARI finds no root of t² − γ for the two nonsquare kernel vectors |
+| `sqrt_pari_oracle_kat.rs` | `kat_pari_confirms_irreducibility_and_discriminant_of_the_fixture_polynomials` | (Ignored; needs `gp`.) PARI proves f irreducible and computes disc(F) for the non-monic, V4, x³ − 2, 45113 and 2x² − 1 fixtures; the crate's discriminant agrees |
+| `sqrt_pari_oracle_kat.rs` | `kat_pari_confirms_verified_roots_square_to_their_targets` | (Ignored; needs `gp`.) β² = γ in ℚ[y]/(f) and by `nfeltmul`, and β is one of the two roots PARI finds for t² − γ, on seven fixtures |
+| `sqrt_pari_oracle_kat.rs` | `kat_pari_confirms_certified_nonsquares_have_no_root_in_the_field` | (Ignored; needs `gp`.) Seven certified nonsquares: `nfroots` of t² − γ is empty |
+| `sqrt_pari_oracle_kat.rs` | `kat_pari_recomputes_the_modular_image_and_the_congruence_from_each_root` | (Ignored; needs `gp`.) PARI evaluates β at α = m modulo N and gets the crate's y, P, with y² ≡ P |
+| `sqrt_pari_oracle_kat.rs` | `kat_pari_confirms_the_norm_identity_and_that_the_norm_is_not_the_image` | (Ignored; needs `gp`.) F(a, b) = c·Norm(a − bα) on the non-monic fixtures; on the seam Norm(β) = −1 while y = ±24 and y² ≡ P |
+| `sqrt_pari_oracle_kat.rs` | `kat_pari_confirms_the_obstruction_group_of_two_quadratic_fields` | (Ignored; needs `gp`.) ℚ(√3) and ℚ(√−5): unit rank, torsion, 2-rank of the class group, dim V = 2; 2 + √3 is a nonsquare unit; in ℚ(√−5), (2) = J² with J = (2, 1 + √−5) not principal |
 | `factor_pipeline_kat.rs` | `kat_fixture_is_exact_and_irreducible` | f(31) = 45113 exactly; f is irreducible (no root mod 3) |
 | `factor_pipeline_kat.rs` | `kat_pipeline_factors_from_generated_relations` | Sieve-generated relations → checked matrix → filter → characters → Lanczos → candidates → verified factor 197·229 |
 | `factor_pipeline_kat.rs` | `kat_pipeline_factor_is_rederived_from_the_raw_relations` | Lifted parity, exact square P, β² = Π(a − bα) from the raw pairs, y² ≡ P, x² ≡ y², proper gcd |
+
+### The PARI/GP cross-checks
+
+The `kat_pari_*` tests are the external algebraic oracle for the square-root stage. They are
+`#[ignore]`d, because they need GP/PARI (`gp`) on `PATH`, so `cargo test --workspace` does not run
+them. Run them by hand:
+
+```text
+cargo test -p gnfs --test sqrt_pari_oracle_kat -- --ignored
+cargo test -p gnfs --test factor_end_to_end_kat kat_pari -- --ignored
+```
+
+With `gp` absent they fail with a message saying so; they never pass silently. Each test spawns
+`gp -q`, feeds it a script on standard input, and treats any output on standard error as a failure.
+
+The two sides are independent. The crate's side comes from its own API: a verified root, a
+`NotSquare` certificate, a modular image, a discriminant. PARI's side comes from the fixture inputs
+alone, the polynomial `f`, the relation pairs `(a, b)`, `m` and `N`, from which it computes
+`γ = Π(a − bα)`, `P = Π(a − bm)`, the discriminant, and irreducibility for itself. The one thing PARI
+is handed is the crate's `β`, as an input to be checked, never as an answer it is asked to
+confirm: it tests `β² = γ` in `ℚ[y]/(f)` and through `nfeltmul`, recomputes `y = β(m) mod N`, and
+compares `β` with the two roots of `t² − γ` that `nfroots` finds. For a certified nonsquare PARI
+decides `nfroots(t² − γ) = ∅` without seeing the certificate. For a non-monic `f`, PARI works in the
+monic `F(t) = c^(d−1) f(t/c)` it derives itself, since its number-field routines require a monic
+polynomial. The V4 field `ℚ(√2, √3)` has no inert prime, so the crate cannot certify its
+irreducibility through a reduction of `f`; there PARI is the only irreducibility certificate.
+
+These tests do not replace the large-input oracle: the CADO-NFS / msieve comparison on an
+80–100-bit challenge (`kat_c_oracle_80_100_bit_challenge`) is still an unimplemented, ignored
+placeholder.
 
 ---
 
@@ -4852,10 +4890,12 @@ correct.
 
 **Verdict: Principle 1 — pass, for the tested scope.** Every stage of the GNFS algorithm is
 implemented. The stages compose on the tested fixtures, including one run from generated relations
-to a verified factor (§47); that is a tested scope, not a claim for arbitrary inputs. Some oracle
-cross-checks are ignored placeholders that do not yet invoke an external tool (for example
-`kat_c_cado_oracle_n35`, §40), so the external-oracle evidence for the algebraic facts is not part
-of this verdict.
+to a verified factor (§47); that is a tested scope, not a claim for arbitrary inputs. The algebraic
+facts of the square-root stage (irreducibility, discriminants, `β² = γ`, nonsquares, and
+`y² ≡ P`) are cross-checked against PARI/GP by ignored `kat_pari_*` tests that run by hand (§50).
+The CADO-NFS / msieve cross-checks are still ignored placeholders that do not invoke an external
+tool (for example `kat_c_cado_oracle_n35`, §40, and `kat_c_oracle_80_100_bit_challenge`), so
+they are not part of this verdict.
 
 ### Principle 3: No new engineering optimisations
 
@@ -4931,8 +4971,8 @@ omitted or misrepresented.
   phenomena annotated explicitly; one over-exposed phenomenon (bad primes) noted.
 
 Every stage is implemented and KAT-green on the default test path; whole-chain evidence is limited
-to the tested fixtures of §62, and the external-oracle cross-checks of the algebraic facts are
-ignored placeholders.
+to the tested fixtures of §62. The algebraic facts of the square-root stage have PARI/GP cross-checks
+that run by hand (§50); the CADO-NFS / msieve cross-checks are ignored placeholders.
 
 ---
 

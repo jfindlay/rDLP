@@ -31,6 +31,15 @@
 //! Hand values were recomputed with an independent exact-arithmetic script (Python `fractions`,
 //! no Rust), and the arithmetic is written beside each use. Pinned limits keep
 //! `crt.max_primes = 1` with ample precision headroom.
+//!
+//! The `kat_pari_*` tests are `#[ignore]`d and need `gp` (GP/PARI) on `PATH`; run them with
+//! `cargo test -p gnfs --test factor_end_to_end_kat kat_pari -- --ignored`. PARI re-derives `γ`,
+//! `P`, the rational root and the gcd from the fixture's polynomial and relation pairs, and checks
+//! the crate's verified `β` (`β² = γ`, `y = β(m) mod N`, `y² ≡ P`); for the nonsquare vectors it
+//! shows `t² − γ` has no root in the field.
+
+use std::io::Write;
+use std::process::{Command, Stdio};
 
 use gnfs::filter::build_checked_matrix;
 use gnfs::linalg::{
@@ -700,6 +709,137 @@ fn kat_attempt_outcome_classes() {
         (AttemptOutcome::ResourceExhausted(vec![]), FailureClass::ResourceExhausted),
     ] {
         assert_eq!(outcome.class(), Some(class));
+    }
+}
+
+// ─── PARI/GP cross-check ─────────────────────────────────────────────────────
+
+/// Run `gp -q` on `script` (fed on standard input) and return its output lines. Any text on
+/// standard error (a GP error or warning) or a failing exit status is a test failure, and so is a
+/// missing `gp`.
+fn gp(script: &str) -> Vec<String> {
+    let mut child = Command::new("gp")
+        .arg("-q")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("PARI/GP (`gp`) must be on PATH to run this test: {e}"));
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(script.as_bytes())
+        .expect("write the script to gp");
+    let output = child.wait_with_output().expect("wait for gp");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success() && stderr.trim().is_empty(),
+        "gp failed ({}):\n{stderr}\nscript:\n{script}",
+        output.status
+    );
+    String::from_utf8(output.stdout)
+        .expect("gp output is UTF-8")
+        .lines()
+        .map(|l| l.trim().to_string())
+        .collect()
+}
+
+/// GP definitions of a dependency's fixture inputs: the field polynomial `ff` in `y`, `m`, `N`,
+/// the selected relation pairs, the monic `Ft = c^(d−1) ff(y/c)` that PARI's number field code
+/// needs, `γ = gg = Π(a − b·y)` and `P = pp = Π(a − b·m)`. PARI derives everything else itself.
+fn gp_preamble(context: &DependencyContext, rows: &[usize]) -> String {
+    let sqrt = context.context();
+    let coefficients: Vec<String> =
+        sqrt.algebraic_poly().coeffs.iter().map(BigInt::to_string).collect();
+    let relations = context.relations().relations();
+    let pairs: Vec<String> =
+        rows.iter().map(|&i| format!("[{},{}]", relations[i].a(), relations[i].b())).collect();
+    format!(
+        "ff = Polrev([{}], 'y); mm = {}; nn = {}; rel = [{}];\n\
+         cc = pollead(ff); dd = poldegree(ff); Ft = cc^(dd-1)*subst(ff, y, y/cc);\n\
+         gg = prod(i=1, #rel, rel[i][1] - rel[i][2]*y);\n\
+         pp = prod(i=1, #rel, rel[i][1] - rel[i][2]*mm);\n",
+        coefficients.join(","),
+        sqrt.root(),
+        sqrt.modulus(),
+        pairs.join(","),
+    )
+}
+
+/// A root `β` from the `θ = c·α` basis, as the GP polynomial `Polrev([...], 'y)` in the `α`
+/// basis: the coefficient of `θ^i` times `c^i`.
+fn gp_alpha_poly(beta: &RatPoly, c: &BigInt) -> String {
+    let mut power = BigInt::from(1);
+    let mut items = Vec::new();
+    for coeff in &beta.coeffs {
+        let q = coeff * BigRational::from_integer(power.clone());
+        items.push(format!("({}/{})", q.numer(), q.denom()));
+        power *= c;
+    }
+    format!("Polrev([{}], 'y)", items.join(","))
+}
+
+fn gp_int(line: &str) -> BigInt {
+    line.parse().unwrap_or_else(|e| panic!("`{line}` is not an integer: {e}"))
+}
+
+#[test]
+#[ignore = "requires PARI/GP (`gp`) on PATH; run manually with --ignored"]
+fn kat_pari_confirms_the_root_and_congruence_behind_each_verified_factor() {
+    let fixtures: [(&str, DependencyContext, &[usize]); 4] = [
+        ("S", context_s(), &[0]),
+        ("NM", context_nm(), &[0, 1]),
+        ("R{1,3,5}", context_r(), &[1, 3, 5]),
+        ("IC row 2", context_ic(), &[2]),
+    ];
+    for (name, context, rows) in &fixtures {
+        let dependency = context.validate(rows).unwrap();
+        let AttemptOutcome::Factor(found) = attempt_factor(&dependency, ample()).unwrap() else {
+            panic!("{name}: expected a verified factor");
+        };
+        let beta = gp_alpha_poly(found.algebraic_root().beta(), context.context().leading_coeff());
+        let lines = gp(&format!(
+            "{}bb = {};\n\
+             print(polisirreducible(ff));\n\
+             print(Mod(bb, ff)^2 == Mod(gg, ff));\n\
+             yv = Mod(1, nn)*subst(bb, y, mm);\n\
+             print(yv^2 == Mod(pp, nn));\n\
+             print(lift(yv));\n\
+             print(issquare(pp, &xx));\n\
+             print(xx);\n\
+             print(gcd(xx - lift(yv), nn));\n",
+            gp_preamble(context, rows),
+            beta,
+        ));
+        assert_eq!(lines.len(), 7, "{name}: {lines:?}");
+        // PARI: f is irreducible, β² = γ in Q[y]/(f), and y = β(m) mod N satisfies y² ≡ P.
+        assert_eq!(&lines[..3], ["1", "1", "1"], "{name}");
+        // PARI's image, exact rational root and gcd are the crate's.
+        assert_eq!(&gp_int(&lines[3]), found.algebraic_root().modular_image(), "{name}");
+        assert_eq!(lines[4], "1", "{name}: P is an exact square");
+        assert_eq!(&gp_int(&lines[5]), found.rational_root().root(), "{name}");
+        assert_eq!(&gp_int(&lines[6]), found.divisor(), "{name}: gcd(x − y, N)");
+    }
+}
+
+#[test]
+#[ignore = "requires PARI/GP (`gp`) on PATH; run manually with --ignored"]
+fn kat_pari_confirms_the_nonsquare_kernel_vectors_have_no_algebraic_root() {
+    let context = context_r();
+    for rows in [&[5usize][..], &[1, 3]] {
+        let dependency = context.validate(rows).unwrap();
+        let AttemptOutcome::AlgebraicNonSquare(_) = attempt_factor(&dependency, ample()).unwrap()
+        else {
+            panic!("{rows:?}: expected an algebraic nonsquare");
+        };
+        let lines = gp(&format!(
+            "{}print(polisirreducible(ff));\n\
+             nf = nfinit(Ft); gt = subst(gg, y, y/cc);\n\
+             print(#nfroots(nf, x^2 - Mod(gt, Ft)));\n",
+            gp_preamble(&context, rows),
+        ));
+        assert_eq!(lines, ["1", "0"], "{rows:?}: t² − γ has no root in the field");
     }
 }
 
