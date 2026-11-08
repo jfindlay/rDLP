@@ -19,11 +19,11 @@
 //! Pollard rho is already benched in `rho/benches/ecdlp.rs` on `secp_k1_toy` (63-bit).
 //! That bench is the generic-√n baseline column in the E.W table. It is NOT duplicated here.
 //!
-//! # Principle-4 note
+//! # Scale
 //!
 //! All fixtures are toy-scale (p = 47 or p = 7). The asymptotic L-notation separations
-//! between attacks are NOT observable at this scale — the table reports toy costs, and the
-//! E.W.2 chapter explains the asymptotic picture.
+//! between attacks are NOT observable at this scale: the table reports toy costs. Over
+//! E(F_p) the index-calculus bench demonstrates the mechanism, not its asymptotic advantage.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use crypto_bigint::Uint;
@@ -182,10 +182,11 @@ fn bench_ghs_transfer(c: &mut Criterion) {
 /// Bench: index calculus on `IndexCalcStrategy::toy()` (ℓ = 5, |FB| = 6, m = 2).
 ///
 /// Known answer: the solver recovers `k mod ℓ` for Q = 7·G on the semaev_toy curve.
-/// The bench asserts `index_calculus_dlp` returns `Some(k)` with `k·G_ℓ = Q_ℓ` before timing.
+/// The bench asserts `index_calculus_dlp` returns a solution `x = k` with `k·G_ℓ = Q_ℓ`
+/// before timing.
 ///
 /// Relation/decomposition counts are derived from `collect_relations(...).len()` and
-/// `decompose(...)` (the public re-exports — `index_calculus_dlp` unamended).
+/// `decompose(...)`.
 fn bench_index_calculus(c: &mut Criterion) {
     let strategy = IndexCalcStrategy::toy()
         .expect("index calculus pre-check: toy strategy must build");
@@ -195,9 +196,9 @@ fn bench_index_calculus(c: &mut Criterion) {
     let q: AffinePoint<FpNaive> = curve.scalar_mul(&g, &Uint::<4>::from(7u64));
 
     // Pre-check: assert the solver returns a valid answer before timing.
-    let k_opt = index_calculus_dlp(g.clone(), q.clone(), &strategy)
-        .expect("index calculus pre-check: index_calculus_dlp must not error");
-    let k = k_opt.expect("index calculus pre-check: index_calculus_dlp must recover k");
+    let solution = index_calculus_dlp(g.clone(), q.clone(), &strategy)
+        .expect("index calculus pre-check: index_calculus_dlp must recover k");
+    let k = solution.x;
     // Verify k·G_ℓ = Q_ℓ (the subgroup-log correctness check).
     let ell_u64 = strategy.ell.as_words()[0];
     let n_u64 = curve.n.as_words()[0];
@@ -210,7 +211,7 @@ fn bench_index_calculus(c: &mut Criterion) {
         "index calculus pre-check: k·G_ℓ ≠ Q_ℓ (k = {k})"
     );
 
-    // Derive relation and decomposition counts from the public re-exports (`index_calculus_dlp` unamended).
+    // Derive relation and decomposition counts from the public re-exports.
     // These counts are the pedagogical signal: how many relations the collection loop found,
     // and how many points were decomposable over the factor base.
     let relations = collect_relations(g.clone(), q.clone(), &strategy)
@@ -236,7 +237,6 @@ fn bench_index_calculus(c: &mut Criterion) {
     group.finish();
 
     // Print counts for the E.W table (not timed — informational only).
-    // These are derived from the public re-exports as required by the index-calculus API.
     let _ = (relation_count, decomp_count);
 }
 

@@ -10,7 +10,10 @@
 //!
 //! - [`mod`] (this file) — `IndexCalcError` enum, module skeleton.
 //! - [`strategy`] — `FbPoint`, `IndexCalcStrategy`, `Relation`.
-//! - [`solve`] — `index_calculus_dlp` — the full pipeline assembler.
+//! - [`collect`] — relation collection over the `(a, b)` enumeration.
+//! - [`linalg`] — the relation matrix and its left kernel over `F_ℓ`.
+//! - [`solve`] — `index_calculus_dlp`, recovering `log_G(Q) mod ℓ` from a relation
+//!   combination.
 //!
 //! # Toy fixture
 //!
@@ -19,13 +22,13 @@
 //! The prime-order subgroup uses `ℓ = 5` (the largest prime factor of `n`); the
 //! ℓ-order subgroup generator is `G_ℓ = (n/ℓ)·G = 12·G`.
 //!
-//! # Principle-4 boundary
+//! # Scale
 //!
 //! This module demonstrates the index-calculus *mechanism* over `E(F_p)` at toy scale.
-//! Over `E(F_p)` index calculus is **not** faster than Pollard-rho — the asymptotic
-//! speed-up needs the extension-field structure of `E(F_{p^n})` (the genuine Gaudry–Diem
-//! setting). The toy `F_p`/`m`/`ℓ` are a principle-4 boundary: mechanism-correct,
-//! asymptotic win NOT observable.
+//! Over `E(F_p)` index calculus is **not** faster than Pollard-rho: the asymptotic
+//! speed-up needs the extension-field structure of `E(F_{p^n})` (the Gaudry–Diem
+//! setting). The toy `F_p`/`m`/`ℓ` are mechanism-correct; the asymptotic advantage is not
+//! observable at this scale.
 
 pub mod collect;
 pub mod decompose;
@@ -33,10 +36,10 @@ pub mod linalg;
 pub mod solve;
 pub mod strategy;
 
-pub use collect::collect_relations;
+pub use collect::{collect_relations, RelationStream};
 pub use decompose::decompose;
 pub use linalg::{build_ek_matrix, solve_ek_linalg};
-pub use solve::index_calculus_dlp;
+pub use solve::{index_calculus_dlp, IndexCalcSolution};
 pub use strategy::{FbPoint, IndexCalcStrategy, Relation, TOY_ELL, TOY_FB_SIZE, TOY_M};
 
 // ─── error type ──────────────────────────────────────────────────────────────
@@ -87,19 +90,23 @@ pub enum IndexCalcError {
         /// The minimum number of relations required (`fb_size + 1`).
         needed: usize,
     },
-    /// The Z/ℓℤ linear system has no non-trivial kernel vector.
+    /// No relation combination determines `log_G(Q) mod ℓ` within the enumeration bound.
     ///
-    /// Raised by `solve_ek_linalg` when the block Wiedemann / Lanczos solver finds no
-    /// kernel vector. This should not occur for an over-determined relation system
-    /// (guaranteed by `collect_relations`), but guards against degenerate inputs.
-    NoKernel,
-    /// DLP recovery from the augmented linear system failed.
+    /// Raised when every vector `u` of the left-kernel basis has `uᵀb ≡ 0 (mod ℓ)` over
+    /// all `relations` obtainable from the full `(a, b)` enumeration. The outcome says that
+    /// the relations available to this factor base do not pin the logarithm down: it is a
+    /// statement about this relation set, not a negative about the discrete logarithm.
+    Undetermined {
+        /// The number of relations examined.
+        relations: usize,
+    },
+    /// The relation system is internally contradictory.
     ///
-    /// Raised by `index_calculus_dlp` when the Gaussian elimination over `F_ℓ` cannot
-    /// recover a unique `log_G(Q) mod ℓ` from the collected relations. This can occur
-    /// if all relations have `b_i ≡ 0 mod ℓ` (no information about `Q`'s log) or if
-    /// the augmented system is degenerate.
-    RecoveryFailed,
+    /// Raised when two combinations disagree on `x`, when a combination with `uᵀb ≡ 0` has
+    /// `uᵀa ≢ 0`, or when the recovered `x` fails `x·G_ℓ = Q_ℓ`. Honest relations cannot
+    /// produce any of these, so this is an invariant failure: it is surfaced, never
+    /// retried or masked.
+    Inconsistent,
 }
 
 impl std::fmt::Display for IndexCalcError {
@@ -121,14 +128,18 @@ impl std::fmt::Display for IndexCalcError {
                     "underdetermined system: found {found} relations, need at least {needed}"
                 )
             }
-            IndexCalcError::NoKernel => {
-                write!(f, "no kernel: the Z/ℓℤ linear system has no non-trivial kernel vector")
-            }
-            IndexCalcError::RecoveryFailed => {
+            IndexCalcError::Undetermined { relations } => {
                 write!(
                     f,
-                    "recovery failed: Gaussian elimination over F_ℓ could not recover \
-                     a unique log_G(Q) mod ℓ from the collected relations"
+                    "undetermined: none of the {relations} relations admits a combination \
+                     that determines log_G(Q) mod ℓ"
+                )
+            }
+            IndexCalcError::Inconsistent => {
+                write!(
+                    f,
+                    "inconsistent: the relation combinations disagree on log_G(Q) mod ℓ \
+                     or the recovered value fails verification"
                 )
             }
         }
@@ -142,8 +153,8 @@ impl std::error::Error for IndexCalcError {
             IndexCalcError::InvalidSubgroup { .. }
             | IndexCalcError::FactorBaseTooSmall { .. }
             | IndexCalcError::UnderdeterminedSystem { .. }
-            | IndexCalcError::NoKernel
-            | IndexCalcError::RecoveryFailed => None,
+            | IndexCalcError::Undetermined { .. }
+            | IndexCalcError::Inconsistent => None,
         }
     }
 }
@@ -169,8 +180,10 @@ mod tests {
             "{}",
             IndexCalcError::Semaev(crate::semaev::SemaevError::DegreeZero)
         );
-        let _ = format!("{}", IndexCalcError::NoKernel);
-        let _ = format!("{}", IndexCalcError::RecoveryFailed);
+        let undetermined = format!("{}", IndexCalcError::Undetermined { relations: 7 });
+        assert!(undetermined.contains("7 relations"), "{undetermined}");
+        let inconsistent = format!("{}", IndexCalcError::Inconsistent);
+        assert!(inconsistent.starts_with("inconsistent"), "{inconsistent}");
     }
 
     #[test]

@@ -40,40 +40,44 @@
 //!
 //! # KAT coverage — Z/ℓZ linear algebra
 //!
-//! 9. **adapter-fidelity**: `build_ek_matrix` produces a matrix whose row `i` matches
-//!    `relations[i].exponents` exactly (same (index, value) pairs). Guards the near-identity
-//!    adapter from `Relation.exponents` to `FlSparseRow`.
-//! 10. **kernel-correctness**: `solve_ek_linalg` returns a kernel vector `v` that satisfies
-//!    `M·v = 0` over F_ℓ (i.e., for each relation row, the dot product of the exponent
-//!    vector with `v` is 0 mod ℓ). Guards the Z/ℓZ linear algebra step.
+//! 9. **adapter_fidelity**: `build_ek_matrix` produces the transposed layout: row `j`
+//!    (one per factor-base point) lists `(relation index, exponent)` for exactly the
+//!    relations that contain point `j`, in relation order. Guards the adapter from
+//!    `Relation.exponents` to `FlSparseRow`.
+//! 10. **left_kernel_annihilates_exponents**: every vector `u` in the basis returned by
+//!    `solve_ek_linalg` satisfies `Σᵢ uᵢ·eᵢ ≡ 0 (mod ℓ)`, is non-zero, and the basis size
+//!    equals `#relations − rank` (a complete basis). Guards the Z/ℓZ linear algebra step.
 //!
 //! # KAT coverage — DLP recovery and end-to-end pipeline
 //!
 //! 11. **ecdlp_agreement** (decisive): `index_calculus_dlp(G, Q)` returns `x = log_G(Q) mod ℓ`
-//!    that agrees with the frozen `rho::ecdlp::pohlig::solve_ecdlp_composite` oracle: `k % ℓ == x`.
-//!    Also verifies `x·G_ℓ = Q_ℓ` (the ℓ-subgroup projection check). This is the green-path
-//!    correctness signal — exactly self-checking, oracle-free.
-//! 12. **recovery_soundness**: `x·G_ℓ = Q_ℓ` via the frozen `scalar_mul` (the ℓ-subgroup
-//!    projection check). Guards the DLP recovery step independently of the rho cross-check.
+//!    that agrees with the `rho::ecdlp::pohlig::solve_ecdlp_composite` oracle: `k % ℓ == x`.
+//!    Also verifies `x·G_ℓ = Q_ℓ` (the ℓ-subgroup projection check).
+//! 12. **recovery_soundness**: `x·G_ℓ = Q_ℓ` via `scalar_mul`, independently of the rho
+//!    cross-check.
 //! 13. **end_to_end**: the full pipeline solves a non-trivial toy ECDLP instance end-to-end
 //!    (factor base → decomposition → collection → linalg → recovery → verification).
-//! 14. **principle4_annotation**: records the principle-4 boundary — index calculus over
-//!    `E(F_p)` is the mechanism; the asymptotic win requires the extension-field setting
-//!    `E(F_{p^n})`; at toy scale index calculus is NOT faster than Pollard-rho.
+//! 14. **recovers_every_residue**: for every `k ∈ 0..60`, `Q = k·G` gives `x = k mod ℓ` with
+//!    `uᵀb ≢ 0` and `Σᵢ uᵢ·(aᵢ + bᵢ·x) ≡ 0` checked explicitly from the returned provenance.
+//! 15. **undetermined_when_no_combination_sees_b**: honest relations that all have
+//!    `b ≡ 0 (mod ℓ)` give `Undetermined`.
+//! 16. **corrupted_relation_is_inconsistent**: one corrupted relation gives `Inconsistent`.
+//! 17. **toy_fixture_parameters**: the fixture constants that bound what is demonstrated.
 //!
-//! # Principle-4 boundary: index calculus over `E(F_p)` at toy scale
+//! # Scale: index calculus over `E(F_p)` at toy scale
 //!
-//! The fixture is toy-scale (`p = 47`, `n = 60`). The algorithms are mechanism-correct;
-//! the asymptotic index-calculus win (which needs `E(F_{p^n})`) is not observable at
-//! this scale.
+//! The fixture is toy-scale (`p = 47`, `n = 60`). Over `E(F_p)` these tests demonstrate
+//! the mechanism, not the asymptotic advantage: that advantage needs `E(F_{p^n})` and is not
+//! observable at this scale.
 
 use crypto_bigint::Uint;
 use rho::curve::{AffinePoint, JacobianPoint};
 use rho::ecdlp::pohlig::solve_ecdlp_composite;
 use shared_field::{Fp, FpNaive4 as FpNaive};
+use rho::index_calculus::solve::recover_log_from_relations;
 use rho::index_calculus::{
     build_ek_matrix, collect_relations, decompose, index_calculus_dlp, solve_ek_linalg,
-    IndexCalcStrategy, Relation, TOY_ELL, TOY_FB_SIZE,
+    IndexCalcError, IndexCalcStrategy, Relation, RelationStream, TOY_ELL, TOY_FB_SIZE,
 };
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -599,17 +603,12 @@ fn over_determination() {
 
 // ─── KAT 9: adapter-fidelity ─────────────────────────────────────────────────
 
-/// Adapter fidelity: `build_ek_matrix` row `i` matches `relations[i].exponents` exactly.
+/// Adapter fidelity for the transposed layout.
 ///
-/// Calls `collect_relations` to get a real relation set, then calls `build_ek_matrix`
-/// and verifies that each row of the resulting `FlSparseMatrix` has the same (index, value)
-/// pairs as the corresponding `Relation.exponents`. Guards the near-identity adapter from
-/// `Relation.exponents` to `FlSparseRow`.
-///
-/// The adapter is a near-identity copy: `Relation.exponents` is already in the
-/// `Vec<(usize, FpNaive)>` shape that `FlSparseRow` expects (sorted by index, no zeros,
-/// no duplicates — invariants enforced by `Relation::from_decomposition`).
-/// Guards the near-identity adapter from `Relation.exponents` to `FlSparseRow`.
+/// Calls `collect_relations` to get a real relation set, then `build_ek_matrix`. The matrix
+/// has one row per factor-base point and one column per relation, and row `j` holds exactly
+/// the `(relation index i, exponent)` pairs for which `relations[i]` contains point `j`,
+/// sorted by `i`. Every non-zero relation exponent appears in exactly one matrix entry.
 #[test]
 fn adapter_fidelity() {
     let strategy = IndexCalcStrategy::toy().expect("toy strategy should build");
@@ -623,58 +622,88 @@ fn adapter_fidelity() {
 
     let matrix = build_ek_matrix(&relations, &strategy);
 
-    // Verify dimensions.
+    // Verify dimensions: factor-base points are rows, relations are columns.
     assert_eq!(
         matrix.rows.len(),
-        relations.len(),
-        "matrix should have one row per relation"
+        strategy.fb_size(),
+        "matrix should have one row per factor-base point"
     );
     assert_eq!(
         matrix.num_cols,
-        strategy.fb_size(),
-        "matrix should have fb_size columns"
+        relations.len(),
+        "matrix should have one column per relation"
     );
 
-    // Verify each row matches the corresponding relation's exponent vector.
-    for (i, (row, rel)) in matrix.rows.iter().zip(relations.iter()).enumerate() {
+    // Row j lists, in relation order, the (i, e_ij) of every relation i containing point j.
+    let ell = ell();
+    for (j, row) in matrix.rows.iter().enumerate() {
+        let expected: Vec<(usize, FpNaive)> = relations
+            .iter()
+            .enumerate()
+            .filter_map(|(i, rel)| {
+                let e = rel.exponent(j, &ell);
+                if e.is_zero(&ell) { None } else { Some((i, e)) }
+            })
+            .collect();
         assert_eq!(
-            row.entries.len(),
-            rel.exponents.len(),
-            "row {i}: entry count should match exponents.len()"
+            row.entries, expected,
+            "row {j}: entries should be the exponents of point {j} across relations"
         );
-        for (j, ((ri, rv), (ei, ev))) in
-            row.entries.iter().zip(rel.exponents.iter()).enumerate()
-        {
-            assert_eq!(
-                ri, ei,
-                "row {i}, entry {j}: column index {ri} should match exponent index {ei}"
-            );
-            assert_eq!(
-                rv, ev,
-                "row {i}, entry {j}: value should match exponent value"
-            );
-        }
     }
+
+    // Nothing is lost or invented: entry count equals the total non-zero exponent count.
+    let matrix_entries: usize = matrix.rows.iter().map(|r| r.entries.len()).sum();
+    let exponent_entries: usize = relations.iter().map(|r| r.exponents.len()).sum();
+    assert_eq!(matrix_entries, exponent_entries, "total entry count must be preserved");
 }
 
-// ─── KAT 10: kernel-correctness ──────────────────────────────────────────────
+// ─── KAT 10: left_kernel_annihilates_exponents ───────────────────────────────
 
-/// Kernel correctness: the kernel vector `v` returned by `solve_ek_linalg` satisfies
-/// `M·v = 0` over F_ℓ.
+/// Rank of an integer matrix over `F_ℓ` by plain row reduction (independent of the
+/// production linear-algebra engine; ℓ is prime).
+fn rank_mod_ell(mut rows: Vec<Vec<u64>>, ell: u64) -> usize {
+    let inv = |a: u64| (1..ell).find(|x| a * x % ell == 1).expect("ℓ prime, a ≠ 0");
+    let cols = rows.first().map_or(0, Vec::len);
+    let mut rank = 0;
+    for col in 0..cols {
+        let Some(p) = (rank..rows.len()).find(|&r| rows[r][col] % ell != 0) else { continue };
+        rows.swap(rank, p);
+        let scale = inv(rows[rank][col] % ell);
+        for c in 0..cols {
+            rows[rank][c] = rows[rank][c] * scale % ell;
+        }
+        for r in 0..rows.len() {
+            let f = rows[r][col] % ell;
+            if r != rank && f != 0 {
+                for c in 0..cols {
+                    rows[r][c] = (rows[r][c] + ell * ell - f * rows[rank][c]) % ell;
+                }
+            }
+        }
+        rank += 1;
+    }
+    rank
+}
+
+/// Left-kernel correctness: every `u` returned by `solve_ek_linalg` satisfies
+/// `Σᵢ uᵢ·eᵢ ≡ 0 (mod ℓ)`.
 ///
-/// Calls `collect_relations` then `solve_ek_linalg`. For each relation row (exponent
-/// vector), computes the dot product with `v` over F_ℓ and verifies it is zero. This
-/// is the primary correctness signal for the Z/ℓZ linear algebra step.
+/// Calls `collect_relations` then `solve_ek_linalg`. For each basis vector `u` and each
+/// factor-base point `j`, computes `Σᵢ uᵢ·e_ij` over F_ℓ and verifies it is zero.
 ///
 /// Guards:
-/// - `build_ek_matrix` correctly encodes the relation system.
-/// - `solve_ek_linalg` finds a genuine kernel vector (not a spurious solution).
-/// - The kernel vector has length `fb_size` (one entry per factor-base point).
+/// - `build_ek_matrix` encodes the relation system in the orientation the engine solves.
+/// - Each returned vector has length `#relations`, is non-zero, and is a genuine
+///   combination (not a spurious solution).
+/// - The basis is complete: its size is `#relations − rank(E)`, with the rank computed by an
+///   independent row reduction, and the vectors are linearly independent (so they span the
+///   whole kernel).
 #[test]
-fn kernel_correctness() {
+fn left_kernel_annihilates_exponents() {
     let strategy = IndexCalcStrategy::toy().expect("toy strategy should build");
     let curve = &strategy.curve;
     let ell = ell();
+    let ell_u64 = TOY_ELL;
 
     let g: AffinePoint<FpNaive> = curve.generator();
     let q = scalar_mul_u64(curve, &g, 7);
@@ -682,41 +711,54 @@ fn kernel_correctness() {
     let relations = collect_relations(g, q, &strategy)
         .expect("collect_relations should succeed for the toy fixture");
 
-    let kernel = solve_ek_linalg(&relations, &strategy)
-        .expect("solve_ek_linalg should find a kernel vector for the over-determined toy system");
+    let basis = solve_ek_linalg(&relations, &strategy)
+        .expect("solve_ek_linalg should succeed for the over-determined toy system");
 
-    // The kernel vector must have length fb_size.
-    assert_eq!(
-        kernel.len(),
-        strategy.fb_size(),
-        "kernel vector length should equal fb_size = {}",
-        strategy.fb_size()
-    );
+    // Over-determined (#relations > |FB|) forces a non-trivial kernel.
+    assert!(!basis.is_empty(), "an over-determined system has a non-trivial left kernel");
 
-    // The kernel vector must not be all-zero (a trivial kernel is not useful).
-    let is_nontrivial = kernel.iter().any(|v| !v.is_zero(&ell));
-    assert!(
-        is_nontrivial,
-        "kernel vector should be non-trivial (not all zero)"
-    );
+    for (k, u) in basis.iter().enumerate() {
+        assert_eq!(u.len(), relations.len(), "basis vector {k} has one entry per relation");
+        assert!(u.iter().any(|c| !c.is_zero(&ell)), "basis vector {k} must be non-zero");
 
-    // For each relation row, verify the dot product with the kernel is 0 mod ℓ.
-    // dot(row_i, v) = Σ_{(j, e_j) in exponents_i} e_j * v[j]  (mod ℓ)
-    for (i, rel) in relations.iter().enumerate() {
-        let mut dot = FpNaive::zero(&ell);
-        for (j, exp) in &rel.exponents {
-            let prod = exp.mul(&kernel[*j], &ell);
-            dot = dot.add(&prod, &ell);
+        // For every factor-base point j: Σᵢ uᵢ·e_ij ≡ 0 (mod ℓ).
+        for j in 0..strategy.fb_size() {
+            let mut sum = FpNaive::zero(&ell);
+            for (ui, rel) in u.iter().zip(&relations) {
+                sum = sum.add(&ui.mul(&rel.exponent(j, &ell), &ell), &ell);
+            }
+            assert!(
+                sum.is_zero(&ell),
+                "basis vector {k}: Σ uᵢ·e_i{j} = {sum:?}, expected 0 mod ℓ"
+            );
         }
-        assert!(
-            dot.is_zero(&ell),
-            "kernel check failed for relation {i} (a={}, b={}): \
-             dot product = {:?}, expected 0 mod ℓ",
-            rel.a,
-            rel.b,
-            dot
-        );
     }
+
+    // Completeness: dim(left kernel) = #relations − rank(E), vectors independent.
+    let dense = |rows: &[Vec<FpNaive>]| -> Vec<Vec<u64>> {
+        rows.iter()
+            .map(|r| r.iter().map(|c| c.to_uint().as_words()[0]).collect())
+            .collect()
+    };
+    let exponent_rows: Vec<Vec<u64>> = relations
+        .iter()
+        .map(|rel| {
+            (0..strategy.fb_size())
+                .map(|j| rel.exponent(j, &ell).to_uint().as_words()[0])
+                .collect()
+        })
+        .collect();
+    let rank_e = rank_mod_ell(exponent_rows, ell_u64);
+    assert_eq!(
+        basis.len(),
+        relations.len() - rank_e,
+        "kernel basis size must equal #relations − rank(E)"
+    );
+    assert_eq!(
+        rank_mod_ell(dense(&basis), ell_u64),
+        basis.len(),
+        "basis vectors must be linearly independent"
+    );
 }
 
 // ─── KAT 11: ecdlp_agreement (decisive cross-check) ─────────────────────────
@@ -725,16 +767,14 @@ fn kernel_correctness() {
 /// same toy instance.
 ///
 /// The index-calculus recovered `x = log_G(Q) mod ℓ` must satisfy `k % ℓ == x` where
-/// `k` is the full discrete log returned by the frozen
+/// `k` is the full discrete log returned by the
 /// `rho::ecdlp::pohlig::solve_ecdlp_composite` oracle. Also verifies the ℓ-subgroup
 /// projection: `x·G_ℓ = Q_ℓ`.
 ///
-/// # Principle-4 annotation: index calculus over `E(F_p)` at toy scale
+/// # Scale
 ///
-/// Index calculus over `E(F_p)` is the mechanism. The asymptotic win (index calculus
-/// faster than Pollard-rho) requires the extension-field setting `E(F_{p^n})` — the
-/// genuine Gaudry–Diem setting. Over `E(F_p)` at toy scale, index calculus is NOT
-/// faster than Pollard-rho. The mechanism is demonstrated, not the asymptotic advantage.
+/// Over `E(F_p)` at toy scale this demonstrates the index-calculus mechanism, not its
+/// asymptotic advantage over Pollard rho, which needs `E(F_{p^n})`.
 ///
 /// # Cross-check design
 ///
@@ -758,8 +798,8 @@ fn ecdlp_agreement() {
 
     // ── Step 1: Index-calculus DLP recovery ──────────────────────────────────
     let x = index_calculus_dlp(g.clone(), q.clone(), &strategy)
-        .expect("index_calculus_dlp should not error for the toy fixture")
-        .expect("index_calculus_dlp should recover log_G(Q) mod ℓ for Q = 7·G");
+        .expect("index_calculus_dlp should recover log_G(Q) mod ℓ for Q = 7·G")
+        .x;
 
     // x must be in [0, ℓ).
     let ell_u64 = strategy.ell.as_words()[0];
@@ -812,9 +852,9 @@ fn ecdlp_agreement() {
 /// the index-calculus recovered `x = log_G(Q) mod ℓ` satisfies `x·G_ℓ = Q_ℓ` where
 /// `G_ℓ = (n/ℓ)·G` and `Q_ℓ = (n/ℓ)·Q` are the ℓ-order subgroup projections.
 ///
-/// This guards the DLP recovery step (the Gaussian elimination over F_ℓ) independently
-/// of the rho oracle. The check is: the recovered `x` is the correct discrete log in
-/// the ℓ-order subgroup, verified by the frozen group law.
+/// This guards the DLP recovery step (the relation combination) independently of the rho
+/// oracle. The check is: the recovered `x` is the correct discrete log in the ℓ-order
+/// subgroup, verified by the group law.
 #[test]
 fn recovery_soundness() {
     let strategy = IndexCalcStrategy::toy().expect("toy strategy should build");
@@ -824,8 +864,8 @@ fn recovery_soundness() {
     let q = scalar_mul_u64(curve, &g, 7);
 
     let x = index_calculus_dlp(g.clone(), q.clone(), &strategy)
-        .expect("index_calculus_dlp should not error")
-        .expect("index_calculus_dlp should recover log_G(Q) mod ℓ");
+        .expect("index_calculus_dlp should recover log_G(Q) mod ℓ")
+        .x;
 
     let n_u64 = curve.n.as_words()[0];
     let ell_u64 = strategy.ell.as_words()[0];
@@ -862,12 +902,9 @@ fn recovery_soundness() {
 ///
 /// Runs the complete pipeline (factor base → decomposition → collection → linalg →
 /// recovery) on the toy fixture for Q = 7·G and verifies:
-/// - The pipeline returns `Ok(Some(x))` (no error, non-trivial result).
+/// - The pipeline returns `Ok(solution)` (no error).
 /// - `x` is in `[0, ℓ)` (a valid F_ℓ element).
 /// - `x·G_ℓ = Q_ℓ` (the ℓ-subgroup projection check — the primary soundness signal).
-///
-/// This is the decisive pipeline KAT: the index-calculus solver is complete and
-/// mechanism-correct at toy scale.
 #[test]
 fn end_to_end() {
     let strategy = IndexCalcStrategy::toy().expect("toy strategy should build");
@@ -884,9 +921,7 @@ fn end_to_end() {
         result
     );
 
-    let x = result.unwrap().expect(
-        "end_to_end: index_calculus_dlp returned None — pipeline failed to recover log_G(Q) mod ℓ"
-    );
+    let x = result.unwrap().x;
 
     let ell_u64 = strategy.ell.as_words()[0];
     assert!(
@@ -908,67 +943,191 @@ fn end_to_end() {
     );
 }
 
-// ─── KAT 14: principle4_annotation ──────────────────────────────────────────
+// ─── KAT 14: recovers_every_residue ──────────────────────────────────────────
 
-/// Principle-4 annotation: records the index-calculus mechanism boundary.
+/// Evaluate `uᵀa`, `uᵀb` over F_ℓ from a solution's provenance.
+fn combination_sums(
+    solution: &rho::index_calculus::IndexCalcSolution,
+    ell: &Uint<4>,
+) -> (FpNaive, FpNaive) {
+    let mut ua = FpNaive::zero(ell);
+    let mut ub = FpNaive::zero(ell);
+    for (u, rel) in solution.combination.iter().zip(&solution.relations) {
+        ua = ua.add(&u.mul(&FpNaive::from_u64(rel.a, ell), ell), ell);
+        ub = ub.add(&u.mul(&FpNaive::from_u64(rel.b, ell), ell), ell);
+    }
+    (ua, ub)
+}
+
+/// For every `k ∈ 0..60`, `Q = k·G` recovers `x = k mod ℓ` through a combination with
+/// `uᵀb ≢ 0`, and the identity `Σᵢ uᵢ·(aᵢ + bᵢ·x) ≡ 0 (mod ℓ)` holds.
 ///
-/// This test is a load-bearing annotation, not a computation. It records the
-/// principle-4 boundary for the index-calculus solver over `E(F_p)`:
-///
-/// - Index calculus over `E(F_p)` is the mechanism.
-/// - The asymptotic win (index calculus faster than Pollard-rho) requires the
-///   extension-field setting `E(F_{p^n})` — the genuine Gaudry–Diem setting.
-/// - Over `E(F_p)` at toy scale, index calculus is NOT faster than Pollard-rho.
-/// - The toy `F_p`/`m`/`ℓ` are a principle-4 boundary: mechanism-correct,
-///   asymptotic win NOT observable.
-/// - The `E(F_{p^n})` asymptotic-win case and the GHS-coupled end-to-end attack
-///   are deferred to later sub-tracks.
-///
-/// The assertion verifies the toy fixture constants that define the boundary:
-/// - ℓ = 5 (prime-order subgroup modulus, the linear-algebra field).
-/// - n = 60 = 2²·3·5 (composite group order — index calculus works mod ℓ, not mod n).
-/// - m = 2 (decomposition arity — the smallest non-trivial arity, using S_3).
-/// - p = 47 (the toy prime field — crypto-scale would need p >> 2^128).
+/// The identity is evaluated explicitly from the returned provenance (`combination` and
+/// `relations`), and `u` is checked to annihilate the exponent rows, so the test rechecks
+/// the mechanism rather than just the final answer. The cost is small (a toy group of
+/// order 60), so it stays on the default path.
 #[test]
-fn principle4_annotation() {
-    // PRINCIPLE-4 BOUNDARY: index calculus over E(F_p) is the mechanism.
-    // The asymptotic win requires E(F_{p^n}); at toy scale index calculus is NOT
-    // faster than Pollard-rho. Mechanism-correct, asymptotic win NOT observable.
-    //
-    // The toy fixture constants that define the boundary:
+fn recovers_every_residue() {
+    let strategy = IndexCalcStrategy::toy().expect("toy strategy should build");
+    let curve = &strategy.curve;
+    let ell = ell();
+    let g: AffinePoint<FpNaive> = curve.generator();
+    let n = curve.n.as_words()[0];
+    assert_eq!(n, 60);
+
+    for k in 0..n {
+        let q = scalar_mul_u64(curve, &g, k);
+        let solution = index_calculus_dlp(g.clone(), q, &strategy)
+            .unwrap_or_else(|e| panic!("k = {k}: index_calculus_dlp failed: {e}"));
+
+        assert_eq!(solution.x, k % TOY_ELL, "k = {k}: x should be k mod ℓ");
+        assert_eq!(solution.combination.len(), solution.relations.len(), "k = {k}");
+
+        let (ua, ub) = combination_sums(&solution, &ell);
+        assert!(!ub.is_zero(&ell), "k = {k}: the combination used must have uᵀb ≢ 0");
+
+        // Σᵢ uᵢ·(aᵢ + bᵢ·x) = uᵀa + x·uᵀb ≡ 0, evaluated term by term.
+        let x = FpNaive::from_u64(solution.x, &ell);
+        let mut identity = FpNaive::zero(&ell);
+        for (u, rel) in solution.combination.iter().zip(&solution.relations) {
+            let a = FpNaive::from_u64(rel.a, &ell);
+            let b = FpNaive::from_u64(rel.b, &ell);
+            identity = identity.add(&u.mul(&a.add(&b.mul(&x, &ell), &ell), &ell), &ell);
+        }
+        assert!(identity.is_zero(&ell), "k = {k}: Σ uᵢ(aᵢ + bᵢx) should be 0 mod ℓ");
+        assert_eq!(identity, ua.add(&x.mul(&ub, &ell), &ell), "k = {k}: identity expansion");
+
+        // The combination cancels every factor-base logarithm: Σᵢ uᵢ·e_ij ≡ 0 for each j.
+        for j in 0..strategy.fb_size() {
+            let mut sum = FpNaive::zero(&ell);
+            for (u, rel) in solution.combination.iter().zip(&solution.relations) {
+                sum = sum.add(&u.mul(&rel.exponent(j, &ell), &ell), &ell);
+            }
+            assert!(sum.is_zero(&ell), "k = {k}: combination must annihilate column {j}");
+        }
+    }
+}
+
+// ─── KAT 15: undetermined_when_no_combination_sees_b ─────────────────────────
+
+/// Honest relations that all have `b ≡ 0 (mod ℓ)` give `Undetermined`.
+///
+/// Every `u` has `uᵀb ≡ 0` for such a set, so no combination can reveal `x`. The relations
+/// are real (drawn from the enumeration, kept only when `b ≡ 0 mod ℓ`) and there are more
+/// than `|FB|` of them, so the left kernel is non-trivial and the outcome comes from the
+/// `uᵀb` condition rather than from an empty kernel.
+#[test]
+fn undetermined_when_no_combination_sees_b() {
+    let strategy = IndexCalcStrategy::toy().expect("toy strategy should build");
+    let curve = &strategy.curve;
+    let g: AffinePoint<FpNaive> = curve.generator();
+    let q = scalar_mul_u64(curve, &g, 7);
+
+    let mut stream = RelationStream::new(g.clone(), q.clone(), &strategy);
+    let mut relations: Vec<Relation> = Vec::new();
+    while relations.len() < TOY_FB_SIZE + 2 {
+        let rel = stream.next_relation().expect("enough relations with b ≡ 0 mod ℓ");
+        if rel.b % TOY_ELL == 0 {
+            relations.push(rel);
+        }
+    }
+
+    let basis = solve_ek_linalg(&relations, &strategy).unwrap();
+    assert!(!basis.is_empty(), "more relations than factor-base points → non-trivial kernel");
+
+    assert_eq!(
+        recover_log_from_relations(&relations, &strategy, &g, &q),
+        Err(IndexCalcError::Undetermined { relations: relations.len() })
+    );
+}
+
+// ─── KAT 16: corrupted_relation_is_inconsistent ──────────────────────────────
+
+/// One corrupted relation gives `Inconsistent`.
+///
+/// Starting from honest relations, picks a relation `i` that appears (`uᵢ ≠ 0`) in some
+/// basis vector with `uᵀb ≢ 0`, and shifts its recorded `a` by one. For such a `u` the
+/// recovered `x` moves by `−uᵢ/uᵀb ≠ 0`, so the result must disagree with another
+/// combination or fail the `x·G_ℓ = Q_ℓ` check. It must never come back as a success or as
+/// a different failure class.
+#[test]
+fn corrupted_relation_is_inconsistent() {
+    let strategy = IndexCalcStrategy::toy().expect("toy strategy should build");
+    let curve = &strategy.curve;
+    let ell = ell();
+    let g: AffinePoint<FpNaive> = curve.generator();
+    let q = scalar_mul_u64(curve, &g, 7);
+
+    // Honest relations: a few batches so the kernel has several vectors.
+    let mut stream = RelationStream::new(g.clone(), q.clone(), &strategy);
+    let mut relations: Vec<Relation> = Vec::new();
+    while relations.len() < 2 * (TOY_FB_SIZE + 1) {
+        relations.push(stream.next_relation().expect("enough relations"));
+    }
+    let honest = recover_log_from_relations(&relations, &strategy, &g, &q)
+        .expect("the honest relations recover x");
+    assert_eq!(honest.x, 7 % TOY_ELL);
+
+    // Find a relation that some x-revealing basis vector actually uses.
+    let basis = solve_ek_linalg(&relations, &strategy).unwrap();
+    let used = (0..relations.len())
+        .find(|&i| {
+            basis.iter().any(|u| {
+                let ub = u.iter().zip(&relations).fold(FpNaive::zero(&ell), |acc, (c, r)| {
+                    acc.add(&c.mul(&FpNaive::from_u64(r.b, &ell), &ell), &ell)
+                });
+                !ub.is_zero(&ell) && !u[i].is_zero(&ell)
+            })
+        })
+        .expect("some relation is used by an x-revealing combination");
+
+    let mut corrupted = relations.clone();
+    corrupted[used].a += 1;
+    assert_eq!(
+        recover_log_from_relations(&corrupted, &strategy, &g, &q),
+        Err(IndexCalcError::Inconsistent),
+        "corrupting relation {used} must be detected"
+    );
+}
+
+// ─── KAT 17: toy_fixture_parameters ──────────────────────────────────────────
+
+/// The toy fixture constants that bound what this solver demonstrates.
+///
+/// Index calculus here recovers `log_G(Q) mod ℓ`, not mod `n`, on a fixture far too small
+/// for the asymptotic comparison with Pollard rho (which needs `E(F_{p^n})`): the tests show
+/// the mechanism, not the advantage.
+///
+/// - ℓ = 5 (prime-order subgroup modulus, the linear-algebra field), with ℓ ∥ n.
+/// - n = 60 = 2²·3·5 (composite group order — the log is recovered mod ℓ, not mod n).
+/// - m = 2 (decomposition arity, using S_3).
+/// - p = 47.
+#[test]
+fn toy_fixture_parameters() {
     let strategy = IndexCalcStrategy::toy().expect("toy strategy should build");
     let curve = &strategy.curve;
 
-    // ℓ = 5: the prime-order subgroup modulus (the linear-algebra field F_ℓ).
-    // The index calculus recovers log_G(Q) mod ℓ, NOT mod n.
-    // Full log_G(Q) mod n would require CRT over all prime-power factors of n — out of scope.
     let ell_u64 = strategy.ell.as_words()[0];
     assert_eq!(ell_u64, 5, "toy ℓ should be 5 (the largest prime factor of n = 60)");
 
-    // n = 60 = 2²·3·5: composite group order.
-    // Index calculus over E(F_p) with composite n works mod ℓ (a prime factor).
     let n_u64 = curve.n.as_words()[0];
     assert_eq!(n_u64, 60, "toy n should be 60 = 2²·3·5");
     assert_eq!(n_u64 % ell_u64, 0, "ℓ must divide n");
+    assert_ne!((n_u64 / ell_u64) % ell_u64, 0, "ℓ divides n exactly once, so the ℓ-Sylow is cyclic");
 
-    // m = 2: decomposition arity (the smallest non-trivial arity, using S_3).
-    // Crypto-scale index calculus uses larger m (Gröbner-basis decomposition).
-    assert_eq!(strategy.m, 2, "toy m should be 2 (principle-4 boundary: native enumeration)");
+    assert_eq!(strategy.m, 2, "toy m should be 2");
 
-    // p = 47: the toy prime field.
-    // Crypto-scale would need p >> 2^128; the asymptotic win needs E(F_{p^n}).
     let p_u64 = curve.p.as_words()[0];
     assert_eq!(p_u64, 47, "toy p should be 47 (the semaev_toy prime field)");
 
-    // FB_SIZE = 6: the factor-base size.
-    // Over-determinable at m = 2: the collection target is ≥ FB_SIZE + 1 = 7 relations.
+    // The collection target is fb_size + 1 relations.
     assert_eq!(
         strategy.fb_size(),
         TOY_FB_SIZE,
         "toy FB_SIZE should be {TOY_FB_SIZE}"
     );
 
-    // Verify the ℓ-order subgroup generator has order exactly ℓ.
+    // The ℓ-order subgroup generator has order exactly ℓ.
     let g_ell = strategy.subgroup_generator();
     assert!(!g_ell.is_infinity(), "G_ℓ = (n/ℓ)·G should not be ∞");
     let ell_g_ell = curve.scalar_mul(&g_ell, &strategy.ell);
