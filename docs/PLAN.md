@@ -227,7 +227,7 @@ Prose invariants: relations hold mod ℓ because ℓ ∥ n; x comes only from a 
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
 | 1 | Recover the ECDLP exponent from finite-precision Fourier outcomes | done | 89b0d59 | C-ShorExtraction |
-| 2 | Report Shor ECDLP measurement evidence without exhaustive fallback | pending | | |
+| 2 | Report Shor ECDLP measurement evidence without exhaustive fallback | done | 2cb56f3 | C-ShorSolve |
 | 3 | Recover the index-calculus log from a relation combination | pending | | |
 | 4 | Correct the Shor ECDLP and index-calculus exposition ◆ | pending | | |
 | 5 | Anneal cleanup (skippable) | pending | | |
@@ -254,6 +254,24 @@ scratch test; not tested).
 Texture: `primary_success_probability` finds the log by classical scan of 0..r and panics if q is
 outside ⟨g⟩, which is acceptable as a test oracle but not a solver path. The row-1 commit body
 landed unwrapped (committer `-m` misuse); history is not rewritten by the driver.
+
+### 2 — 2026-11-08
+Discovery/flex: C-ShorSolve frozen as specified, plus one additive public item not in the contract:
+`pub const DEFAULT_MAX_ATTEMPTS = 8` (≈0.36⁸ ≈ 3·10⁻⁴ exhaustion probability from row 1's per-k
+probabilities). Attempt n runs the circuit at `seed.wrapping_add(n)`; `Measurement.seed` is that
+circuit seed, `attempt` is zero-based, and `AttemptsExhausted.attempts` equals `max_attempts`
+(budget 0 → `attempts: 0`). Seed 0 extracts correctly at attempt 0 for k ∈ {3,5,7,9,12} (searched
+seeds 0..16, nothing re-selected); the exhaustion KAT is k=3, seed 2, budget 1 (pair (2,11) → 11).
+Affected: C-ShorSolve (docs in row 4 may cite `DEFAULT_MAX_ATTEMPTS`).
+Deferred: yes — (a) the two `rho_crosscheck_k3`/`k7` tests are ignored with a stated reason that
+they are cheap (~0.2 s) and merely grouped off the default path; row 4/5 may ask whether they
+belong on the default path (they are in-workspace cross-checks, not external-tool oracles).
+(b) Stale plan labels (`C-PointAdd`, `C-ECDLPSolve`) survive outside row 1/2's expected files:
+`shor/src/lib.rs:26,30,42`, `shor/src/curve/mod.rs:8,302,304`, `shor/src/ecc/mod.rs:29,131`. They
+hit the anneal denylist and the lib.rs:42 line describes the `solve_ecdlp` driver; the ◆ anneal
+gate will find them and they fall to the anneal-fix or row 5 (additive, outside the declared arc
+files: surface, do not absorb silently).
+Texture: default-path ecdlp_kat now costs ~115 s debug; ignored suite ~360 s.
 
 ## Discoveries & risks
 
