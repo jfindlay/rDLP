@@ -121,6 +121,15 @@ To run them:
 cargo test -- --ignored
 ```
 
-once the corresponding oracle binary is on `PATH`. Never promote an oracle test onto the default
-test path, and never substitute a benchmark run for a test run — a benchmark measures wall-clock
-performance, not correctness.
+once the corresponding oracle binary is on `PATH`. A single oracle suite can be run on its own; for
+example, the Dedekind index criterion and degree-one prime report are cross-checked against PARI/GP
+(`gp`) with:
+
+```sh
+cargo test -p shared-numfield --test dedekind_pari_oracle_kat -- --ignored
+```
+
+These tests fail, rather than skip, when `gp` is missing or reports an error.
+
+Never promote an oracle test onto the default test path, and never substitute a benchmark run for a
+test run — a benchmark measures wall-clock performance, not correctness.

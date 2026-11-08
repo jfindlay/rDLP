@@ -621,9 +621,9 @@ gives T = 1 at p = 2:
 - T = gcd(1, x, x) = 1.
 
 So p = 2 does not divide [ℤ_K : ℤ[√2]]. This is correct: ℤ[√2] is already the full ring of
-integers of ℚ(√2) — it is a PID, and the prime 2 is totally ramified (2 = (√2)² up to a unit)
-but ℤ[√2] is already maximal at 2. The prime 2 is bad (it divides the discriminant) but does not
-divide the index.
+integers of ℚ(√2), whose discriminant is 8 = disc(f), so the index is 1. The prime 2 is totally
+ramified (2 = (√2)² up to a unit) yet ℤ[√2] is maximal at 2. The prime 2 is bad (it divides the
+discriminant) but does not divide the index.
 
 Contrast f = x² − 12 at p = 2, where α = 2√3. Again f̄ = x², ḡ = h̄ = x, g = h = x, but now
 F = (f − x²)/2 = −6, so F̄ = 0 and T = gcd(0, x, x) = x has degree 1. Here 2 divides the index:
@@ -639,6 +639,19 @@ prime and the obstruction T. `IndexTest::divides_index` is true iff deg T > 0. E
 
 `dedekind_factor` (§8) stores this test as the `index` of its report, next to `is_bad_prime`.
 `index.divides_index()` implies `is_bad_prime`, never the other way round.
+
+### Cross-checking against PARI/GP
+
+The opt-in oracle suite `dedekind_pari_oracle_kat.rs` (run with `cargo test -p shared-numfield
+--test dedekind_pari_oracle_kat -- --ignored`; it fails if `gp` is missing) compares the criterion
+and the report with PARI/GP on irreducible fixtures of degrees 2–4 at p ∈ {2, 3, 5, 7}. PARI
+computes v_p([ℤ_K : ℤ[α]]) = (v_p(disc f) − v_p(disc K)) / 2 from `poldisc` and `nfdisc`, and
+`divides_index` must hold exactly when it is positive. Where p does not divide the index,
+`idealprimedec` gives the true factorisation of (p) in ℤ_K: each degree-one prime is matched to a
+report entry by the residue r with `idealval(nf, x − r, 𝔭) > 0`, and its ramification index must be
+the entry's multiplicity, while Σ eᵢfᵢ over the primes with fᵢ > 1 must be `nonlinear_degree`.
+Whether or not p divides the index, the listed roots and multiplicities must be those of `factormod`
+applied to f, since that is all the report claims at an index-dividing prime.
 
 ### Beyond the criterion: Round 2
 
@@ -760,6 +773,11 @@ each one verifies. All tests are in `shared/numfield/tests/`.
 | `index_not_divisible_cyclotomic_5_at_5` | `dedekind_kat.rs` | totally ramified f̄ = (x−1)⁴ yet T = 1: ℤ[ζ₅] is maximal |
 | `index_not_divisible_at_good_primes` | `dedekind_kat.rs` | p ∤ disc(f) gives T = 1 |
 | `index_test_rejects_invalid_polynomials` | `dedekind_kat.rs` | non-monic input is `NotMonic`; zero or constant input is `ConstantPolynomial` |
+| `kat_pari_dedekind_fixtures_are_irreducible_and_monic` | `dedekind_pari_oracle_kat.rs` | (ignored; needs `gp`) every oracle fixture is monic and `polisirreducible` in PARI, so the criterion's precondition holds |
+| `kat_pari_dedekind_index_criterion_matches_the_index_valuation` | `dedekind_pari_oracle_kat.rs` | (ignored; needs `gp`) `divides_index` ⇔ v_p([ℤ_K : ℤ[α]]) > 0, with the valuation from `poldisc`/`nfdisc`; `is_bad_prime` ⇔ p ∣ disc(f); both index-dividing and bad-but-maximal primes occur |
+| `kat_pari_dedekind_report_lists_the_roots_of_the_reduction` | `dedekind_pari_oracle_kat.rs` | (ignored; needs `gp`) the report's roots and multiplicities are the linear factors of `factormod(f, p)`, and Σ multiplicity + `nonlinear_degree` = deg f, at every tested p |
+| `kat_pari_dedekind_report_matches_idealprimedec_when_p_does_not_divide_the_index` | `dedekind_pari_oracle_kat.rs` | (ignored; needs `gp`) degree-one primes (matched by `idealval(nf, x − r, 𝔭) > 0`) have e = multiplicity, and Σ e·f over f > 1 = `nonlinear_degree`, including ramified-but-maximal primes |
+| `kat_pari_dedekind_report_claims_only_the_reduction_when_p_divides_the_index` | `dedekind_pari_oracle_kat.rs` | (ignored; needs `gp`) at primes dividing the index the report asserts only f̄'s linear factors and the degree sum, including inseparable f̄ and a repeated irreducible quadratic factor |
 | `kat_prime_modulus_accepts_small_and_boundary_primes` | `fp_poly_kat.rs` | 2, 3, 5, 7, 2³¹−1, 2⁶¹−1 and 2⁶⁴−59 are accepted as moduli |
 | `kat_prime_modulus_rejects_units_and_composites` | `fp_poly_kat.rs` | 0, 1, 4, 9, 561 and 2⁶⁴−1 are rejected with `NotPrime` |
 | `kat_prime_modulus_rejects_strong_pseudoprimes` | `fp_poly_kat.rs` | each listed strong pseudoprime equals an explicit product of factors, so it is composite independently of Miller–Rabin |
