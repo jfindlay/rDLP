@@ -228,7 +228,7 @@ Prose invariants: relations hold mod ℓ because ℓ ∥ n; x comes only from a 
 |---|---------|--------|--------|-------|
 | 1 | Recover the ECDLP exponent from finite-precision Fourier outcomes | done | 89b0d59 | C-ShorExtraction |
 | 2 | Report Shor ECDLP measurement evidence without exhaustive fallback | done | 2cb56f3 | C-ShorSolve |
-| 3 | Recover the index-calculus log from a relation combination | pending | | |
+| 3 | Recover the index-calculus log from a relation combination | done | 15cdec6 | C-IndexCalcRecovery |
 | 4 | Correct the Shor ECDLP and index-calculus exposition ◆ | pending | | |
 | 5 | Anneal cleanup (skippable) | pending | | |
 
@@ -272,6 +272,33 @@ hit the anneal denylist and the lib.rs:42 line describes the `solve_ecdlp` drive
 gate will find them and they fall to the anneal-fix or row 5 (additive, outside the declared arc
 files: surface, do not absorb silently).
 Texture: default-path ecdlp_kat now costs ~115 s debug; ignored suite ~360 s.
+
+### 3 — 2026-11-08
+Discovery/flex: C-IndexCalcRecovery frozen with these deviations, all inside the six expected files
+and none flagged by the subagent as contract-invalidating: (a) `IndexCalcError::NoKernel` is also
+removed (the full basis can legitimately be empty, so `solve_ek_linalg` returns `Ok(vec![])`; the
+contract text names only `RecoveryFailed` as removed). (b) New public items `RelationStream`
+(`collect`, re-exported) and `recover_log_from_relations` (`solve`, not re-exported; fixed-relation-
+set recovery needed to test `Undetermined`/`Inconsistent`). (c) `Inconsistent` also fires when a
+basis vector has uᵀb ≡ 0 but uᵀa ≢ 0 (honest relations make uᵀa ≡ 0). (d) Relation enumeration order
+changed from a-outer/b-inner to anti-diagonals (a+b = 1, 2, …): the old order kept b inside the span
+of exponent columns and hid x (some k needed >90 relations; the 60-k KAT cost ~135 s vs ~3 s now);
+the enumeration bound is unchanged (a ∈ [1,n), b ∈ [0,n)). Extension scheme: 7 = fb_size+1 relations
+initially, then +7 per round until some u has uᵀb ≢ 0 or the stream is drained.
+`block_wiedemann_fl` returns a complete basis here (dense exact RREF in `find_right_kernel`, one
+vector per free column), so `Undetermined` is certified; it is not a Wiedemann–Krylov iteration at
+this scale and the rustdoc says so.
+Affected: C-IndexCalcRecovery (error enum shape: `NoKernel` gone; row 4 docs must not mention it).
+Deferred: yes — row 4's boundary fork should decide whether the `NoKernel` removal and the extra
+`Inconsistent` condition need to be written back into the contract text. Doc claims: the
+cyclic-ℓ-Sylow claim is checked only indirectly (x·G_ℓ == Q_ℓ for every k and `toy_fixture_parameters`
+asserting ℓ ∥ n); `Undetermined` is unreachable for honest Q on the toy fixture and is exercised
+only via the b ≡ 0 construction and a drained-stream unit test. Row 4 must not state either more
+strongly. Leaked labels remain outside the six files: "Principle-4" in `strategy.rs`, `decompose.rs`,
+gnfs linalg/sieve, `semaev/*`, `pairing/mov.rs`, `ghs_kat.rs`; "C-EWBench" in `attacks.rs` comments;
+"frozen" wording in untouched KATs. All hit the anneal denylist and are outside the declared arc
+footprint — surface at the ◆ gate, do not absorb silently.
+Texture: coverage 93.78% after row 3; `index_calculus/mod.rs` at 77% from error-enum Display impls.
 
 ## Discoveries & risks
 
