@@ -12,6 +12,7 @@
 //!
 //! Primality is decided deterministically for all of `u64` by [`is_prime_u64`].
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use num_bigint::{BigInt, BigUint};
@@ -640,6 +641,72 @@ impl FpPoly {
             return false;
         }
         matches!(self.gcd(&self.derivative()), Ok(g) if g.degree() == Some(0))
+    }
+
+    /// Square-free decomposition: `f = lc(f) · ∏ sᵢ^eᵢ`.
+    ///
+    /// Each `sᵢ` is monic, of positive degree, squarefree, and pairwise coprime to the others; the
+    /// pairs are in strictly ascending `eᵢ`, one entry per distinct multiplicity (so `sᵢ` is the
+    /// product of all irreducible factors of exact multiplicity `eᵢ`). A nonzero constant gives an
+    /// empty list.
+    ///
+    /// Yun's algorithm peels off the parts whose multiplicity is not divisible by p. What remains
+    /// of `gcd(f, f')` is then a p-th power `h(x)^p` (Frobenius fixes `F_p`, so `h` takes the
+    /// coefficients of `f` at indices divisible by p) and is decomposed recursively, multiplying
+    /// its multiplicities by p. A polynomial with `f' = 0` is handled the same way from the start.
+    ///
+    /// # Errors
+    ///
+    /// [`FpPolyError::ZeroPolynomial`] for the zero polynomial.
+    pub fn squarefree_decomposition(&self) -> Result<Vec<(Self, usize)>, FpPolyError> {
+        let mut parts = BTreeMap::new();
+        self.to_monic()?.collect_squarefree_parts(1, &mut parts)?;
+        Ok(parts.into_iter().map(|(e, s)| (s, e)).collect())
+    }
+
+    /// Monic product of the distinct irreducible factors (`one` for a nonzero constant).
+    ///
+    /// # Errors
+    ///
+    /// [`FpPolyError::ZeroPolynomial`] for the zero polynomial.
+    pub fn radical(&self) -> Result<Self, FpPolyError> {
+        self.squarefree_decomposition()?
+            .iter()
+            .try_fold(Self::one(self.modulus), |acc, (s, _)| acc.mul(s))
+    }
+
+    /// Accumulate the squarefree parts of the monic `self`, scaling every multiplicity by `scale`.
+    fn collect_squarefree_parts(
+        &self,
+        scale: usize,
+        parts: &mut BTreeMap<usize, Self>,
+    ) -> Result<(), FpPolyError> {
+        if self.degree().unwrap_or(0) == 0 {
+            return Ok(());
+        }
+        let m = self.modulus;
+        let mut c = self.gcd(&self.derivative())?;
+        let mut w = self.div_rem(&c)?.0;
+        let mut i = 1;
+        while w.degree() != Some(0) {
+            let y = w.gcd(&c)?;
+            let z = w.div_rem(&y)?.0;
+            if z.degree() != Some(0) {
+                let slot = parts.entry(i * scale).or_insert_with(|| Self::one(m));
+                *slot = slot.mul(&z)?;
+            }
+            c = c.div_rem(&y)?.0;
+            w = y;
+            i += 1;
+        }
+        if c.degree() != Some(0) {
+            // A p-th power. A modulus beyond `usize` cannot divide any exponent present, so the
+            // saturated stride keeps only the constant term, which the degree check excludes.
+            let stride = usize::try_from(m.get()).unwrap_or(usize::MAX);
+            let root = c.coeffs.iter().copied().step_by(stride).collect();
+            Self::from_reduced(m, root).collect_squarefree_parts(scale * stride, parts)?;
+        }
+        Ok(())
     }
 
     /// Rabin's exact irreducibility test.

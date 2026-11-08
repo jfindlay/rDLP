@@ -830,6 +830,27 @@ count. Exhausting the budget is a resource outcome, never evidence that roots ar
 is no resume: retry with a larger budget. For primes near 2⁶⁴ the budget turns an O(p) scan into a
 reported resource limit instead of a hang.
 
+### Square-free decomposition
+
+`squarefree_decomposition` writes f = lc(f) · ∏ sᵢ^eᵢ with each sᵢ monic, squarefree, of positive
+degree and pairwise coprime, listed with strictly ascending eᵢ; sᵢ is the product of every
+irreducible factor of f whose multiplicity is exactly eᵢ. `radical` is the product of the sᵢ.
+
+Over ℚ, Yun's algorithm alone suffices: c = gcd(f, f′) carries every factor to one power less, and
+repeatedly splitting w = f/c against c peels off the sᵢ in order. Over F_p it can miss factors,
+because the derivative of a factor of multiplicity divisible by p vanishes: if q^p divides f then
+q^p stays entirely inside c, with no trace in w. Yun's loop therefore returns only the parts whose
+multiplicity is prime to p, and what remains of c is a p-th power. Since Frobenius fixes F_p,
+h(x)^p = h(x^p) for every h over F_p, so that remainder is c = h(x^p) and h is read off by taking
+the coefficients of c at indices divisible by p. Decomposing h recursively and multiplying its
+multiplicities by p finishes the job. The same step handles f′ = 0 outright (then c = f).
+
+The mixed case is the one a Yun-only implementation gets wrong: x²(x+1)³(x+2)⁶ over F₃ yields x at
+multiplicity 2 from the main loop, and the remainder ((x+1)(x+2)²)³ yields x+1 at 3 and x+2 at 6
+from the recursion. Multiplicities from the main loop are never divisible by p, and those from the
+p-th-root levels have strictly increasing p-adic valuation, so no two levels produce the same
+multiplicity; entries are still merged by multiplicity defensively.
+
 ---
 
 ## 13. Residue Fields and Square Roots

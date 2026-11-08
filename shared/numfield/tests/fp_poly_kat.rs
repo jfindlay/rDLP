@@ -661,3 +661,104 @@ fn kat_root_enumeration_truncated() {
         other @ RootEnumeration::Complete { .. } => panic!("unexpected {other:?}"),
     }
 }
+
+// ─── square-free decomposition ───────────────────────────────────────────────
+
+/// `lc · ∏ sᵢ^eᵢ` by repeated multiplication: independent of `pow_mod`.
+fn recompose(lead: u64, parts: &[(FpPoly, usize)], m: PrimeModulus) -> FpPoly {
+    let mut acc = FpPoly::constant(m, lead);
+    for (s, e) in parts {
+        for _ in 0..*e {
+            acc = acc.mul(s).unwrap();
+        }
+    }
+    acc
+}
+
+/// Assert the structural contract of a decomposition of `f` (nonzero, positive degree or not).
+fn assert_decomposition_contract(f: &FpPoly, parts: &[(FpPoly, usize)]) {
+    let lead = f.leading_coeff().unwrap();
+    assert_eq!(&recompose(lead, parts, f.modulus()), f, "f = lc · ∏ sᵢ^eᵢ");
+    for (s, _) in parts {
+        assert!(s.is_monic() && s.degree().unwrap() > 0 && s.is_squarefree(), "{s:?}");
+    }
+    assert!(parts.windows(2).all(|w| w[0].1 < w[1].1), "multiplicities strictly ascending");
+    for (i, (a, _)) in parts.iter().enumerate() {
+        for (b, _) in &parts[i + 1..] {
+            assert_eq!(a.gcd(b).unwrap().degree(), Some(0), "pairwise coprime");
+        }
+    }
+}
+
+#[test]
+fn kat_squarefree_decomposition_small_characteristics() {
+    // x² over F_2: f' = 0, so f = (x)² via the p-th root.
+    assert_eq!(fp(2, &[0, 0, 1]).squarefree_decomposition(), Ok(vec![(fp(2, &[0, 1]), 2)]));
+    // x³ + 1 over F_3 is (x + 1)³ (Frobenius: the cross terms 3x² and 3x vanish).
+    assert_eq!(fp(3, &[1, 0, 0, 1]).squarefree_decomposition(), Ok(vec![(fp(3, &[1, 1]), 3)]));
+    // x²(x+1)³(x+2)⁶ over F_3: multiplicities 2 (prime to 3), 3 and 6 (multiples of 3).
+    let f = fp(3, &[0, 1]).mul(&fp(3, &[0, 1])).unwrap();
+    let f = f.mul(&recompose(1, &[(fp(3, &[1, 1]), 3), (fp(3, &[2, 1]), 6)], pm(3))).unwrap();
+    assert_eq!(
+        f.squarefree_decomposition(),
+        Ok(vec![(fp(3, &[0, 1]), 2), (fp(3, &[1, 1]), 3), (fp(3, &[2, 1]), 6)])
+    );
+    // x(x+1)⁵ over F_5: (x+1)⁵ = x⁵ + 1, so f = x⁶ + x with f' = x⁵ + 1 ≠ 0.
+    let f = fp(5, &[0, 1, 0, 0, 0, 0, 1]);
+    assert_eq!(
+        f.squarefree_decomposition(),
+        Ok(vec![(fp(5, &[0, 1]), 1), (fp(5, &[1, 1]), 5)])
+    );
+    // Same multiplicity shared by two different irreducibles merges into one entry:
+    // (x+1)²(x+2)² over F_5 is ((x+1)(x+2))².
+    let both = fp(5, &[1, 1]).mul(&fp(5, &[2, 1])).unwrap();
+    let f = both.mul(&both).unwrap();
+    assert_eq!(f.squarefree_decomposition(), Ok(vec![(both, 2)]));
+}
+
+#[test]
+fn kat_squarefree_decomposition_edge_inputs() {
+    // A squarefree polynomial is its own monic form with multiplicity 1; the leading
+    // coefficient is discarded: 3(x² + 1) over F_7 (x² + 1 has no roots mod 7).
+    let g = fp(7, &[1, 0, 1]);
+    assert_eq!(g.scale(3).squarefree_decomposition(), Ok(vec![(g.clone(), 1)]));
+    assert_eq!(g.radical(), Ok(g));
+    // Nonzero constants have no factors; the radical is 1.
+    let c = fp(7, &[4]);
+    assert_eq!(c.squarefree_decomposition(), Ok(vec![]));
+    assert_eq!(c.radical(), Ok(FpPoly::one(pm(7))));
+    // The zero polynomial is rejected.
+    let z = FpPoly::zero(pm(7));
+    assert_eq!(z.squarefree_decomposition(), Err(FpPolyError::ZeroPolynomial));
+    assert_eq!(z.radical(), Err(FpPolyError::ZeroPolynomial));
+    // (x+1)² over p = 2^61 − 1: f' = 2x + 2 ≠ 0, so the p-th-root path is not taken.
+    assert_eq!(
+        fp(P61, &[1, 2, 1]).squarefree_decomposition(),
+        Ok(vec![(fp(P61, &[1, 1]), 2)])
+    );
+    // Radical of x²(x+1)³(x+2)⁶ over F_3 is x(x+1)(x+2) = x³ + 2x (the product of all of F_3's
+    // linear factors is x³ − x).
+    let f = recompose(
+        2,
+        &[(fp(3, &[0, 1]), 2), (fp(3, &[1, 1]), 3), (fp(3, &[2, 1]), 6)],
+        pm(3),
+    );
+    assert_eq!(f.radical(), Ok(fp(3, &[0, -1, 0, 1])));
+}
+
+#[test]
+fn kat_squarefree_decomposition_exhaustive_small_fields() {
+    // Every nonzero polynomial up to the stated degree: structural contract, plus the radical
+    // being the squarefree monic product of the parts.
+    for (p, max_len) in [(2u64, 9u32), (3, 7), (5, 5), (7, 4)] {
+        for code in 1..p.pow(max_len) {
+            let coeffs: Vec<u64> = (0..max_len).map(|i| code / p.pow(i) % p).collect();
+            let f = FpPoly::from_coeffs(pm(p), &coeffs);
+            let parts = f.squarefree_decomposition().unwrap();
+            assert_decomposition_contract(&f, &parts);
+            let rad = f.radical().unwrap();
+            assert!(rad.is_monic() && rad.is_squarefree(), "p = {p}, f = {coeffs:?}");
+            assert_eq!(f.rem(&rad).unwrap(), FpPoly::zero(pm(p)), "radical divides f");
+        }
+    }
+}
