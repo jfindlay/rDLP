@@ -226,7 +226,7 @@ Prose invariants: relations hold mod ℓ because ℓ ∥ n; x comes only from a 
 
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
-| 1 | Recover the ECDLP exponent from finite-precision Fourier outcomes | pending | | |
+| 1 | Recover the ECDLP exponent from finite-precision Fourier outcomes | done | 89b0d59 | C-ShorExtraction |
 | 2 | Report Shor ECDLP measurement evidence without exhaustive fallback | pending | | |
 | 3 | Recover the index-calculus log from a relation combination | pending | | |
 | 4 | Correct the Shor ECDLP and index-calculus exposition ◆ | pending | | |
@@ -234,7 +234,26 @@ Prose invariants: relations hold mod ℓ because ℓ ∥ n; x comes only from a 
 
 ## Action-frame digest
 
-*(none yet)*
+### 1 — 2026-11-08
+Discovery/flex: The circuit distribution matched the Fourier-sum formula directly (natural bit
+order on c and d, sign ω^{-(ac+bd)}); no register-convention defect, `EXP_BITS` stays 4 and
+`qubit_budget_within_ceiling` holds. The inferred defect is confirmed: the old rule succeeded with
+probability only ~0.02–0.16 per measurement (k=2..12, from the same distribution), the new rule
+~0.64–0.66.
+Affected: C-ShorExtraction (frozen as specified; `extract_k_from_measurement` panics on c or d ≥ M
+rather than returning `None`, so `None` means exactly j ≡ 0; rounding ties go up, only tie is c=8
+at r=13).
+Deferred: yes — row 2 picks its default retry budget from these values (≈0.64 per attempt; the
+subagent suggested 8); row 4 may cite them only via the test that computes them
+(`primary_success_probability_positive_all_k`, ignored for cost; it asserts > 0, the numeric values
+are not asserted anywhere, so row 4 must label them as estimates or have a test compute them).
+Primary success probability per k (2..12): 0.644962, 0.638561, 0.638561, 0.637623, 0.644962,
+0.644962, 0.637623, 0.638561, 0.638561, 0.644962, 0.656824. Old rule (k=2..12): 0.0438, 0.1612,
+0.0201, 0.0780, 0.0315, 0.0438, 0.0780, 0.1612, 0.0201, 0.0315, 0.0473 (measured once in a deleted
+scratch test; not tested).
+Texture: `primary_success_probability` finds the log by classical scan of 0..r and panics if q is
+outside ⟨g⟩, which is acceptable as a test oracle but not a solver path. The row-1 commit body
+landed unwrapped (committer `-m` misuse); history is not rewritten by the driver.
 
 ## Discoveries & risks
 
