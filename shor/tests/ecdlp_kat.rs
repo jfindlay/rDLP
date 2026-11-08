@@ -1,21 +1,26 @@
-//! Known-answer tests for Shor's ECDLP algorithm (C-ECDLPSolve).
+//! Known-answer tests for Shor's ECDLP algorithm.
 //!
 //! # What is tested
 //!
 //! 1. **Order/group-law KATs** — classical verification that the toy curve has the expected
 //!    structure: `r·G = ∞`, `k·G = Q` for the chosen discrete-log instances.
 //!
-//! 2. **2D-lattice extraction KATs** — a known measured pair `(a', b')` recovers the correct
-//!    `k` via `b'·k ≡ −a' (mod r)`. Deterministic classical KAT, no quantum circuit needed.
+//! 2. **Dual-lattice extraction KATs** — exact peak pairs `(c, d)` with `c/M = j/r`,
+//!    `d/M = l/r`, `l ≡ k·j (mod r)` recover `k`; `j ≡ 0` yields `None`; out-of-range inputs
+//!    are rejected. Deterministic classical KATs, no quantum circuit needed.
 //!
-//! 3. **End-to-end ECDLP** — `solve_ecdlp(G, Q=k·G)` recovers `k` for a fixture of `k` values
+//! 3. **Outcome distribution KATs** — the exact exponent-register distribution computed from
+//!    circuit amplitudes equals the classical Fourier-sum formula, and the extraction rule has
+//!    positive success probability.
+//!
+//! 4. **End-to-end ECDLP** — `solve_ecdlp(G, Q=k·G)` recovers `k` for a fixture of `k` values
 //!    on the toy curve, with a fixed measurement seed so the run is reproducible. The assertion
 //!    checks `recovered_k · G == Q` (relationship-preservation).
 //!
-//! 4. **rho cross-check** (`#[ignore]`-gated) — `rho::ecdlp::solve_brent` on the equivalent
+//! 5. **rho cross-check** (`#[ignore]`-gated) — `rho::ecdlp::solve_brent` on the equivalent
 //!    `rho::Curve` returns a `k'` satisfying `k'·G = Q` for the same instances.
 //!
-//! # Toy curve parameters (C-PointAdd freeze)
+//! # Toy curve parameters
 //!
 //! ```text
 //! p = 7,  a = 0,  b = 3,  y² = x³ + 3 mod 7
@@ -37,9 +42,13 @@
 //! - 4 (a-register) + 4 (b-register) + 3 (x) + 3 (y) + 3 (λ scratch) = 17
 //! - Well within the ~25-qubit simulator ceiling (principle 4).
 
+use std::f64::consts::PI;
+use std::sync::OnceLock;
+
 use shor::curve::{self, G, Point, R};
 use shor::ecdlp::{
-    extract_k_from_measurement, run_period_finding_circuit, solve_ecdlp, EXP_BITS, TOTAL_QUBITS,
+    exponent_outcome_distribution, extract_k_from_measurement, primary_success_probability,
+    run_period_finding_circuit, solve_ecdlp, EXP_BITS, TOTAL_QUBITS,
 };
 
 // ── KAT group 1: order/group-law KATs (classical verification) ────────────────
@@ -118,90 +127,195 @@ fn qubit_budget_within_ceiling() {
     );
 }
 
-// ── KAT group 2: 2D-lattice extraction KATs (classical, deterministic) ────────
+// ── KAT group 2: dual-lattice extraction KATs (classical, deterministic) ──────
 //
-// Given a known measured pair (a', b'), verify that extract_k_from_measurement recovers
-// the correct k via b'·k ≡ −a' (mod r). These are purely classical KATs.
+// Exact peak pairs (c, d) with c ≈ j·M/r, d ≈ l·M/r, l ≡ k·j (mod r) must recover k.
+// These are purely classical KATs.
 
-/// extract_k: b'=0 → None (uninformative measurement).
-#[test]
-fn lattice_extract_b_zero_returns_none() {
-    // b' = 0 mod r: the measurement is uninformative.
-    let result = extract_k_from_measurement(5, 0, R);
-    assert_eq!(result, None, "b'=0 should return None (uninformative)");
+/// Number of values per exponent register, `M = 2^EXP_BITS`.
+const M: u64 = 1 << EXP_BITS;
+
+/// Nearest integer to `x·M/r`: the measured value closest to the dual-lattice point `x/r`.
+fn peak(x: u64) -> u64 {
+    (2 * x * M + R) / (2 * R)
 }
 
-/// extract_k: b'=0 mod r → None even if b' ≠ 0 as a raw value.
+/// Every peak value fits in the exponent register.
 #[test]
-fn lattice_extract_b_zero_mod_r_returns_none() {
-    // b' = r = 13: b' mod r = 0, so uninformative.
-    let result = extract_k_from_measurement(5, R, R);
-    assert_eq!(result, None, "b'=r should return None (b' mod r = 0)");
-}
-
-/// extract_k: known (a', b') pairs recover the correct k.
-///
-/// For k=3: we need b'·3 ≡ −a' (mod 13). Choose b'=1, then a' = -3 mod 13 = 10.
-/// Check: 1·3 ≡ 3 ≡ −10 (mod 13). ✓
-#[test]
-fn lattice_extract_k3_from_known_pair() {
-    // b'=1, a'=10: b'·k ≡ −a' (mod 13) → 1·k ≡ −10 ≡ 3 (mod 13) → k=3.
-    let k = extract_k_from_measurement(10, 1, R);
-    assert_eq!(k, Some(3), "extract_k(a'=10, b'=1, r=13) should be Some(3)");
-    // Verify: k·G = 3·G = (2,2).
-    if let Some(k_val) = k {
-        let q = curve::scalar_mul(k_val, G);
-        let expected_q = curve::scalar_mul(3, G);
-        assert_eq!(q, expected_q, "recovered k={k_val}: k·G should equal 3·G");
+fn extract_peaks_fit_in_register() {
+    for x in 0..R {
+        assert!(peak(x) < M, "peak({x}) = {} is out of range", peak(x));
     }
 }
 
-/// extract_k: known (a', b') pairs recover the correct k for k=7.
-///
-/// For k=7: choose b'=2, then a' = -2·7 mod 13 = -14 mod 13 = -1 mod 13 = 12.
-/// Check: 2·7 = 14 ≡ 1 ≡ −12 (mod 13). ✓
+/// extract_k: for every k and every non-zero lattice coordinate j, the exact peak pair
+/// `(peak(j), peak(k·j mod r))` recovers k.
 #[test]
-fn lattice_extract_k7_from_known_pair() {
-    // b'=2, a'=12: b'·k ≡ −a' (mod 13) → 2·k ≡ −12 ≡ 1 (mod 13) → k = 1·(2^{-1}) mod 13.
-    // 2^{-1} mod 13 = 7 (since 2·7 = 14 ≡ 1 mod 13). So k = 7.
-    let k = extract_k_from_measurement(12, 2, R);
-    assert_eq!(k, Some(7), "extract_k(a'=12, b'=2, r=13) should be Some(7)");
-    if let Some(k_val) = k {
-        let q = curve::scalar_mul(k_val, G);
-        let expected_q = curve::scalar_mul(7, G);
-        assert_eq!(q, expected_q, "recovered k={k_val}: k·G should equal 7·G");
-    }
-}
-
-/// extract_k: a'=0, b'=1 → k=0.
-///
-/// b'·k ≡ −a' (mod r) → 1·k ≡ 0 (mod 13) → k=0.
-/// (k=0 corresponds to Q=∞, which is handled as a trivial case in solve_ecdlp.)
-#[test]
-fn lattice_extract_k0_from_zero_a() {
-    let k = extract_k_from_measurement(0, 1, R);
-    assert_eq!(k, Some(0), "extract_k(a'=0, b'=1, r=13) should be Some(0)");
-}
-
-/// extract_k: all non-zero b' values recover a valid k in [0, r).
-///
-/// For each b' in 1..r, extract_k should return Some(k) with k in [0, r).
-#[test]
-fn lattice_extract_all_b_nonzero() {
-    for b_prime in 1..R {
-        for a_prime in 0..R {
-            let result = extract_k_from_measurement(a_prime, b_prime, R);
-            assert!(result.is_some(), "b'={b_prime}, a'={a_prime}: should return Some(k)");
-            let k = result.unwrap();
-            assert!(k < R, "b'={b_prime}, a'={a_prime}: k={k} should be < r={R}");
-            // Verify the relation: b'·k ≡ -a' (mod r).
-            let lhs = (b_prime * k) % R;
-            let rhs = if a_prime == 0 { 0 } else { R - (a_prime % R) };
-            assert_eq!(
-                lhs, rhs,
-                "b'={b_prime}, a'={a_prime}, k={k}: b'·k={lhs} ≢ -a'={rhs} (mod {R})"
-            );
+fn extract_exact_peak_pairs_recover_k() {
+    for k in 0..R {
+        for j in 1..R {
+            let l = k * j % R;
+            let got = extract_k_from_measurement(peak(j), peak(l), R);
+            assert_eq!(got, Some(k), "k={k}, j={j}, l={l}: peak pair gave {got:?}");
         }
+    }
+}
+
+/// extract_k: a known pair for k=3. With j=1, l=3: c=peak(1)=1, d=peak(3)=4.
+#[test]
+fn extract_k3_from_known_pair() {
+    assert_eq!(extract_k_from_measurement(1, 4, R), Some(3));
+}
+
+/// extract_k: a known pair for k=7. With j=2, l=14 mod 13=1: c=peak(2)=2, d=peak(1)=1.
+#[test]
+fn extract_k7_from_known_pair() {
+    assert_eq!(extract_k_from_measurement(2, 1, R), Some(7));
+}
+
+/// extract_k: j ≡ 0 is uninformative → None, whatever d is.
+///
+/// For M=16, r=13 only c=0 rounds to j ≡ 0 (c=15 rounds to 12).
+#[test]
+fn extract_j_zero_returns_none() {
+    for d in 0..M {
+        assert_eq!(extract_k_from_measurement(0, d, R), None, "c=0, d={d} should be None");
+    }
+    // Every other c rounds to a non-zero j, so yields a candidate below r.
+    for c in 1..M {
+        for d in 0..M {
+            let k = extract_k_from_measurement(c, d, R)
+                .unwrap_or_else(|| panic!("c={c}, d={d} should give a candidate"));
+            assert!(k < R, "c={c}, d={d}: k={k} must be < r={R}");
+        }
+    }
+}
+
+/// extract_k: a-register value ≥ M is invalid input and is rejected.
+#[test]
+#[should_panic(expected = "must be < 2^EXP_BITS")]
+fn extract_rejects_c_out_of_range() {
+    let _ = extract_k_from_measurement(M, 0, R);
+}
+
+/// extract_k: b-register value ≥ M is invalid input and is rejected.
+#[test]
+#[should_panic(expected = "must be < 2^EXP_BITS")]
+fn extract_rejects_d_out_of_range() {
+    let _ = extract_k_from_measurement(1, M, R);
+}
+
+// ── KAT group 3: exact outcome distribution ───────────────────────────────────
+//
+// The circuit's exponent-register distribution is compared against the classical Fourier-sum
+// formula P(c,d) = Σ_s |M⁻² Σ_{a+bk≡s (mod r)} ω^{-(ac+bd)}|², ω = e^{2πi/M}, computed here
+// without any circuit code.
+
+/// Classical Fourier-sum outcome distribution for logarithm `k`, indexed `c + (d << EXP_BITS)`.
+fn fourier_sum_distribution(k: u64) -> Vec<f64> {
+    let m = M as usize;
+    let norm = 1.0 / (M * M) as f64;
+    let mut dist = vec![0.0; m * m];
+    for c in 0..m {
+        for d in 0..m {
+            // Per-class complex sums: (re, im) indexed by s = (a + b·k) mod r.
+            let mut classes = vec![(0.0f64, 0.0f64); R as usize];
+            for a in 0..M {
+                for b in 0..M {
+                    let s = ((a + b * k) % R) as usize;
+                    let phase = -2.0 * PI * ((a as usize * c + b as usize * d) % m) as f64 / M as f64;
+                    classes[s].0 += phase.cos();
+                    classes[s].1 += phase.sin();
+                }
+            }
+            dist[c + (d << EXP_BITS)] = classes
+                .iter()
+                .map(|&(re, im)| (re * norm).powi(2) + (im * norm).powi(2))
+                .sum();
+        }
+    }
+    dist
+}
+
+/// Circuit distribution for `k`, computed once per `k` and shared across tests.
+fn cached_circuit_distribution(k: u64) -> &'static [f64] {
+    static CACHE: [OnceLock<Vec<f64>>; R as usize] = [const { OnceLock::new() }; R as usize];
+    CACHE[k as usize].get_or_init(|| {
+        let q = curve::scalar_mul(k, G);
+        exponent_outcome_distribution(G, q)
+    })
+}
+
+/// Assert the circuit distribution for `k` equals the Fourier-sum formula and sums to 1.
+fn assert_distribution_matches_formula(k: u64) {
+    let circuit = cached_circuit_distribution(k);
+    let formula = fourier_sum_distribution(k);
+    assert_eq!(circuit.len(), 1 << (2 * EXP_BITS));
+    let total: f64 = circuit.iter().sum();
+    assert!((total - 1.0).abs() < 1e-9, "k={k}: circuit distribution sums to {total}");
+    for (idx, (&got, &want)) in circuit.iter().zip(&formula).enumerate() {
+        assert!(
+            (got - want).abs() < 1e-9,
+            "k={k}, c={}, d={}: circuit {got} vs formula {want}",
+            idx % M as usize,
+            idx / M as usize
+        );
+    }
+}
+
+/// Circuit outcome distribution equals the Fourier-sum formula for k=3.
+#[test]
+fn distribution_matches_fourier_formula_k3() {
+    assert_distribution_matches_formula(3);
+}
+
+/// Circuit outcome distribution equals the Fourier-sum formula for k=7.
+#[test]
+fn distribution_matches_fourier_formula_k7() {
+    assert_distribution_matches_formula(7);
+}
+
+/// Circuit outcome distribution equals the Fourier-sum formula for every k in 2..r.
+#[test]
+#[ignore = "cost: one full circuit simulation per k (~10 s each in debug)"]
+fn distribution_matches_fourier_formula_all_k() {
+    for k in 2..R {
+        assert_distribution_matches_formula(k);
+    }
+}
+
+/// One-candidate extraction succeeds with positive probability for k=3 and k=7.
+#[test]
+fn primary_success_probability_positive_k3_k7() {
+    for k in [3u64, 7] {
+        let q = curve::scalar_mul(k, G);
+        let cached = cached_circuit_distribution(k);
+        let p = primary_success_probability(G, q);
+        assert!(p > 0.0, "k={k}: primary success probability is {p}");
+        eprintln!("k={k}: primary success probability = {p}");
+        // Cross-check against the cached distribution and the public extraction rule.
+        let expected: f64 = cached
+            .iter()
+            .enumerate()
+            .filter(|&(idx, _)| {
+                let (c, d) = ((idx as u64) % M, (idx as u64) / M);
+                extract_k_from_measurement(c, d, R) == Some(k)
+            })
+            .map(|(_, &p)| p)
+            .sum();
+        assert!((p - expected).abs() < 1e-12, "k={k}: {p} vs {expected}");
+    }
+}
+
+/// Primary success probability is positive for every k in 2..r (values printed).
+#[test]
+#[ignore = "cost: one full circuit simulation per k (~10 s each in debug)"]
+fn primary_success_probability_positive_all_k() {
+    for k in 2..R {
+        let q = curve::scalar_mul(k, G);
+        let p = primary_success_probability(G, q);
+        eprintln!("k={k}: primary success probability = {p}");
+        assert!(p > 0.0, "k={k}: primary success probability is {p}");
     }
 }
 
@@ -308,27 +422,18 @@ fn ecdlp_reproducible() {
     }
 }
 
-/// run_period_finding_circuit: the measured (a', b') satisfies b'·k ≡ −a' (mod r) for
-/// informative measurements (b' ≠ 0 mod r).
+/// run_period_finding_circuit: the measured pair is in range and has non-zero probability
+/// under the exact outcome distribution.
 ///
-/// This test runs the circuit for k=3 with seed=0 and verifies the lattice relation holds
-/// for the measured pair (if informative).
+/// Runs the circuit for k=3 with seed=0 and checks the sampled pair against the distribution.
 #[test]
-fn period_finding_lattice_relation() {
+fn period_finding_sample_in_support_of_distribution() {
     let k = 3u64;
     let q = curve::scalar_mul(k, G);
-    let (a_prime, b_prime) = run_period_finding_circuit(G, q, 0);
-    // If b' ≠ 0 mod r, verify the lattice relation.
-    if b_prime % R != 0 {
-        let lhs = (b_prime % R * k) % R;
-        let rhs = if a_prime % R == 0 { 0 } else { R - (a_prime % R) };
-        assert_eq!(
-            lhs, rhs,
-            "Lattice relation failed: b'·k={lhs} ≢ -a'={rhs} (mod {R}), \
-             a'={a_prime}, b'={b_prime}, k={k}"
-        );
-    }
-    // If b' = 0 mod r, the measurement is uninformative — no assertion needed.
+    let (c, d) = run_period_finding_circuit(G, q, 0);
+    assert!(c < M && d < M, "measured pair ({c}, {d}) out of range");
+    let p = cached_circuit_distribution(k)[(c + (d << EXP_BITS)) as usize];
+    assert!(p > 1e-12, "measured pair ({c}, {d}) has probability {p}");
 }
 
 // ── KAT group 4: rho cross-check (#[ignore]-gated) ────────────────────────────

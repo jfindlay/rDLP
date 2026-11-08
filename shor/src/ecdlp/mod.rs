@@ -1,15 +1,16 @@
 //! Two-register ECDLP period-finding, 2D-lattice discrete-log extraction, and `solve_ecdlp`.
 //!
 //! This module implements Shor's quantum algorithm for the elliptic-curve discrete logarithm
-//! problem (ECDLP) `Q = k·G` on the toy curve (C-PointAdd).
+//! problem (ECDLP) `Q = k·G` on the toy curve, built on the controlled point addition of
+//! [`crate::ecc`].
 //!
 //! # Algorithm outline
 //!
 //! The ECDLP is a two-register hidden-subgroup problem (Proos–Zalka 2003). Given `G` and
 //! `Q = k·G`, the algorithm prepares two exponent registers `|a⟩|b⟩` in uniform superposition,
 //! computes `a·G + b·Q` into a point register, applies iQFT to both exponent registers, and
-//! measures. The measured pair `(a', b')` satisfies `b'·k ≡ −a' (mod r)`, from which `k` is
-//! recovered classically.
+//! measures. The measured pair `(c, d)` concentrates near the dual-lattice points
+//! `(c/M, d/M) ≈ (j/r, l/r)` with `l ≡ k·j (mod r)`, from which `k` is recovered classically.
 //!
 //! # Two-register circuit (NOT single-register order-finding)
 //!
@@ -43,17 +44,43 @@
 //!
 //! # Classical 2D-lattice discrete-log extraction
 //!
-//! From the measured pair `(a', b')`, recover `k` via `b'·k ≡ −a' (mod r)`:
+//! With `M = 2^EXP_BITS` and `ω = e^{2πi/M}`, the state after the Hadamards and the two
+//! controlled-addition ladders is
 //!
 //! ```text
-//! k = (−a') · (b')⁻¹ mod r
+//! M⁻¹ Σ_{a,b<M} |a, b⟩ |(a + b·k mod r)·G⟩,
 //! ```
 //!
-//! At toy scale (`r = 13`), the modular inverse is computed via Fermat's little theorem
-//! (`b'^{r-2} mod r`). If `b' = 0`, the measurement is uninformative (retry with a new seed).
-//! Brute-force verification (`k·G == Q`) confirms the recovered `k`.
+//! and after the transform on both exponent registers, outcome `(c, d)` has probability
 //!
-//! # Contracts produced (C-ECDLPSolve)
+//! ```text
+//! P(c, d) = Σ_{s<r} | M⁻² Σ_{a + b·k ≡ s (mod r)} ω^{∓(a·c + b·d)} |²,
+//! ```
+//!
+//! where `∓` is the sign convention of the transform. Because `P` involves the modulus squared
+//! of a sum over a set that does not depend on the sign, flipping the sign conjugates every
+//! inner sum and leaves `P` unchanged.
+//!
+//! At `c/M = j/r`, `d/M = l/r`, each term in a class `a + b·k ≡ s` has phase
+//! `e^{∓2πi(a·j + b·l)/r}`, and `a·j + b·l ≡ (s − b·k)·j + b·l = s·j + b·(l − k·j) (mod r)`.
+//! The terms of a class therefore add constructively exactly when `l ≡ k·j (mod r)`, whichever
+//! sign the transform uses. Since `M` is not a multiple of `r`, the peaks are not exact, so
+//! the measured integers are rounded to the nearest multiples of `1/r`:
+//!
+//! ```text
+//! j = round(r·c / M) mod r,   l = round(r·d / M) mod r,   k = l · j⁻¹ mod r   (j ≢ 0).
+//! ```
+//!
+//! Each measurement yields exactly one candidate (or none when `j ≡ 0`); the candidate set is
+//! never widened to neighbouring roundings, since at `r = 13` that would approach exhaustive
+//! search over the answer space. The modular inverse uses Fermat's little theorem (`r` prime).
+//! A caller must verify `k·G == Q` before accepting a candidate.
+//!
+//! [`exponent_outcome_distribution`] computes `P(c, d)` exactly from the circuit amplitudes, and
+//! [`primary_success_probability`] sums it over the outcomes whose extraction returns the true
+//! logarithm.
+//!
+//! # Solver entry point
 //!
 //! - [`solve_ecdlp`]: run the two-register period-finding, recover `k`, verify `k·G == Q`,
 //!   retry on failure, return `k`. Handles trivial cases (`Q = ∞ → k = 0`, `Q = G → k = 1`).
@@ -214,6 +241,31 @@ pub fn mod_inverse(a: u64, n: u64) -> u64 {
 /// Panics if `g` or `q` is ∞, or if any qubit index is out of range.
 #[must_use]
 pub fn run_period_finding_circuit(g: Point, q: Point, seed: u64) -> (u64, u64) {
+    // Steps 1–5: build the pre-measurement state.
+    let sv = prepare_period_finding_state(g, q);
+
+    // Step 6: Measure all qubits.
+    let outcome = measure_all_seeded(sv, seed);
+
+    // Step 7: Extract (a', b') from the exponent register bits.
+    let basis = outcome.basis_index;
+    let a_mask = ((1usize << EXP_BITS) - 1) << A_REG_START;
+    let b_mask = ((1usize << EXP_BITS) - 1) << B_REG_START;
+    let a_prime = ((basis & a_mask) >> A_REG_START) as u64;
+    let b_prime = ((basis & b_mask) >> B_REG_START) as u64;
+
+    (a_prime, b_prime)
+}
+
+/// Build the state of the period-finding circuit just before measurement.
+///
+/// Runs steps 1–5 of [`run_period_finding_circuit`]: uniform superposition on both exponent
+/// registers, the two controlled-addition ladders, then the transform on each exponent register.
+///
+/// # Panics
+///
+/// Panics if `g` or `q` is ∞.
+fn prepare_period_finding_state(g: Point, q: Point) -> StateVec {
     assert!(!g.is_infinity(), "run_period_finding_circuit: g must not be ∞");
     assert!(!q.is_infinity(), "run_period_finding_circuit: q must not be ∞");
 
@@ -257,61 +309,108 @@ pub fn run_period_finding_circuit(g: Point, q: Point, seed: u64) -> (u64, u64) {
     iqft_on_qubits(&mut sv, &a_qubits);
     iqft_on_qubits(&mut sv, &b_qubits);
 
-    // Step 6: Measure all qubits.
-    let outcome = measure_all_seeded(sv, seed);
-
-    // Step 7: Extract (a', b') from the exponent register bits.
-    let basis = outcome.basis_index;
-    let a_mask = ((1usize << EXP_BITS) - 1) << A_REG_START;
-    let b_mask = ((1usize << EXP_BITS) - 1) << B_REG_START;
-    let a_prime = ((basis & a_mask) >> A_REG_START) as u64;
-    let b_prime = ((basis & b_mask) >> B_REG_START) as u64;
-
-    (a_prime, b_prime)
+    sv
 }
 
-// ── 2D-lattice discrete-log extraction ───────────────────────────────────────
+// ── dual-lattice discrete-log extraction ──────────────────────────────────────
 
-/// Attempt to recover `k` from a measured `(a', b')` pair via `b'·k ≡ −a' (mod r)`.
+/// Candidate `k` from one measured exponent pair `(c, d)` with `c, d ∈ [0, 2^EXP_BITS)`.
 ///
-/// The 2D-lattice relation is: `a'·G + b'·Q = 0` (in the Fourier domain), which gives
-/// `a' + b'·k ≡ 0 (mod r)`, i.e., `b'·k ≡ −a' (mod r)`.
+/// With `M = 2^EXP_BITS`, the outcome distribution peaks at `c/M ≈ j/r`, `d/M ≈ l/r` with
+/// `l ≡ k·j (mod r)` (derivation in the module documentation). The candidate is
 ///
-/// At toy scale (`r = 13`, prime), the simplest approach is:
-/// - If `b' = 0`: the measurement is uninformative (returns `None`).
-/// - Otherwise: compute `k = (−a') · (b')⁻¹ mod r` using Fermat's little theorem.
+/// ```text
+/// j = round(r·c / M) mod r,   l = round(r·d / M) mod r,   k = l · j⁻¹ mod r,
+/// ```
 ///
-/// The caller should verify `k·G == Q` before accepting the result.
+/// with ties rounded up. Exactly one candidate is produced per measurement; the candidate set is
+/// never widened to neighbouring roundings. The caller must verify `k·G == Q` before accepting.
 ///
 /// # Arguments
 ///
-/// - `a_prime` — measured a-register value in `[0, 2^t)`
-/// - `b_prime` — measured b-register value in `[0, 2^t)`
+/// - `c` — measured a-register value in `[0, 2^EXP_BITS)`
+/// - `d` — measured b-register value in `[0, 2^EXP_BITS)`
 /// - `r` — group order (prime)
 ///
 /// # Returns
 ///
-/// `Some(k)` if `b' ≠ 0 mod r`, `None` if `b' = 0 mod r` (uninformative measurement).
+/// `Some(k)` with `k < r`, or `None` iff `j ≡ 0 (mod r)` (the measurement carries no
+/// information about `k`).
+///
+/// # Panics
+///
+/// Panics if `c` or `d` is outside `[0, 2^EXP_BITS)`: an out-of-range value is invalid input,
+/// not an uninformative measurement.
 #[must_use]
-pub fn extract_k_from_measurement(a_prime: u64, b_prime: u64, r: u64) -> Option<u64> {
-    let b = b_prime % r;
-    if b == 0 {
-        return None; // b' = 0 mod r: uninformative measurement
+pub fn extract_k_from_measurement(c: u64, d: u64, r: u64) -> Option<u64> {
+    let m = 1u64 << EXP_BITS;
+    assert!(c < m, "extract_k_from_measurement: c={c} must be < 2^EXP_BITS = {m}");
+    assert!(d < m, "extract_k_from_measurement: d={d} must be < 2^EXP_BITS = {m}");
+
+    // round(r·x / m) = floor((2·r·x + m) / (2·m)), ties up.
+    let round_scaled = |x: u64| (2 * r * x + m) / (2 * m) % r;
+    let j = round_scaled(c);
+    if j == 0 {
+        return None;
     }
-    let a = a_prime % r;
-    // k = (-a) * b^{-1} mod r = (r - a) * b^{-1} mod r
-    let neg_a = if a == 0 { 0 } else { r - a };
-    let b_inv = mod_inverse(b, r);
-    Some(neg_a * b_inv % r)
+    let l = round_scaled(d);
+    Some(l * mod_inverse(j, r) % r)
+}
+
+/// Exact outcome distribution `P(c, d)` of the two exponent registers.
+///
+/// Computed from the circuit's pre-measurement amplitudes, summing `|amplitude|²` over every
+/// basis state of the point and scratch registers. The result is indexed by
+/// `c + (d << EXP_BITS)`, where `c` is the a-register value and `d` the b-register value, and
+/// has length `2^(2·EXP_BITS)`.
+///
+/// # Panics
+///
+/// Panics if `g` or `q` is ∞.
+#[must_use]
+pub fn exponent_outcome_distribution(g: Point, q: Point) -> Vec<f64> {
+    let sv = prepare_period_finding_state(g, q);
+    let exp_mask = (1usize << (2 * EXP_BITS)) - 1;
+    let mut dist = vec![0.0f64; 1usize << (2 * EXP_BITS)];
+    for (basis, amp) in sv.amplitudes().iter().enumerate() {
+        dist[basis & exp_mask] += amp.norm_sqr();
+    }
+    dist
+}
+
+/// Probability that one measurement yields a candidate equal to `log_g(q)`.
+///
+/// Sums [`exponent_outcome_distribution`] over the outcomes `(c, d)` for which
+/// [`extract_k_from_measurement`] returns the exponent `k` with `k·G = Q`.
+///
+/// # Panics
+///
+/// Panics if `g` or `q` is ∞, or if `q` is not a multiple of `g` (no logarithm exists).
+#[must_use]
+pub fn primary_success_probability(g: Point, q: Point) -> f64 {
+    let k = (0..R)
+        .find(|&k| curve::scalar_mul(k, g) == q)
+        .expect("primary_success_probability: q is not in the subgroup generated by g");
+    let dist = exponent_outcome_distribution(g, q);
+    let m = 1usize << EXP_BITS;
+    dist.iter()
+        .enumerate()
+        .filter(|&(idx, _)| {
+            let (c, d) = ((idx % m) as u64, (idx / m) as u64);
+            extract_k_from_measurement(c, d, R) == Some(k)
+        })
+        .map(|(_, p)| p)
+        .sum()
 }
 
 // ── end-to-end ECDLP driver ───────────────────────────────────────────────────
 
 /// Solve the ECDLP `Q = k·G` using Shor's two-register period-finding algorithm.
 ///
-/// Handles trivial cases first, then runs the quantum period-finding circuit, recovers `k`
-/// from the measured `(a', b')` pair via the 2D-lattice relation `b'·k ≡ −a' (mod r)`,
-/// and verifies `k·G == Q`. Retries with incremented seeds on failure.
+/// Handles trivial cases first, then runs the quantum period-finding circuit, recovers a
+/// candidate `k` from the measured pair `(c, d)` by the dual-lattice rounding rule of
+/// [`extract_k_from_measurement`], and verifies `k·G == Q`. Retries with incremented seeds on
+/// failure.
 ///
 /// # Trivial cases
 ///
@@ -321,13 +420,11 @@ pub fn extract_k_from_measurement(a_prime: u64, b_prime: u64, r: u64) -> Option<
 /// # Algorithm
 ///
 /// 1. Check trivial cases.
-/// 2. Run `run_period_finding_circuit(G, Q, seed)` to get `(a', b')`.
-/// 3. Attempt `extract_k_from_measurement(a', b', r)` to get a candidate `k`.
+/// 2. Run `run_period_finding_circuit(G, Q, seed)` to get `(c, d)`.
+/// 3. Attempt `extract_k_from_measurement(c, d, r)` to get a candidate `k`.
 /// 4. Verify `k·G == Q`. If verified, return `Some(k)`.
-/// 5. If the lattice extraction fails verification, fall back to brute-force over `k ∈ 0..r`.
-///    At toy scale (`r = 13`), brute-force is honest: the quantum circuit still performs the
-///    period-finding; the classical extraction is just exhaustive search. This is documented
-///    as the toy-scale fallback (see module-level documentation).
+/// 5. If the extraction fails verification, fall back to brute-force over `k ∈ 0..r`.
+///    This exhaustive search is a toy-scale stopgap, not part of the quantum algorithm.
 /// 6. If all candidates fail, retry with `seed + 1`.
 /// 7. Return `None` after `max_retries` failed attempts.
 ///
@@ -377,17 +474,16 @@ pub fn solve_ecdlp_with_retries(g: Point, q: Point, seed: u64, max_retries: usiz
         let trial_seed = seed.wrapping_add(attempt as u64);
 
         // Run the two-register period-finding circuit.
-        let (a_prime, b_prime) = run_period_finding_circuit(g, q, trial_seed);
+        let (c, d) = run_period_finding_circuit(g, q, trial_seed);
 
-        // Primary extraction: 2D-lattice formula b'·k ≡ −a' (mod r).
-        if let Some(k) = extract_k_from_measurement(a_prime, b_prime, r) {
+        // Primary extraction: dual-lattice rounding of the measured pair.
+        if let Some(k) = extract_k_from_measurement(c, d, r) {
             let kg = curve::scalar_mul(k, g);
             if kg == q {
                 return Some(k);
             }
-            // Lattice extraction gave a k that doesn't satisfy k·G = Q. This happens when
-            // the measured phase is a coarse approximation (t=4 bits, r=13 is not a power
-            // of 2). Fall through to brute-force.
+            // The candidate failed verification: the finite-precision peak was rounded to a
+            // wrong lattice point. Fall through to the stopgap below.
         }
 
         // Toy-scale fallback: brute-force over k ∈ 0..r.
