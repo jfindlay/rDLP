@@ -216,7 +216,7 @@ config: no flags (self-continue at junctures; no `may-reshard`, no `halt-at-boun
 | 2 | Canonical Dedekind index criterion | done | 0073ab8 | C-IndexTest (without `enlargement_exponent`) |
 | 3 | Honest degree-one prime report above p | done | 17b1604 | C-DedekindReport (report types carry no derives) |
 | 4 | Cross-check against PARI/GP ◆ | done | a2e0d39, 8827d84 | none (test-only). Boundary: `still-on-intent`; prose corrections in 8827d84 (fix-loop 1 of 2); 4 `gnfs` contradictions surfaced, not absorbed (see Discoveries & risks) |
-| 5 | Anneal cleanup (skippable) | pending | | |
+| 5 | Anneal cleanup (skippable) | skipped | | Skipped: the ◆ anneal gate found no denylist hits in Rust files and only the pre-existing §10 label row in the arc's added lines; two prose lines over 100 characters are ledgered (trivial); boundary fork advised skip |
 
 ## Action-frame digest
 
