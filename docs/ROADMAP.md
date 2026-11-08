@@ -1,544 +1,495 @@
-# rDLP — Roadmap (Arc 2: Survey, Consolidation & Extension)
+# rDLP — outstanding work
 
-The durable, project-lifetime view of the work. Updated only at sub-track boundaries.
-For the current sub-track's actionable detail, see `docs/PLAN.md`.
+Reviewed 2026-11-08 against current source, recorded verification and mathematical references.
+This is the single project-level register of known outstanding work. `PLAN.md` is reserved for the
+currently authorised execution graph; it is not a second project backlog. Completed work and
+superseded decisions belong in git history, not an accumulating status log here.
 
-For the planning philosophy this document embodies, see
-`~/.config/opencode/multisession/multi-session-planning.md` (the two-frame model).
+## Purpose and evidence
 
-**Arc 1 (the original implementation) is complete** — five tracks (ρ, G, D, E, S), six shared
-crates, ~83 commit-shaped sessions, closed at `201df39` ("rDLP complete"). The arc-1 roadmap that
-governed that work is preserved in git history at the commit prior to this document's introduction.
-This is the **arc-2 roadmap**: a meta-campaign over the now-complete codebase — survey, revision,
-consolidation, refactoring, and addendum/appendix work — plus a gated algorithmic-extension slot.
+Make rDLP a mathematically correct, independently checked, pedagogically coherent reference library
+for established factoring and discrete-logarithm algorithms. Subject coverage, algorithm fidelity,
+correct final answers, and production performance are different claims; establish each separately.
+Neither a green test suite nor a completed implementation graph proves all four.
 
-**2026-11-06 qualification:** arc-1 completion above records campaign closure, not independently
-established algorithmic completeness. Source-level correctness findings invalidate that stronger
-premise. The user selected a correctness-first interposition, beginning with a GNFS campaign whose
-mathematical design was accepted on 2026-11-06. Execution remains a separate `/plan-run` action.
-No runtime verification was performed during this reassessment or sharding. See D21–D24 below.
+**Current baseline, confirmed by source inspection:** checked GNFS reconstruction, modular mapping,
+dependency validation, XOR provenance and elimination are implemented. An ordinary KAT factors
+45113 from runtime-generated relations. Real opt-in PARI/GP comparisons cover reconstruction and
+assembly; the completion ledger records them and the adopted workspace gates passing. This review
+ran no tests, builds, benchmarks or external mathematical oracles. It found no demonstrated
+wrong-result defect remaining in that checked factoring path; this is not an exhaustive proof.
 
----
+Evidence labels below distinguish **confirmed** source/document facts from **inferred** mathematical
+consequences or correctness concerns. Static counterexamples are identified as such, not represented
+as executed regressions. **Deferred** describes scheduling, not confidence. Speculation does not
+become an implementation requirement without adjudication.
 
-## Design intent
+Preserve these constraints while planning the work:
 
-**Take the complete arc-1 rDLP — a self-consistent, pedagogically clear Rust reference library for
-discrete-logarithm and integer-factorisation algorithms — and bring it to a finished, disciplined,
-internally-coherent standard: aligned with its project seed, audited across docs/layout/testing,
-equipped with a live correctness oracle, with its mathematical exposition reading as a continuous
-textbook rather than a companion reference, and with its algorithmic spectrum confirmed complete (or
-deliberately extended) across the integer / finite-field / elliptic-curve × classical / quantum
-DLP matrix.**
+- Mathematical-behaviour tests are primary; the 80% line-coverage floor is complementary. Property
+  tests exist in `shared/field/tests/sqrt_legendre_kat.rs`; KAT-first does not mean KAT-only.
+- Keep `cargo check --workspace`, `cargo test --workspace`, `cargo dep-policy`, `cargo audit` and
+  `cargo coverage` green. Re-establish their baseline before implementation. Dependency advisories
+  can change independently of the source. Formatting and lint adoption remain separate work below.
+- External tools validate rDLP's answers, never supply its implementation's answers. Tests requiring
+  them stay opt-in. Do not treat every ignored test as an implemented oracle.
+- Preserve exact success checks and distinguish invalid input, invariant failure, unsupported
+  domains, resource exhaustion, mathematical negatives and verified results.
+- Keep the existing crate layout; attacks can share their baseline's crate and arithmetic types.
+  New algorithms, domain reductions, dependency edges and broad refactors require explicit review.
+- Correct directly affected mathematical claims with the code. Artifact type must not force a
+  correctness repair and its explanation into unrelated campaigns.
+- Apply the four-surface minimalism principle below to new work as well as cleanup; do not create
+  fresh explanation or machinery debt while retiring the existing backlog.
 
-**The artifact must stand on its own terms, not as the realization of an executed plan.** A reader
-who never saw the roadmap should encounter a library organized by *topic* — the mathematics of
-discrete logarithms — not by *track* and *phase*, the order in which the work was built. The git
-history is where the construction narrative belongs; the code, docs, and names should cohere on the
-subject's own principles. Planning-frame vocabulary (track/phase/sub-track ids, `◆` boundary marks,
-letter-id labels) that leaked into the finished artifact is provenance residue to be re-anchored on
-the mathematics — **except where a grouping genuinely coincides with a mathematical topic, in which
-case the grouping survives and only the planning label changes** (e.g. "Track ρ" → "Pollard rho, the
-birthday-bound baseline").
+## Work register and sequencing
 
-The arc-2 discipline is **survey-first**: the project's actual current shape is *discovered by audit*
-before any consolidation or refactoring commits to scope. The anti-defocus anchor is this: arc 2 does
-not add algorithmic mass for its own sake — every campaign serves either *coherence* (the library
-reads and composes as one finished artifact) or *evidenced completeness* (a gap the survey actually
-found, not a gap imagined at planning time). "While I'm here" rewrites and speculative extensions are
-explicit risks, named and decided at sub-track boundaries, never absorbed mid-session.
+These are planning scopes, not an executable session graph. No new source work is authorised by
+their presence here. Shard a selected scope into `PLAN.md` only after its contracts are settled.
 
-Re-read this at every sub-track boundary. The question it answers: *is this work making the library
-more finished and more coherent, or just bigger?*
+| Scope | Current state | Dependency / priority |
+|---|---|---|
+| Dedekind criterion | Static counterexamples | Correctness first; no CADO dependency |
+| NFS-DL composition | Placeholder and unresolved maths | Design before implementation |
+| Shor / elliptic index calculus | Fallback-masked evidence | Independent correctness scopes |
+| Oracles / CADO sidecar | Early GNFS slice selected | Design separately; parallel with repairs |
+| GNFS assurance | Coverage limits, not proven defects | After urgent repairs |
+| Mathematical exposition | Errors and unsupported claims | Correct with algorithm adjudication |
+| Project-wide anneal | Legacy surfaces need a full pass | Audit broadly; repair in bounded units |
+| Format / lint / measurements | Gates unadopted; timings stale | Dedicated changes |
+| Four-surface minimalism | Explanation and machinery audit | Preserve evidence; simplify by topic |
+| Template conventions | Bidirectional review | Parallel; use verified exemplars |
+| Document retirement | SURVEY transfers pending | Other deletions need approval |
+| Algorithm spectrum | Completeness unsupported | Reassess; extensions deferred |
 
----
+The main dependency is correctness contracts → implementation and genuine composition evidence →
+independent comparison and honest exposition. Oracle infrastructure can be prepared in parallel,
+but cannot freeze meaningful comparisons against an undefined algorithm contract. Documentation
+cleanup and template review need not wait for every algorithm repair. The user selected an early
+CADO GNFS oracle slice alongside correctness repairs, not after the entire roadmap. Its design and
+sharding belong in a separate session; NFS-DL comparisons wait for its repaired contract.
+Extensions are not a way to avoid the outstanding correctness work.
 
-## Sub-track DAG
+Establish a whole-project anneal/minimalism baseline without delaying correctness repairs or the
+early CADO slice. Execute the resulting cleanup in separately reviewed, coherent units, not a
+repository-wide rewrite hidden in an algorithm change. Where explanation cleanup precedes structural
+refactoring, do it first; refactor dependent test scaffolding after interfaces settle. Correct false
+claims with their repairs. Use targeted annealing at delivery boundaries to prevent recurrence.
 
-**Current overlay (2026-11-06):** the original graph below remains the historical campaign map.
-Insert GNFS correctness and its design checkpoint before broad CONSOLIDATE execution. Review NFS-DL
-and fallback-masked algorithm evidence at the GNFS boundary, not as automatic scope expansion.
-ORACLE infrastructure can be prepared independently, but its comparisons must target demonstrated
-mathematical contracts. This overlay does not reopen completed layout/formalities work.
+## Correctness
 
-Arc 2 is a survey substrate feeding five campaign slots. The substrate's only deliverable is a
-findings ledger; every campaign is **gated behind survey findings** — the roadmap commits to the
-*slot*, not to the specific changes, which are determined by what SURVEY discovers and fixed at
-`/plan-shard` time per campaign.
+### Dedekind index criterion
 
-```
-                          ┌─────────────────────────────────────────┐
-                          │  A. SURVEY  (substrate, findings-only)   │
-                          │  audits all dimensions → Discoveries log │
-                          └────────────────────┬────────────────────┘
-                                               │ (every campaign depends on SURVEY)
-        ┌──────────────┬─────────────────┬─────┴───────────┬──────────────────┐
-        ▼              ▼                 ▼                 ▼                  ▼
-  ┌───────────┐  ┌───────────┐    ┌───────────┐    ┌────────────┐    ┌──────────────┐
-  │ B. ALIGN  │  │ C. ORACLE │    │ D.REFACTOR│───▶│E.CONSOLIDATE│   │  F. EXTEND   │
-  │ template  │  │ CADO-NFS  │    │ crate     │    │ docs-layer  │   │ spectrum     │
-  │ ↔ rDLP   │  │ sidecar   │    │ layout +  │    │ + math      │   │ additions    │
-  │formalities│  │ build     │    │ dedup     │    │ continuity  │   │ (content TBD) │
-  └───────────┘  └───────────┘    └─────┬─────┘    └──────┬──────┘   └──────┬───────┘
-                                        │  (layout settles │ before docs    │
-                                        │   reference it)   │ reference code │
-                                        └──────────────────┘                │
-                                                          (REFACTOR before ──┘
-                                                           EXTEND: new code
-                                                           sits in final layout)
-```
+**Confirmed:** `shared/numfield/src/dedekind.rs::dedekind_criterion` uses an integer/rational
+polynomial gcd as though it were an F_p gcd, obtains the supposed squarefree part as f/gcd(f,f'),
+and forms `(g*h - f_mod)/p` rather than retaining the original integer f. Its modular division
+helper also needs review of the pseudo-division scale for non-monic divisors.
 
-**Edges (dependencies):**
+**Inferred by exact static traces:** these are wrong-result defects, not merely missing oracle
+evidence. For f=x²−12 at p=2, the implementation gets g=1, h=x², t=0 and T=1, returning false.
+But alpha=2√3 and O_K=Z[√3], so the index of Z[alpha] is 2. Conversely, for f=x²−3 at p=3,
+it gets g=h=x, t=0 and T=x, returning true although Z[√3] is already maximal. Neither trace was
+executed during this review. No production consumer of `dedekind_factor_extended` or its
+`index_divisible` result was found in the checked GNFS path.
 
-| Sub-track | Depends on | Why the edge |
-|-----------|-----------|--------------|
-| A. SURVEY | — (substrate) | The root. Nothing commits scope before audit. |
-| B. ALIGN | SURVEY | Backport direction is a survey finding (what's missing where). |
-| C. ORACLE | SURVEY | Sidecar design depends on the survey's CADO-usage + testing-balance findings. |
-| D. REFACTOR | SURVEY | Layout changes are gated on the layout/dedup audit. |
-| E. CONSOLIDATE | SURVEY, **REFACTOR** | Docs reference code structure; let layout settle before rewriting the doc-layer + math continuity to point at it. |
-| F. EXTEND | SURVEY, **REFACTOR** | New algorithmic code must sit in the final crate layout; its *content* is gated on the spectrum-gap audit + 4-reference distillation. |
+Repair against a canonical index criterion, including inseparable reductions and valid integer
+lifts. Turn both traces into independent positive/negative regressions and cross-check further
+cases with PARI. Audit the public ideal-factorisation result's stated scope and consumers before
+changing representations; do not infer complete bad-prime factorisation from an index test.
 
-**Per-sub-track charge and category mix:**
+### NFS-DL contract and composition
 
-- **A. SURVEY** *(substrate — the irreducible foundational sub-track)*. Charge: audit every
-  dimension and emit a findings/recommendations ledger; **no design, no code, no refactor**.
-  Dimensions: (1) rust-template alignment, both directions; (2) docs-layer discipline (inline /
-  human-code-ref / agent-docs reference directions + allowances); (3) project layout (crate peering,
-  organisation, duplicative code); (4) testing balance, coverage, unit/integration mix, over-long
-  tests — **and the meta-question of whether full-coverage is even the right target for
-  toy-scale-but-compute-heavy pedagogical code**; (5) CADO-NFS sidecar usage and build needs;
-  (6) math-exposition continuity (textbook-vs-reference, dir/file/notation/voice/audience
-  consistency, code↔math cross-reference health); (7) algorithmic-spectrum completeness across the
-  integer/field/EC × classical/quantum matrix; (8) distillation of the 4 quantum-DLP references into
-  candidate inclusions; (9) **provenance leakage & topic-vs-track organization** — catalog every
-  planning-frame token (track/phase/sub-track ids, `◆` marks, letter-id labels) at every depth (prose
-  docs, code identifiers, module/file/dir names, benchmark labels, test names) and classify each as
-  pure residue (re-anchor on topic) or grouping-that-coincides-with-a-topic (keep grouping, change
-  label). Each dimension's findings land as Discoveries-log entries that shape the campaigns.
-  Category: **substrate (audit)** — high-judgment, wide design surface, front-loaded.
+**Confirmed:** `gnfs/src/dl/descent/solve.rs::solve_dl` discards the smoothing exponent and returns
+`Ok(0)` when its k=1 frontier is empty. That is an explicit placeholder success. An empty frontier
+means g^e*h=1, not that log_g(h)=0. The context-bearing `solve_dl_full` is a different API and must
+not be conflated with this wrapper.
 
-- **B. ALIGN**. Charge: reconcile rDLP with its `~/Source/rust-template` seed in **both
-  directions** — backport template formalities rDLP lacks (per survey: `deny.toml`, `rustfmt.toml`,
-  `rust-toolchain.toml`, `LICENSE`, the `[lints]` table, a coverage gate, `development.md`), and
-  forward rDLP-originated discipline worth seeding back into the template (multisession docs
-  layering, the dev-oracle policy, the docs-register contracts). Category: **integrative / substrate
-  (formalities)**. Largely independent of the other campaigns.
+Establish one mathematical contract across collection, relation equations, linear algebra, virtual
+logs and descent before applying local fixes. Inspect together:
 
-- **C. ORACLE**. Charge: specify and build the **dynamic CADO-NFS sidecar** — automated build for
-  regression and comparison testing, available both automatically (CI/test harness) and on-demand
-  (user-invoked). Honors the arc-1 dev-oracle policy (CADO as opt-in validation sidecar, never part
-  of how rDLP computes). Category: **substrate (test infrastructure) + integrative**. Largely
-  independent.
+- `dl/descent/recurse.rs::build_children`, `solve.rs::assemble_log`, and
+  `dl/linalg/blockvec_fl.rs::build_fl_matrix`. **Confirmed:** assembly sums children positively,
+  the matrix gives both sides positive exponents, and child construction skips all algebraic ideals
+  above q by prime alone, without preserving the target exponent. **Inferred:** signs, target
+  coefficient inversion and ideal identity do not consistently implement the stated equations.
+- Rational frontier targets versus algebraic special-q rewriting, including the target root r,
+  repeated factors, relation signs and the Schirokauer contribution.
+- `dl/schirokauer.rs`, MATHEMATICS's Schirokauer exponent and claimed properties, and normalised
+  virtual logs versus log_g of rational primes. These remain **unadjudicated**;
+  do not present the present construction as independently established.
+- Generator/subgroup, field encoding, normalisation and failure contracts. In
+  `dl/ext/descent.rs::solve_dl_ext`, checking g^ell=1 alone admits g=1; it does not establish
+  generation of a nontrivial prime-order subgroup.
 
-- **D. REFACTOR**. Charge: restructure crate peering/organisation and eliminate duplicative code,
-  **strictly gated on the SURVEY layout audit** — no speculative restructuring. **Also owns the
-  code-depth half of the de-provenancing (D9):** renaming planning-frame code identifiers, module/
-  file/dir names, benchmark labels, and test names onto topic terms, where SURVEY classified them as
-  residue (a rename is a layout change with compiler blast radius, so it lives here). Category:
-  **substrate (layout)**. Must precede CONSOLIDATE and EXTEND so docs and new code target the final
-  shape.
+**Confirmed scope mismatch:** the k=2 path used by MOV builds an exhaustive toy log table and
+searches powers of g. It is not demonstrated NFS-DL composition. Value-bearing k=1 tests use
+supplied virtual logs and smooth targets; structural descent tests with mock logs do not validate
+the answer.
 
-- **E. CONSOLIDATE**. Charge: the exposition campaign — (a) enforce the three-docs-layer discipline
-  (inline / human-code-ref / agent-docs) with correct reference directions, (b) rewrite the
-  mathematical exposition so it **reads as a continuous textbook with a suggested path**, internally
-  consistent in dir/file names, notation, audience, voice, thoroughness — readable independently yet
-  cross-referring to code where useful, and (c) **own the prose-depth half of the de-provenancing
-  (D9):** re-anchor planning-frame vocabulary in all human-facing prose (PEDAGOGY/MATHEMATICS/README)
-  onto topic terms, so the docs read as a treatment of the mathematics, not a record of an executed
-  plan. Category: **integrative**. Depends on REFACTOR (docs point at final layout *and* at the
-  already-renamed identifiers).
+Closure requires value-checked composition from generated relations through computed logs and a
+nontrivial descent, including backing out a nonzero smoothing exponent. Verify the final group
+identity and intermediate relation equations independently. Remove placeholder success and correct
+the stale k>1-unsupported and full-k=2-pipeline claims in rustdoc, MATHEMATICS and PEDAGOGY. Any
+intentional capability restriction must be explicit and approved, not disguised as successful NFS.
 
-- **F. EXTEND** *(content gated behind survey findings)*. Charge: add the algorithmic components the
-  SURVEY's spectrum-gap audit + 4-reference distillation actually justify — across integer / finite-
-  field / elliptic-curve, classical / quantum. **The roadmap commits to this slot, not to its
-  algorithms.** Possible content surfaced by intent (to be confirmed/refuted by survey): additional
-  DLP subject areas; newer quantum resource-estimate methods; reference-derived techniques. Category:
-  **algorithm + optimization** (decomposes per arc-1's substrate/algorithm/opt pattern once content
-  is known). Depends on REFACTOR.
+### Shor and elliptic index-calculus fidelity
 
----
+**Confirmed:** `shor/src/ecdlp/mod.rs::solve_ecdlp` can return the exhaustive-search answer after
+measurement extraction fails. Its fallback does not use the measurement, despite the comment that
+the measurement biases that search. `rho/src/index_calculus/solve.rs` can likewise enumerate the
+group after augmented elimination fails; its `_kernel` result is discarded. This does not establish
+that either primary algorithm never works, or that augmented elimination is inherently invalid.
 
-## Cross-track contracts (coarse)
+Give primary-path success and fallback success distinguishable evidence. Require primary-only
+fixtures with intermediate identities and non-vacuous assertions; test fallbacks separately.
+Audit finite-precision phase extraction instead of assuming raw Fourier outcomes satisfy an exact
+mod-r relation. Audit relation validity, consistency/rank handling and returned-log verification in
+the elliptic solver. Correct comments claiming unused kernel provenance or measurement influence.
+An exhaustive fallback may remain honestly labelled; it cannot certify the advertised mechanism.
 
-Sketched at roadmap grain; frozen precisely at `/plan-shard` time per campaign and at inflection
-junctures.
+## Oracles and assurance
 
-| Contract | Flavour | Spans | Sketch |
-|----------|---------|-------|--------|
-| **C-Findings** | prose | SURVEY → all campaigns | The survey findings ledger is the authoritative scope source for every campaign. A campaign that exceeds its findings is defocus; one that ignores a finding is rigidity. Frozen at SURVEY close. |
-| **C-Testing-Philosophy** | prose | SURVEY → ALIGN, CONSOLIDATE, F | The resolved answer to "what is the right testing target for toy-scale compute-heavy KAT-driven pedagogical code" (coverage target, unit/integration balance, test-length norms). Frozen at SURVEY close; ALIGN's coverage-gate decision and any new tests honor it. |
-| **C-Layout** | compiler | REFACTOR → CONSOLIDATE, EXTEND | The final crate-peering/module structure. Once REFACTOR freezes it, docs reference it and new code sits in it. Compiler-enforced (workspace members, module paths). |
-| **C-DocsLayer** | prose | CONSOLIDATE → all future docs | The three-layer reference-direction discipline (inline ↔ human-code-ref ↔ agent-docs: who may reference whom). Frozen at CONSOLIDATE; governs all subsequent doc edits including the math textbook. |
-| **C-MathSpine** | prose | CONSOLIDATE → EXTEND | The textbook's suggested-path spine, notation, voice, audience. Any EXTEND chapter must slot into this spine, not append incoherently. Frozen at CONSOLIDATE. |
-| **C-Coherence** | prose | SURVEY → REFACTOR, CONSOLIDATE, EXTEND | The artifact-stands-on-its-own-terms principle: the finished library is organized and named by mathematical topic, not by planning track/phase; provenance residue is re-anchored, groupings that coincide with a topic are kept under topic labels. Frozen at SURVEY (the residue catalog + the keep/rename classification); enforced by REFACTOR (identifiers) and CONSOLIDATE (prose), and binding on all EXTEND naming. |
-| **C-Oracle** | test | ORACLE → regression suite | The CADO-NFS sidecar build + invocation interface (automatic + on-demand). Downstream regression/comparison tests consume it. Frozen at ORACLE close. |
-| **C-TemplateSeed** | prose | ALIGN ↔ rust-template | The agreed bidirectional formalities set: what flows template→rDLP and what flows rDLP→template. Recorded so future template-derived projects inherit the reconciled discipline. |
+### Implement comparisons, not just tool installation
 
----
+**Confirmed:** meaningful `kat_pari_*` tests exist in `gnfs/tests/sqrt_pari_oracle_kat.rs` and
+`factor_end_to_end_kat.rs`. Keep them opt-in and independently computed. The remaining inventory is:
 
-## Sequencing & scope
+- CADO placeholders in `gnfs/tests/{line_sieve,merge,lanczos,factor_end_to_end}_kat.rs`: a count
+  compared with itself, `unimplemented!`, a hand-built matrix with no CADO invocation, and `todo!`.
+- NFS-DL PARI placeholders in `gnfs/tests/dl_{individual_log,end_to_end,relation,ext}_kat.rs`:
+  panic bodies or vacuous assertions, not algebraic comparisons.
+- MOV, hyperelliptic and GHS placeholders in `rho/tests/{mov,hyperelliptic,ghs}_kat.rs`.
+- Hard-coded, self-contained checks labelled as PARI tests in `shared/padic/tests/log_kat.rs` and
+  `rho/tests/{ssa,semaev}_kat.rs`; distinguish oracle-derived known answers from live tool calls.
+  Review their manual GP snippets rather than preserving unvalidated instructions.
+- Ignored in-workspace cross-checks and genuinely expensive circuit tests in `shor/tests`:
+  classify them by actual dependency/cost, not by the presence of `#[ignore]`.
 
-**Current priority, user-approved 2026-11-06:** GNFS mathematical design checkpoint → approved
-corrective implementation and genuine integration evidence → correctness boundary review (NFS-DL
-next candidate). Resume ORACLE comparisons and broad CONSOLIDATE against the resulting supported
-scope. The order below is the original sequence, superseded where it assumes algorithm completeness.
-Narrow documentation corrections belong with repairs; the separate format/lint backlog and template
-handoff remain open. EXTEND stays deliberately deferred, not implicitly reauthorized.
+Implement each meaningful comparison or remove its placeholder and retain the intended work here.
+Do not replace an unimplemented check with an unconditional pass. Until resolved, descriptions must
+say unimplemented, not merely tool unavailable. Fix the overstated oracle coverage in BENCHMARKS,
+PEDAGOGY, AGENTS and development guidance. Document targeted invocations of implemented tests;
+`cargo test -- --ignored` also encounters placeholders and expensive non-oracle tests.
+An explicitly requested oracle run must fail on a missing tool, tool error or mismatch, not silently
+pass or skip the comparison.
 
-**Proposed order:** `A. SURVEY` → then `B. ALIGN` ∥ `C. ORACLE` ∥ `D. REFACTOR` (independent of each
-other) → `E. CONSOLIDATE` (after REFACTOR) → `F. EXTEND` (after REFACTOR; content gated on SURVEY).
+**Selected near-term delivery: one complete CADO GNFS comparison.** Design the independent evidence
+and interchange boundary, then deliver a reproducible build, pinned inputs, artifact parsing and a
+meaningful relation/dependency comparison together. An installation-only milestone does not close
+the oracle gap. Use the existing checked GNFS boundary; do not freeze questionable NFS-DL behaviour
+as expected output. Broader comparisons can follow their corresponding correctness work.
 
-Reasoning:
-- **SURVEY first, always.** It is the substrate; nothing else has its scope until it runs. This is the
-  whole point of the survey-first discipline.
-- **ALIGN / ORACLE / REFACTOR are mutually independent** after SURVEY and may run in any order or be
-  interleaved by fatigue/appetite. REFACTOR should land before CONSOLIDATE and EXTEND.
-- **CONSOLIDATE after REFACTOR** so the docs (and especially the math textbook's code cross-references)
-  target the final layout rather than chasing a moving structure.
-- **EXTEND last and conditional.** If SURVEY finds the spectrum complete, EXTEND may reduce to a
-  recommendations note (a deliberate non-extension) rather than new tracks. That is a *successful*
-  outcome, not a gap.
+Early delivery wins on interoperability feedback and realistic-input evidence, but adds build/parser
+complexity and competes for effort with direct repairs. Dedekind and NFS-DL repairs do not depend on
+CADO: independent regressions and PARI remain appropriate for their algebraic contracts. Neither
+installation nor implementation is authorised by this scheduling decision.
 
-**Cost-of-wrong texture (informs commit size + `juncture-tier` at shard time):**
+Relation-count tolerances and filtered matrix dimensions are heuristic diagnostics, not correctness
+checks. A matching final factor is self-certifying and does not prove either pipeline's mechanism.
+Prefer independently validated relations and checked dependencies, with cross-ingestion of a defined
+relation/matrix format where useful. Define matched polynomial, sieve domain and large-prime policy
+before comparing counts. Select comparisons by their properties, not a fixed quota; calibrate
+statistical diagnostics separately from correctness assertions.
 
-| Sub-track | Correctness-criticality | Design-error cost | Leaning |
-|-----------|------------------------|-------------------|---------|
-| A. SURVEY | low (findings, no code) — but **high judgment**; a missed finding mis-scopes everything downstream | high (mis-survey propagates) | **opus juncture** at close; the findings ledger is the highest-leverage artifact in arc 2 |
-| B. ALIGN | medium (formalities, CI gates) | low (reversible config) | sonnet juncture; strong template reference reduces design risk |
-| C. ORACLE | medium (test infra correctness) | medium (sidecar build is fiddly) | sonnet juncture; opus only if build automation proves intricate |
-| D. REFACTOR | **high** (C-Layout is compiler-enforced; rework propagates) | **high** (wrong layout invalidates CONSOLIDATE + EXTEND) | **opus juncture**; this is the arc's rigidity/blast-radius node |
-| E. CONSOLIDATE | medium (prose; the inner test loop doesn't guard prose) | medium (incoherent textbook is costly to re-thread) | opus juncture at the math-spine freeze (C-MathSpine) |
-| F. EXTEND | high (new algorithmic correctness — KAT-gated) | high if content is non-obvious | **opus** for any substrate session; per arc-1's Category-A discipline |
+Then choose a reproducible upstream revision, build/cache layout, invocation and failure contract.
+Verify the current upstream location and build requirements before choosing an immutable revision.
+Lazy/on-demand building is a candidate, not a frozen design. No CI integration exists to attach an
+opt-in flag to; choose that separately if CI is introduced.
+The sidecar must remain optional and outside rDLP's computation and default test path.
 
-**Commit-size leaning (revised 2026-11-06):** existing substrate tests remain useful, but the newly
-identified algorithm-path gaps invalidate a blanket assumption of a trustworthy integration loop.
-Use small conceptual repair units with independent mathematical acceptance. Hold architect-level
-judgment at the GNFS contract checkpoint and correctness boundary; implementation belongs at build
-tier after those contracts are approved. Historical ALIGN/REFACTOR closure is not retroactively
-invalidated by this change in the assurance model.
+### GNFS assurance extensions and local hardening
 
----
+These are **confirmed limits of existing evidence**, not demonstrated failures of verified roots:
 
-## Discoveries & open questions
+- Generated pipeline evidence is one monic cubic fixture succeeding at the first candidate. Retry,
+  kernel combinations and CRT fallback have separate KATs, not generated-pipeline demonstrations.
+- Broaden non-monic testing beyond degree two and single-prime recombination, and check agreement
+  across methods in more domains, including reducible squarefree quotients where supported. Select
+  independent expectations rather than treating regression-pinned counts as derivations.
+- The PARI 45113 fixture uses the recorded dependency rather than regenerating the sieve. A genuine
+  class-group-obstruction `NonSquareCertificate` fixture is still missing; PARI's Q(√−5) ideal
+  facts alone do not exercise that crate outcome. Check incidental outcomes on their own contracts,
+  not by requiring a mapped root when the map is intentionally unavailable.
+- `NonSquareCertificate::new` is visible to sibling modules. The source-site test documents that it
+  misses aliases and macros. Consider stronger construction confinement if justified; this is
+  hardening against false negatives, not a discovered route to forging a verified root.
+- Precision limits bound the certified minimum modulus, not every working allocation. Retain the
+  documented lifting headroom and bounded sign-search accounting in new fixtures and measurements.
 
-Seeded at construction; the reconcile step and `/plan-shard` boundary reconciliations append here as
-arc 2 runs.
+Keep fixture discovery bounded and recorded; never inject relations or an answer to make a generated
+test succeed. Preserve the distinction between exact per-instance validation and all-input coverage.
 
-### Construction-time seeds (from intent + substrate read)
+## Mathematical exposition and documentation
 
-- **D1 — Template-formalities gap (confirmed, partial).** rDLP workspace root lacks `deny.toml`,
-  `rustfmt.toml`, `rust-toolchain.toml`, `LICENSE`, the `[lints]` table, a coverage gate, and a
-  `development.md` — all present in `rust-template`. SURVEY must confirm scope (per-crate vs
-  workspace-level lints) and decide each item's flow direction. *Feeds ALIGN.*
-- **D2 — Testing-philosophy meta-question (open).** Is full/100% line coverage the right target for a
-  toy-scale-but-compute-heavy, KAT-driven pedagogical math library? Or does KAT + property-test
-  coverage of *mathematical* behavior matter more than line coverage of compute kernels? Resolution
-  becomes C-Testing-Philosophy. *Feeds ALIGN, CONSOLIDATE, F.* (This is a named design tension, not a
-  rhetorical aside.)
-- **D3 — Docs-layer reference directions (open).** The three layers (inline / human-code-ref
-  `PEDAGOGY.md` / agent-docs) have prescribed reference directions and allowances; SURVEY audits
-  whether the current ~257KB MATHEMATICS.md + per-crate PEDAGOGY.md + README set honors them.
-  *Feeds CONSOLIDATE → C-DocsLayer.*
-- **D4 — Math-exposition continuity (open).** MATHEMATICS.md is a 12-chapter survey assembled
-  chapter-by-chapter at track boundaries (T.0/T.G/T.D/T.E/T.S/T.Z). Does it read as a *continuous
-  textbook with a suggested path*, or as a stitched companion reference? Audit notation/voice/
-  audience/dir-file-name consistency and code↔math cross-reference health. *Feeds CONSOLIDATE →
-  C-MathSpine.*
-- **D5 — Crate layout / dedup (open).** Nine workspace members; `rho` hosts both Track ρ and the
-  large Track E (10+ attack modules). Is `rho` overloaded? Should Track E peer out? Is there
-  duplicative code across `shared/*`? *Feeds REFACTOR → C-Layout.*
-- **D6 — CADO-NFS sidecar dynamic build (open, design-heavy).** Specify automated + on-demand build
-  for regression/comparison testing, honoring the opt-in-oracle policy. Open: build trigger model
-  (CI vs lazy), version pinning, what comparisons it gates. *Feeds ORACLE → C-Oracle.*
-- **D7 — Algorithmic-spectrum completeness (open, abductive).** The intent's discriminant: full
-  spectrum from integer DLP → finite-field DLP → EC-over-finite-field DLP, classical and quantum,
-  constrained to mathematically-necessary algorithms (excluding hardware/distributed specifics). Are
-  there omitted DLP subject areas? SURVEY maps the current matrix against this charge. *Feeds F.*
-- **D8 — Four quantum-DLP references, undistilled (open).** To read in SURVEY:
-  (1) Google QuantumAI cryptocurrency whitepaper
-  `https://quantumai.google/static/site-assets/downloads/cryptocurrency-whitepaper.pdf`;
-  (2) `arxiv.org/abs/2603.28627`; (3) `arxiv.org/abs/2606.02235`;
-  (4) `github.com/ecdsafail/ecdsafail-challenge`. Distill what belongs in a pedagogical/reference DLP
-  library across its domains and strategize inclusion. *Feeds F (content), possibly CONSOLIDATE
-  (new exposition).* **Note:** arxiv IDs `2603.*`/`2606.*` are dated beyond construction time
-  (2026-06) — SURVEY must verify the identifiers resolve; if not, surface for correction.
-- **D9 — Provenance leakage / topic-vs-track organization (open, coherence).** The arc-1 codebase and
-  docs bear the fingerprints of their own construction: "Track ρ/G/D/E/S", "Phase α…ζ", sub-track
-  letter-ids (E.W, G.A.3), `◆` boundary marks, and planning vocabulary appear in prose
-  (PEDAGOGY/MATHEMATICS/README), and likely in code identifiers, module/file/dir names, benchmark
-  labels, and test names. The artifact should read as a DLP library organized by *topic*, not as the
-  realization of an executed plan — the git log carries the construction narrative; the code coheres
-  on its own terms. SURVEY catalogs every occurrence at every depth and classifies each as **pure
-  residue** (re-anchor on the mathematics) or **grouping-coincides-with-topic** (keep the grouping,
-  change only the planning label — e.g. the five "tracks" map onto five real mathematical families, so
-  the grouping survives as "Pollard rho / GNFS / NFS-DL / algebraic-ECDLP attacks / Shor"). Split
-  execution: *prose fixes → CONSOLIDATE; identifier/file/dir/bench/test renames → REFACTOR* (a rename
-  carries compiler blast radius). *Feeds REFACTOR + CONSOLIDATE → C-Coherence; binding on EXTEND
-  naming.*
+### Correct false or unsupported claims
 
-### Open questions for the human — RESOLVED (ratified 2026-06-21 at D. REFACTOR shard)
+**Confirmed:** the following need correction, independently of CADO availability:
 
-All four open-Qs surfaced at SURVEY close were ratified by the human at the D. REFACTOR shard,
-accepting the A.7 adjudicator recommendations:
+- MATHEMATICS's GNFS complexity derivation changes a leading constant by absorbing it into o(1),
+  then substitutes another smoothness estimate. Re-derive the norm-size, Dickman and L-notation
+  calculation and its optimisation together against a canonical reference; do not patch one number.
+- README's GNFS introduction still says linear algebra produces a congruence of squares. It produces
+  candidates; exact algebraic reconstruction remains necessary.
+- `gnfs/src/sqrt/assembly.rs::AttemptOutcome::TrivialCongruence` says both gcds are trivial when
+  x≡±y. For N=35 and x=y=5, gcd(x+y,N)=5. The detailed explanation correctly states the deliberate
+  policy of not reporting this incidental divisor; align the short rustdoc with it.
+- Residual non-monic prose calls b^d*f(a/b) the norm without the leading-coefficient factor.
+  MATHEMATICS also uses `[O_K : Z[alpha]]` where alpha need not be integral. Use the normalised
+  generator/order or a precise localisation; carry F_hom=c*Norm(a−b*alpha) consistently.
+- NFS-DL equations, capability descriptions and full-implementation verdicts must follow the
+  correctness adjudication above. Remove blanket claims that every described algorithm is already
+  implemented and verified. A completed-history pass verdict is not current evidence.
+- `docs/development.md` incorrectly says there is no proptest layer. Describe the actual KAT-first
+  mix and mathematical assertions, not stale counts or unconditional correctness guarantees.
 
-- **Q1 — `rho`-hosts-Track-E overload (D5): RATIFIED keep-with-baseline (no crate split).** The 8
-  Track-E attack modules stay co-located with the Pollard-rho baseline. Rationale: the E.W
-  cross-attack bench measures the attacks against the rho baseline; shared `rho::curve`/`rho::field`
-  types; "attacks live with the baseline they're measured against" pedagogy is load-bearing. Binds
-  C-Layout (frozen at REFACTOR D.6).
-- **Q2 — Coverage gate value (D2): RATIFIED 80% floor, ALIGN re-tunes to measured baseline.** The
-  doctrine shape (math-behavior KAT primary; line coverage a dead-code floor) is frozen
-  (C-Testing-Philosophy); ALIGN calibrates the number against a real `cargo llvm-cov` baseline.
-- **Q3 — F-EXTEND scope ceiling (D7): RATIFIED defer to arc-3.** The one genuine gap (hyperelliptic
-  Jacobian DLP via Gaudry index calculus) is real but self-contained; arc-2's spine is
-  consolidation/alignment. F-EXTEND in arc-2 reduces to a recommendations note (a deliberate
-  non-extension); the gap becomes an arc-3 roadmap candidate.
-- **Q4 — C-Coherence borderline default (D9): RATIFIED preserve-under-topic-label.** Coarse
-  groupings that map onto real mathematical families (Track-X labels; coarse G.*/S.* pipeline/Shor
-  stages) keep the grouping under a topic-native label; only fine-grained S.X.Y / G.X.Y session IDs
-  are pure residue and dissolve. Binds REFACTOR (code-half, D.4/D.5) and CONSOLIDATE (prose-half).
+Sweep related unchanged passages as well as edited lines. A clean planning-token grep does not
+establish that the mathematics or capability claims are correct.
 
-### D. REFACTOR discoveries (folded up at D.6 ◆, 2026-06-21)
+### Quantum-resource references
 
-- **D10 — `rho/src/field/` had 3 files, not 1 (D.1 discovery).** `rho/src/field/mod.rs` was the
-  25-line re-export wrapper; `monty.rs` and `naive.rs` were dead code never declared in `mod.rs`.
-  All three were removed with the wrapper collapse. No layout-premise change — the extras are
-  mechanical consequences of the collapse.
-- **D11 — `shor/Cargo.toml` required a `shared-field` dev-dep (D.1 collapse-forced).** Before the
-  collapse, `shor/tests/ecdlp_kat.rs` imported `rho::field::FpMonty` (the re-export wrapper). Once
-  `rho::field` was removed, the compiler forced a direct `shared-field` dev-dep in `shor/Cargo.toml`.
-  This is a structural necessity of the collapse, not a REFACTOR-scope violation. Recorded as a
-  mechanical consequence of C-Layout.
-- **D12 — C-Layout is now FROZEN (compiler-enforced, D.6 ◆).** Final crate layout: `rho/src/field/`
-  (`mod.rs`, `monty.rs`, `naive.rs`) and `rho/src/util/{batch_inv,mp,mod}.rs` removed; `rho` imports
-  `shared_field::{Fp, FpNaive4, FpMonty4}` and `shared_bigint::batch_invert` directly; `F: Fp<4>`
-  trait bounds preserved; no crate split (open-Q 1 ratified); no other `shared/*` dedup (F-D5-03).
-  Verified: `cargo check --workspace` and `cargo test --workspace` green at D.5 terminus (`3ef9aca`).
-  Binds CONSOLIDATE (docs reference final layout) and EXTEND (new code sits in it).
-- **D13 — C-Coherence code-half is FROZEN (D.6 ◆, with ~1% residue for CONSOLIDATE).** All ~524
-  cataloged F-D9-01…06 code-depth tokens re-anchored across D.2–D.5 (`89f1e22`, `84b993c`,
-  `f2302a4`, `3ef9aca`). Completeness ≈ 99%: five residue tokens escaped the sweep —
-  `rho/src/curve/test_curves.rs:36` (E.A.2), `:139` (E.A), `rho/benches/attacks.rs:20,26`
-  (E.W table / E.W.2 chapter), `rho/tests/hyperelliptic_kat.rs:6` (## E.I.2). All behaviourally
-  inert; recommended for CONSOLIDATE (which will be in these files' neighbourhood). The three
-  load-bearing carve-outs held: algorithmic `Phase 1/2/3` step-indices in `rho/src/ecdlp/walk.rs`
-  and `rho/src/index_calculus/solve.rs` preserved; quantum-phase-estimation `Phase N/M` tokens in
-  `shor/tests/factor_kat.rs` preserved. KAT suite identically green throughout (inertness invariant).
-- **D14 — `c_ek_relation_round_trip` renamed to `relation_round_trip` (D.3 scope).** The single
-  contract-label prefix (`c_ek_`) was removed from the test identifier in `rho/tests/
-  index_calculus_kat.rs`, within D.3's sub-track-ID + contract-label re-anchoring scope. Compiler-
-  and test-verified (the renamed test still passes). This is the only identifier rename in REFACTOR
-  (the `sub_track_close_curve_axioms_intact` → `binary_curve_axioms_intact` rename was also in D.3).
+Rework MATHEMATICS's quantum resource discussion from primary sources with explicit evidence scope.
+**Confirmed from the referenced abstracts:** logical versus physical qubits, per-point-addition
+versus full-algorithm gate counts, and architecture/runtime assumptions must not be mixed.
 
----
+- Babbush et al., *Securing Elliptic Curve Cryptocurrencies against Quantum Vulnerabilities*,
+  <https://arxiv.org/abs/2603.28846v2>: distinguish full-Shor estimates from point-addition counts.
+  State the withheld-circuit/zero-knowledge-proof evidence boundary and use the corrected version.
+  The version of the separate Google-hosted PDF was not established.
+- Cain et al., <https://arxiv.org/abs/2603.28627v1>: distinguish hardware-specific neutral-atom
+  physical-qubit estimates from logical circuit resources; do not generalise the abstract's
+  cryptographic-scale claim into a particular RSA resource claim without reading its derivation.
+- Schrottenloher, <https://arxiv.org/abs/2606.02235v1>: disclosed point-addition circuits compare
+  against Babbush et al.; explain that relationship rather than presenting independent estimates of
+  identical scope. Distinguish secp256k1 results from generic prime-field variants.
+- Re-check the Proos–Zalka baseline and Roetteler et al. comparison, including the unsupported
+  approximately 768-qubit attribution, and correct the Shor journal citation to SIAM J. Comput.
 
-### B. ALIGN discoveries (folded up at B.7 ◆, 2026-09-22)
+Put validated exposition and bibliography entries in MATHEMATICS. Competition harnesses and
+engineering demonstrations do not automatically imply a new mathematical algorithm or implementation
+requirement. Read the relevant full-text passages before publishing quantitative comparisons.
 
-- **D15 — Seven planned rows closed plus one inserted row; two additive-reshards, all
-  human-authorized (B.7 ◆).** The rDLP portion ran readiness baseline (B.1), licensing (B.2), an
-  inserted advisory-remediation row (B.3a), dependency-audit policy (B.3), root-toolchain/formatting
-  (B.4), workspace lints (B.5), measured coverage (B.6), and the contributor-guide/template handoff
-  (B.7). B.3a and the B.4/B.5 additive-reshards were each surfaced by `@plan-juncture`
-  discovery-adjudication and explicitly authorized by the human, never applied silently.
-- **D16 — Five contracts frozen in FULL: C-Scope, C-Baseline, C-License, C-Audit, C-Coverage
-  (B.7 ◆).** The adopted, genuinely-green gates are `cargo check --workspace`,
-  `cargo test --workspace`, `cargo dep-policy` (= `cargo deny check`), `cargo audit`, and
-  `cargo coverage` (measured 92.78% line coverage against the ratified 80% floor).
-- **D17 — Two contracts frozen SCOPED, not FULL: C-Toolchain and C-Lints (B.7 ◆).** Both declare
-  and verify their policy while leaving workspace-wide conformance unadopted. C-Toolchain: one exact
-  root toolchain (1.95.0) with required components (`rustfmt`, `clippy`, `llvm-tools-preview`), no
-  member-level overrides, and a declared 100-column rustfmt policy are frozen — `cargo fmt-check` is
-  red across 169 files workspace-wide, so that gate is not adopted. C-Lints: a single-source
-  workspace lint policy (`unsafe_code` forbidden, `missing_docs` warn, `clippy::all` denied,
-  `clippy::pedantic` warned with explicit group priorities) with universal member inheritance is
-  frozen — `cargo lint` is red (234 measured `clippy::all`-group hits across 25 distinct lint kinds,
-  plus a larger pre-existing `pedantic`/`missing_docs` backlog), so that gate is not adopted either.
-  Both scoped freezes execute this campaign's own standing rule — recorded below in "ALIGN boundary
-  decisions" and in the PLAN's Discoveries log — that measured remediation exceeding a config-only
-  row's fileset is sharded separately, not hidden inside the row.
-- **D18 — C-TemplateSeed frozen on the rDLP side only (B.7 ◆).** The root-toolchain
-  pin-with-components pattern, a cargo-alias-naming-shadowing hazard (naming a `cargo-deny`-check
-  alias literally `audit` would silently shadow the real `cargo-audit` binary), and the
-  declared-but-unadopted-gate pattern are recorded in `docs/NOTES.md` as concrete rust-template
-  targets. No `rust-template` file was read or changed this sub-track; the bidirectional contract
-  stays OPEN.
-- **D19 — Two sized but unscheduled follow-on items, neither owned by any plan yet.** A
-  whole-workspace reformat (needs a `#[rustfmt::skip]` policy decision for numeric constant tables,
-  plus resync of the exact source-line citations in `shared/numth/docs/PEDAGOGY.md` and this
-  document — check whether those citations are already stale from REFACTOR before assuming the
-  reformat is the only desync source); and a lint-remediation pass (the `clippy::all` floor plus the
-  pedantic/`missing_docs` mass, including a suppression-policy decision on `many_single_char_names`
-  against this project's register discipline for a mathematics library). Both are design-bearing,
-  not mechanical. Whichever plan picks these up owns `fmt-check`/`lint` gate adoption respectively.
-- **D20 — A durable-to-rolling reference newly introduced this sub-track, flagged for CONSOLIDATE
-  (C-DocsLayer not yet frozen).** `.cargo/config.toml`'s comments and `docs/development.md` both
-  point at `docs/NOTES.md` for measurement provenance — in tension with the three-layer reference
-  discipline ALIGN itself just recorded as a rust-template seed target (durable prose should not
-  point at rolling notes). This may or may not be a defect — pointing at where measurement
-  provenance lives could be preferable to duplicating it — but CONSOLIDATE should adjudicate it as
-  newly-authored this week, not misread it as pre-existing residue from before REFACTOR.
+## Project-wide anneal
 
-### ALIGN boundary decisions (2026-09-17)
+Annealing was introduced after this project began. A changed-lines-only check therefore cannot
+establish that older surfaces meet the same standard. Audit application code, test code, project
+configuration/infrastructure and all documentation, including untouched files and examples.
 
-- The rDLP portion is seven sessions: readiness baseline, licensing, dependency audit, root
-  toolchain/formatting, workspace lints, measured coverage, and contributor-guide/template handoff.
-- One exact stable root toolchain replaces the member-local floating-stable file. Select and verify
-  the release during baseline work; forward-seed the root-toolchain policy into rust-template.
-- Workspace-wide gate adoption may expose source remediation. Measure first and shard actual
-  remediation separately; do not hide it inside a config-only row.
-- B.7 closes only the rDLP portion. Bidirectional ALIGN remains open until template changes land.
+Check topic-native names, interfaces, references, obsolete scaffolding and construction residue.
+Check claim accuracy and consistency between implementation, tests and exposition. The artifact should
+stand independently of its construction history. Record actionable findings with a destination and
+closure condition, not another permanent inventory. The known items below seed the audit; they are
+not its scope ceiling.
 
-### Correctness reassessment (2026-11-06)
+Keep ownership clear: mathematical defects go to the correctness scopes, unnecessary mechanisms and
+repeated explanation to minimalism, format/lint adoption to tooling, and obsolete-file removal to
+document retirement. Do not duplicate those tasks here. Separate behaviour-preserving cleanup from
+semantic repairs. Broad inspection catches legacy residue, but bounded edits limit review risk and
+merge conflicts. Close the pass when findings are resolved or explicitly dispositioned, references
+and claims agree, and affected checks pass; a clean keyword scan alone is not acceptance.
 
-- **D21 — GNFS correctness outranks broad consolidation (confirmed facts; inferred consequence).**
-  The algebraic square-root implementation returns a norm rather than evaluation at m. Its tests
-  assert the norm identity or use fixtures that conceal the distinction. Mathematical inspection
-  shows the required square congruence does not generally follow. Reconstruction/character seams
-  also need adjudication, so a one-line replacement is not a justified repair plan. The user approved
-  a design-gated GNFS campaign; at that checkpoint, only mathematical design was actionable. D24
-  records the subsequent acceptance and sharding.
-- **D22 — Algorithm-path assurance is incomplete (confirmed).** Shor ECDLP and elliptic index
-  calculus have exhaustive fallbacks that final-answer tests do not distinguish from primary-path
-  success. NFS-DL has an incomplete context-free wrapper and no inspected value-checked integration
-  from generated relations through a nontrivial descent. Candidate arithmetic defects there remain
-  unresolved, not proven. These are queued for separate planning, not enrolled in GNFS by default.
-- **D23 — Oracle availability is not oracle evidence (confirmed).** Several ignored tests are
-  placeholders, including both panic bodies and unconditional assertions. Preserve opt-in isolation,
-  but do not claim oracle verification until comparisons actually run and check mathematical results.
-  The previous coverage baseline and campaign ledgers certify neither these comparisons nor
-  algorithm fidelity. NOTES records exact evidence; this assessment ran no tests or oracles.
+### Known navigation, layering and register findings
 
-The corrective campaign may edit source, tests, and directly affected claims together. This is an
-explicit addition to the original artifact-based scope routing, not permission for broad refactoring
-or textbook cleanup. The initial reassessment required G.1 to establish supported-domain and failure
-contracts before implementation; any reduction of advertised capabilities requires human approval.
-That initial decision froze no specific field, fixture, reconstruction algorithm, or session count;
-the subsequent accepted design is recorded in D24.
+Keep valid code citations: human documentation is allowed to reference Rust paths and identifiers.
+Retain useful citations and correct actual stale paths:
+README and PEDAGOGY still name the removed `rho/src/field` and `rho/src/util` wrappers; a curve
+rustdoc link uses `crate::field::Fp`; Shor citations name files now represented by `mod.rs` modules.
+README also misplaces the root toolchain and the Pohlig–Hellman module.
 
-- **D24 — Canonical reconstruction design accepted (confirmed decision, 2026-11-06).** The user
-  accepted the G.1 mathematical design and approved its executable sharding: direct p-adic Newton
-  reconstruction plus Thomé's published split-prime CRT fallback, checked non-monic normalization,
-  certified coefficient bounds, exact root verification and modular mapping, typed failure outcomes,
-  and bounded discovery of a runtime-generated sieve-to-factor fixture. The inherited affine
-  collection boundary remains explicit. The existing `gnfs -> shared-padic` path edge is approved;
-  no external package expansion is enrolled. Deterministic machine-prime validation and budgeted
-  root enumeration avoid another dependency or a full polynomial factorization engine. The earlier
-  design-only restriction is superseded by design acceptance, not by an execution launch. Runtime
-  feasibility and generated-pipeline success remain unverified. PLAN now separates reconstruction
-  and checked-composition delivery boundaries; independent correctness review remains mandatory.
+Resolve these remaining documentation scopes without assuming a wholesale textbook rewrite:
 
-## Status
+- Replace to-be-written/appended references in GNFS and Shor PEDAGOGY. Add useful maths-first
+  entry pointers in the numfield and GNFS guides.
+- Normalise chapter-heading depth in MATHEMATICS, including nested headings. Choose an unambiguous
+  section-reference convention: chapter-local GNFS §5 currently collides with whole-book chapter 5.
+  Update all consumers together. Give the new checked-square-root sections stable navigable anchors
+  without casually renumbering widely cited GNFS section ranges. A short reading path is optional.
+- Replace Track/session/phase construction labels with mathematical topics across README,
+  MATHEMATICS, PEDAGOGY, BENCHMARKS and residual source/test comments. Preserve real technique
+  groupings, algorithmic step numbers and quantum phase terminology. Replace undefined principle-N
+  and contract labels with their actual invariant; do not erase useful interface explanations.
+- Remove bare ROADMAP references as well as PLAN.md/NOTES.md/SURVEY.md references from durable
+  prose and inline comments. The old token sweep missed extensionless names. Replace historical
+  pass-verdict sections with honest scope statements where they contain useful substance.
+- Move any needed measurement method/provenance into development documentation and remove its and
+  `.cargo/config.toml`'s dependence on rolling notes. Prefer symbol links over brittle source-line
+  numbers; remove drifting test counts and coverage percentages from orientation documents.
+- Replace the textbook's construction-contract preamble with concise audience, notation, citation
+  and depth conventions. History and completed chapter-pairing corrections need no replacement.
 
-All not-started at construction. `/plan-shard` marks in-progress; the reconcile step marks done.
+## Tooling and measurements
 
-| Sub-track | Status |
-|-----------|--------|
-| A. SURVEY | **done** (A.7 ◆ closed 2026-06-21; findings ledger frozen in docs/SURVEY.md; contracts frozen in docs/PLAN.md) |
-| B. ALIGN | **rDLP portion done** (B.7 ◆ closed 2026-09-22; bidirectional ALIGN remains open — rust-template forward-seeds need their own execution plan) |
-| C. ORACLE | not-started |
-| D. REFACTOR | **done** (D.6 ◆ closed 2026-06-21; C-Layout + C-Coherence code-half frozen; discoveries folded up) |
-| E. CONSOLIDATE | not-started |
-| F. EXTEND | deliberately deferred to arc-3; arc-2 recommendations note remains pending (Q3 ratified) |
-| GNFS correctness | **in progress** — mathematical design accepted; reconstruction and checked-composition shards prepared, implementation pending |
+### Adopt formatting and lint gates deliberately
 
----
+`cargo fmt-check` and `cargo lint` are declared but not required to pass workspace-wide. Measure
+their current failures before sharding; the old backlog counts predate substantial source changes.
+Choose a policy for numeric-table formatting and for justified mathematical identifiers before
+remediation. Preserve topic-native notation rather than mechanically renaming mathematics to fit a
+simplistic exemplar. Explicit exceptions need reasons; they are not permission to suppress defects.
 
-## Updates to this document
+Make formatting and lint adoption dedicated changes. Refresh affected links and documentation, then
+adopt each gate only when green. Do not lower coverage or exclude files to compensate.
 
-This document is rewritten **only at sub-track boundaries**. Day-to-day session work is captured in
-`docs/PLAN.md`. Discoveries that affect this document are queued in the Discoveries log above and
-integrated at the next sub-track boundary. A discovery severe enough to require immediate roadmap
-revision triggers an inflection-point Opus juncture, not an ad-hoc edit by a Sonnet session.
+Re-measure published benchmarks whose Montgomery/RNG substrate or reconstruction method changed.
+Record toolchain, hardware, input, command and method. Keep compared measurements in one controlled
+run. BENCHMARKS must distinguish measurements from estimates and unsupported scale claims.
+Do not invent new GNFS benchmark targets merely because old prose named nonexistent ones.
 
-- **2026-06-17 — Arc-2 construction.** This roadmap replaces the arc-1 roadmap (preserved in git
-  history). Constructed via `/roadmap-construct` from the four-cluster intent seed. Six sub-tracks:
-  one survey substrate + five gated campaign slots. Survey-first discipline; extension gated behind
-  findings.
-- **2026-06-17 — Coherence audit added (D9 / C-Coherence).** Folded in a ninth SURVEY dimension —
-  provenance leakage & topic-vs-track organization — so the finished artifact stands on the
-  mathematics' own terms rather than as the realization of an executed plan. Split execution across
-  REFACTOR (identifiers/files/benches) and CONSOLIDATE (prose); no new sub-track. Design intent
-  amended to state the standalone-artifact principle.
-- **2026-06-20 — A. SURVEY sharded (sub-track-boundary reconciliation).** First arc-2 sub-track
-  opened. `/plan-shard` from `@architect` decomposed the survey substrate into 7 findings-only
-  sessions (6 dimension audits + 1 integrative ◆ ledger-freeze), the nine audit dimensions D1–D9
-  grouped by shared substrate (D3/D4/D9-prose → the doc corpus; D5/D9-code → the crate tree).
-  `juncture-tier: opus`, opt-down unavailable (lever-5 weak: no test inner-loop catches a wrong
-  finding; the ◆ findings-ledger review is the only correctness gate). No prior arc-2 sub-track to
-  mark done; no discoveries folded up (arc-1's completion already recorded at construction). The
-  stale arc-1 *terminus* PLAN.md (Z.1+T.Z, done at `201df39`) is superseded by the SURVEY PLAN.
-- **2026-06-21 — A. SURVEY closed at A.7 ◆ (findings ledger frozen).** All nine audit dimensions
-  confirmed audited across A.1–A.6. Key findings folded up from `docs/SURVEY.md` and `docs/PLAN.md`:
-  - **D1 (ALIGN scope):** 8 absent root formalities items confirmed (F-D1-01…09); 3 rDLP→template
-    forward-seeds recorded (F-D1-10…12). All 12 findings feed ALIGN.
-  - **D2 (C-Testing-Philosophy frozen):** math-behavior KAT coverage is the primary correctness
-    target; 80% line gate as a dead-code floor (gate value open-Q for human); two-tier test pattern
-    (inline substrate + external KAT); test-length norm (one file per algorithm family, however
-    long); oracle-gate norm (`#[ignore]` for external-tool and compute-heavy tests).
-  - **D5 (REFACTOR scope):** `rho` hosts 8 Track-E attack modules alongside 5 Track-ρ modules —
-    layout overload, open-Q for human (peer out vs keep-with-baseline; adjudicator recommendation:
-    keep-with-baseline). `rho/src/field/` and `rho/src/util/` are thin re-export wrappers with
-    duplicated `batch_invert` tests — dedup candidate. No other `shared/*` dedup found.
-  - **D6 (ORACLE scope):** sidecar trigger = lazy/on-demand + opt-in CI flag; pin = `git-2.0.1`
-    (`88c4751`) on GitHub mirror; 4 tolerance-bounded comparisons (existing stubs); policy fidelity
-    confirmed (validation-only, never on green path).
-  - **D3/D4 (CONSOLIDATE scope):** 3 docs-layer defects found (bare Rust paths in MATHEMATICS.md;
-    stale forward-ref in shor/PEDAGOGY.md; missing maths-first header in numfield/PEDAGOGY.md).
-    Math-spine: chapters 8+9 heading inconsistency (`#` vs `##`); ToC complete; voice/notation
-    consistent. One citation-style inconsistency.
-  - **D7 (F-EXTEND scope):** exactly one genuine spectrum gap — **hyperelliptic Jacobian DLP
-    (Gaudry index calculus)**, the deferred downstream solve of the GHS transfer (Ch. 10.3).
-    Substrate exists (`rho/src/hyperelliptic/`: Mumford divisors, Cantor group law); missing layer
-    is the index calculus on the Jacobian + KATs + MATHEMATICS.md treatment. All other absent
-    algorithms (trial division, QS, BSGS, classical index calculus for 𝔽ₚ*) are deliberate
-    non-extensions. EXTEND scope-ceiling is an open-Q for human (adjudicator recommendation:
-    defer to arc-3).
-  - **D8 (CONSOLIDATE citation updates):** all 4 ROADMAP-listed references resolve (risk flag not
-    triggered). None adds a new mathematical algorithm. Three 2026 papers (Google QuantumAI
-    whitepaper, Cain et al., Schrottenloher) feed CONSOLIDATE citation updates in §11.4.4 and
-    §11.5.1; they do not scope F-EXTEND algorithmic work.
-  - **D9 (C-Coherence frozen):** code-half: doc-comment-heavy, identifier-light (exactly 1
-    identifier hit: `sub_track_close_curve_axioms_intact`). Prose-half: ~185 tokens; ~110
-    grouping-coincides-with-topic (Track X labels); ~75 pure residue (Phase N, session IDs, ◆
-    marks). S.A/S.B/S.C borderline — adjudicator recommendation: preserve-under-topic-label.
-  - **Four human open-Qs surfaced:** (1) `rho`-overload split (adjudicator: keep-with-baseline);
-    (2) coverage gate value (adjudicator: 80% floor, ALIGN re-tunes to measured baseline);
-    (3) F-EXTEND scope ceiling (adjudicator: defer to arc-3); (4) C-Coherence borderline default
-    (adjudicator: preserve-under-topic-label). These ride to human review; they do not block the
-    freeze.
-  - **Scope-routing invariant (load-bearing):** inline doc-comments + identifier/file/dir/bench/
-    test renames → REFACTOR; human prose → CONSOLIDATE; config/manifest/CI → ALIGN; CADO sidecar
-    → ORACLE; new algorithm/chapter → EXTEND. A finding routed to the wrong campaign is the
-    primary cross-campaign defocus mode.
-  A. SURVEY status: **done**. B–F campaigns: not-started (gated on SURVEY findings now frozen).
-- **2026-06-21 — D. REFACTOR sharded (sub-track-boundary reconciliation).** Second arc-2 sub-track
-  opened; first *campaign* (SURVEY was the substrate). `/plan-shard` from `@architect` decomposed
-  REFACTOR into 6 sessions: D.1 (Opus) collapses the contrived `rho` re-export wrappers + freezes
-  C-Layout (compiler-enforced); D.2–D.5 (Sonnet) execute the code-depth de-provenancing
-  (F-D9-01…06, ~524 doc-comment tokens) by crate weight (rho 55% / gnfs 21% / shor+shared 24%),
-  rho split at the Phase-N-vs-sub-track-ID token-class seam; D.6 ◆ (Opus @architect) freezes
-  C-Layout + C-Coherence code-half and folds up. `juncture-tier: opus` **held** despite the lever-5
-  opt-down being available (strong test loop + low criticality, the first arc-2 sub-track where it
-  is) — honoring REFACTOR's pre-committed blast-radius-node status; the D.1 wrapper-collapse proved
-  a genuine structural change. All four SURVEY open-Qs ratified (above). Design finding folded up:
-  the `rho` wrappers shadowed an existing upstream alias (`shared_field::FpMonty4`) and preserved
-  no parameterization the generic `Fp<L>` trait does not already give — the collapse removes
-  contrivance, not capability. D. REFACTOR status: **in progress** (at shard time; closed at D.6 ◆, see below).
-- **2026-06-21 — D. REFACTOR closed at D.6 ◆ (C-Layout + C-Coherence code-half frozen).** All six
-  sessions complete. C-Layout FROZEN (compiler-enforced): `rho/src/field/` and `rho/src/util/
-  {batch_inv,mp,mod}.rs` removed; `rho` imports `shared_field::{Fp, FpNaive4, FpMonty4}` and
-  `shared_bigint::batch_invert` directly; `F: Fp<4>` bounds preserved; no crate split; no other
-  `shared/*` dedup. C-Coherence code-half FROZEN: ~524 cataloged F-D9-01…06 tokens re-anchored
-  (≈99% completeness; ~5 residue tokens for CONSOLIDATE). KAT suite identically green throughout.
-  Durable discoveries D10–D14 folded into Discoveries log above. D. REFACTOR status: **done**.
-- **2026-11-06 — Correctness-first boundary reassessment.** Source inspection plus independent
-  verification exposed a GNFS map mismatch and algorithm-path assurance gaps. User approved D21–D23,
-  the priority overlay, and a gated PLAN replacing the completed ALIGN ledger (preserved at
-  `3cd6fe5:docs/PLAN.md`). Implementation requires mathematical design review and subsequent approval;
-  no source changes, runtime verification, or commits were authorized in this planning session.
-- **2026-11-06 — GNFS design accepted and sharded.** User accepted G.1, then approved fourteen
-  implementation rows with reconstruction and generated-composition boundaries. Mathematical
-  contracts and discovery limits are preserved; interface design and final independent review use
-  high-tier junctures, implementation uses build tier. D24 records the design decision. No
-  implementation sub-track is marked done, no checks ran, and no commits or execution were started.
-  ALIGN's rDLP closure and all unrelated deferrals remain unchanged.
+## Relentless minimalism across four surfaces
+
+> Minimise the independent concepts, mechanisms and explanations that must be kept consistent,
+> not merely the number of lines.
+
+Give each explanation or policy one authoritative home. Repetition earns its place only through a
+distinct reader need or an independent verification role. Audit all four surfaces, not documentation
+alone:
+
+| Surface | Look for |
+|---|---|
+| Application code | Unnecessary abstractions, wrappers, alternate paths and duplicate mechanisms |
+| Test code | Repeated scaffolding or assertions adding no distinct evidence |
+| Config/infrastructure | Repeated policy, redundant orchestration and unnecessary machinery |
+| Documentation | Competing accounts, repeated explanations and construction narrative |
+
+Explanation ownership is role-specific:
+
+- Public rustdoc states interface contracts; inline comments explain necessary local rationale,
+  hazards and non-obvious consequences, rather than narrating obvious code.
+- Mathematical and pedagogical exposition owns derivations, conceptual motivation and worked
+  examples. Preserve teaching value rather than replacing it with terse implementation summaries.
+- Project docs own navigation, usage and operation; link to deeper accounts instead of copying them.
+- Future commit messages explain why the change was needed, not a second copy of its implementation
+  or design document. This work does not authorise rewriting existing git history.
+
+Minimalism reduces maintenance and drift, but indiscriminate deletion or sharing can damage local
+comprehension and test independence. Preserve independent expected-value derivations and oracles,
+necessary runtime invariant checks, readable mathematical notation and useful reader context. Do not
+replace independent verification with the implementation's helper merely to remove duplication, or
+introduce a generic framework just to merge similar-looking code. No line-count reduction quota.
+
+For each proposed simplification, identify what distinct value the removed material supplied, where
+that value remains, and how correctness and explanation are preserved. Audit globally, then shard by
+coherent topic and consumer boundary. Keep one live finding here rather than separate app/test/doc
+copies of the same task. The candidates below are an initial set, not an exhaustive inventory.
+
+### Initial maintenance and simplification candidates
+
+- Review unused `proptest` dev-dependencies in gnfs, rho, shor and gf2m; keep the dependency where
+  it is actually used in shared-field. Adding arbitrary property tests is not a dependency-cleanup
+  requirement.
+- Remove or justify the empty public `shared/bigint/src/mp.rs` placeholder; update rho's package
+  description to reflect its actual algorithm scope.
+- Consider consolidating the small prime-cursor, centering and exponent helpers in GNFS square-root
+  code and repeated test/GP scaffolding. Weigh readability and independent checks against shared
+  bugs and extra coupling. The deliberate primality-code duplicate avoids a crate edge; it is not
+  automatically a deduplication defect.
+- Reassess `shared/numth/src/smooth.rs::factor_base_up_to`'s large-bound sieve TODO against current
+  primality implementation and measured need. Remove future-session prose regardless; optimisation
+  is optional and its stated complexity rationale must be checked first.
+- Make independent-fixture provenance reproducible where tests cite unavailable Python/numpy/sympy
+  scripts: retain the derivation or generator, or narrow the claim to what a reader can check.
+
+## rust-template: conventions and exemplars in both directions
+
+Treat `rust-template` as a deliberately simple baseline, not an exhaustive standard or a ceiling on
+rDLP's design. Local project needs can expose missing reusable conventions. Conversely, complexity
+and successful execution alone do not make an rDLP pattern exemplary.
+
+Review both repositories and produce two kinds of output:
+
+1. **Lightweight reusable conventions** suitable for template guidance: independently justified
+   expectations; coverage versus correctness; meaningful opt-in external comparisons; checked input
+   boundaries; semantic outcomes distinct from errors and exhausted budgets; precise statements of
+   what private constructors and witness types actually guarantee. Include scale-appropriate
+   separation of project backlog, current plan and transient notes, plus documentation registers
+   and reference directions. Simple projects need not acquire every planning file. Human docs may
+   cite code, but durable prose and inline docs must not depend on rolling files.
+2. **Richer exemplars retained in rDLP**, with stable symbol references from the template if useful:
+   explicit search limits and truncation reports; `SqrtContext`, `VerifiedRoot` and
+   `NormalizedTarget::verify_candidate`; bounded fixture discovery; independent PARI comparisons.
+   Explain when the design is warranted rather than transplanting a mathematical framework into a
+   small application template.
+
+For each candidate, verify that implementation, assertions and prose agree. Do not promote
+placeholder tests, fallback-masked algorithms, source-scanning workarounds, duplicated scaffolding
+or unresolved mathematical code as general conventions. A general rule, a linked exemplar, and an
+intentionally local exception are different outcomes of this review.
+
+**Confirmed concrete template issue:** `/home/justin/Source/rust-template/.cargo/config.toml` still
+defines `audit = "deny check"`, which shadows cargo-audit when installed. Carry the alias-separation
+correction to a separately approved template change. Its chosen 100% coverage floor need not become
+rDLP's 80% floor, or vice versa. Lint/config differences need reasons, not automatic uniformity.
+No template edits are authorised by this roadmap reconciliation.
+
+This approach keeps the template teachable but puts more responsibility on example selection and
+reference maintenance than copying every convention into one starter project.
+
+## Retire SURVEY; review other rolling documents
+
+The user selected eventual deletion of `docs/SURVEY.md`, not preservation as a historical findings
+ledger. Its completed findings, stale inventories and superseded decisions need no migration.
+Git history preserves them. The active scopes above replace it as the source of outstanding work.
+
+Before deletion, check and transfer only useful material that is not already present:
+
+| Material | Destination |
+|---|---|
+| Still-live tasks and unresolved scope choices | This ROADMAP only |
+| Current execution contracts and acceptance detail | A newly selected PLAN, only while needed |
+| Test/oracle invocation and evidence conventions | `docs/development.md`; concise rules in AGENTS |
+| Mathematical derivations, limitations and references | MATHEMATICS and the relevant PEDAGOGY |
+| API invariants and implementation rationale | Rustdoc/comments and executable tests |
+| General conventions or complex exemplars | Template review above, with separate approval |
+
+The testing guide already carries the coverage floor and two-tier test pattern. Preserve the useful
+test-length principle without old counts: split by coherent subject, not an arbitrary line limit.
+Add mechanism-specific evidence and oracle-honesty guidance where absent. Keep real algorithmic
+phase terminology while removing planning residue.
+
+**Proposal requiring separate approval:** retire the completed GNFS PLAN after checking that its
+still-useful contracts and derivations are represented in code, tests and focused human docs. Prune
+or delete NOTES after the same transfer rather than maintaining a museum of old decisions. In
+particular, the superseded norm-character argument must not remain authoritative: the corrected
+account recognises retained norm-sign information and the limits of a sampled character set. Use the
+current mathematical account, not the old contract body. Prefer transferring useful content over
+maintaining obsolete contract bodies. This does not reopen the repaired GNFS implementation.
+
+Check incoming links and bare document/contract references when removing files. Do not create a new
+archive or duplicate backlog. These deletions and transfers require an implementation/docs session;
+this reconciliation changes ROADMAP only.
+
+## Algorithm-spectrum reassessment and deferred capabilities
+
+**Confirmed assurance gap:** mathematical topic coverage does not establish algorithm fidelity.
+Map theory, implementation, primary-path tests and independent oracles separately before claiming
+there is only one remaining gap.
+In particular, the inspected Shor code implements factoring and ECDLP, not the finite-field
+multiplicative-group DLP pipeline. A theoretical generalisation is not its implementation.
+Classify such omissions as scope decisions or extension candidates; do not silently implement them.
+
+The hyperelliptic Jacobian DLP remains a **deferred candidate**, with its algorithmic regime still
+to settle. Fixed-genus Gaudry cost O(q^(2−2/g)) is not subexponential in log(q). GHS over a small
+field with growing genus calls for a different regime, such as Enge–Gaudry/ADH. The existing
+hyperelliptic substrate is characteristic two and the GHS transfer fixture is genus one.
+Higher-genus composition and reuse of mod-ell linear algebra need evidence and dependency review.
+Recheck the stated GHS genus formula before using it to select a downstream solver; it was not
+adjudicated in this review.
+Settle the target regime and domain before selecting Gaudry as the implementation.
+
+Other omitted families, including interval DLP, function-field/small-characteristic methods and
+additional factoring methods, need classification against the intended scope, not automatic
+enrolment. Claims such as GNFS strictly dominating QS at every size are not valid justifications for
+omission. Circuit-resource papers and competition harnesses do not by themselves authorise new
+algorithm families.
+
+Complete projective/exceptional-ideal collection is also deferred: the current GNFS collector has
+an explicit affine boundary and the checked matrix leaves exceptional algebraic columns
+unconstrained. Exact root verification protects accepted results; collection completeness is not
+claimed. Additional square-root families such as Montgomery/Nguyen are optional coverage, not
+prerequisites to the correctness repairs above.
+
+## Maintenance rule
+
+At a work boundary, update this register from actual source and evidence, not a session's title or
+the completion of a checklist. Remove completed items once their useful content has landed. Do not
+append campaign history, reopen accepted layout work by default, or convert an unverified hypothesis
+into a frozen requirement. Keep future execution detail in the current PLAN and long-arc scope here.
