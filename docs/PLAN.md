@@ -214,7 +214,7 @@ config: no flags (self-continue at junctures; no `may-reshard`, no `halt-at-boun
 | 1 | Square-free decomposition over prime fields | done | adf138e | C-SquarefreeDecomposition |
 | 2 | Canonical Dedekind index criterion | done | 0073ab8 | C-IndexTest (without `enlargement_exponent`) |
 | 3 | Honest degree-one prime report above p | done | 17b1604 | C-DedekindReport (report types carry no derives) |
-| 4 | Cross-check against PARI/GP ◆ | pending | | |
+| 4 | Cross-check against PARI/GP ◆ | done | a2e0d39 | none (test-only); boundary check pending |
 | 5 | Anneal cleanup (skippable) | pending | | |
 
 ## Action-frame digest
@@ -244,6 +244,22 @@ that durable prose no longer lists `enlargement_exponent`.
 Texture: no callers of the removed functions outside `shared/numfield` (confirmed by the
 implementer; `gnfs` factor base does its own root search and uses only `is_bad_prime`). Truncated
 budget on x²−2 at 7: budgets 0–4 exhaust, 5 succeeds; a rootless reduction needs no budget.
+
+### 4 — 2026-11-08
+Discovery/flex: none to the contracts: PARI/GP agreed with the criterion and the report on all 21
+monic fixtures × p ∈ {2, 3, 5, 7} (84 cases; 5 `#[ignore]` tests, ~4–8 s with gp 2.17.3). Includes
+the generated GNFS cubic x³+15x²+29x+8. The sweep found the superseded claims fixed in numfield and
+MATHEMATICS, but two surviving conflations of "bad prime" with "p divides the index" outside the
+enrolled files: `gnfs/docs/PEDAGOGY.md:881-883` ("At bad primes, Dedekind's theorem does not apply
+directly") and `gnfs/src/sieve/factor_base.rs:31-32` (same claim in a module comment). Bad prime can
+be maximal (x²−2 at 2).
+Affected: none (contracts); durable prose outside the row's expected files.
+Deferred: yes — the two gnfs hits are outside the enrolled scope (edit outside `shared/numfield` is
+"additive-reshard: surface, do not absorb"); the boundary adjudicator rules on them. Also
+minimalism candidate: the gp-invocation helper is duplicated in the new test file and in several
+gnfs/rho oracle tests. Pre-existing plan labels in numfield PEDAGOGY §3/§4/§10/§11 (C-NF, G.A.1a,
+the §10 contract table, D.A, "sub-track") are outside the edited passages: project-wide anneal scope.
+Texture: committer wrote one commit body unwrapped in row 2 (0073ab8); not amended.
 
 ## Discoveries & risks
 
