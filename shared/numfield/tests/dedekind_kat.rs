@@ -1,8 +1,9 @@
-//! Known-answer tests for `dedekind_factor` and `dedekind_factor_extended`:
-//! Dedekind factorisation of (p) in ℤ[α], including bad-prime handling.
+//! Known-answer tests for `dedekind_factor`, `dedekind_factor_extended`, and
+//! `dedekind_index_test`: Dedekind factorisation of (p) in ℤ[α] and the index criterion.
 //!
 //! Tests cover inert primes, split primes, cubic fields, norm-product verification,
-//! discriminant computation, bad-prime detection, and the Dedekind criterion.
+//! discriminant computation, bad-prime detection, and the Dedekind index criterion with
+//! hand-derived obstruction polynomials.
 //!
 //! # Inert-prime convention
 //!
@@ -13,11 +14,26 @@
 
 use num_bigint::BigInt;
 use shared_numfield::{
-    dedekind_factor, dedekind_factor_extended, discriminant, is_bad_prime, IntPoly, NumberField,
+    dedekind_factor, dedekind_factor_extended, dedekind_index_test, discriminant, is_bad_prime,
+    DedekindError, FpPoly, IntPoly, NumberField, PrimeModulus,
 };
 
 fn bi(n: i64) -> BigInt {
     BigInt::from(n)
+}
+
+/// Integer polynomial from least-significant-first coefficients.
+fn poly(coeffs: &[i64]) -> IntPoly {
+    IntPoly::from_coeffs(coeffs.iter().map(|&c| bi(c)).collect())
+}
+
+fn prime(p: u64) -> PrimeModulus {
+    PrimeModulus::new(p).unwrap()
+}
+
+/// The monic polynomial over 𝔽_p with the given least-significant-first coefficients.
+fn fp(p: u64, coeffs: &[u64]) -> FpPoly {
+    FpPoly::from_coeffs(prime(p), coeffs)
 }
 
 /// f = x² − 2 (defines ℚ(√2))
@@ -211,8 +227,8 @@ fn kat7_is_bad_prime() {
 /// Analysis:
 /// - disc(x² − 2) = 8, and 2 | 8, so p = 2 is a bad prime.
 /// - f mod 2 = x² (since −2 ≡ 0 mod 2), f' mod 2 = 0 (since 2x ≡ 0 mod 2).
-/// - Dedekind criterion: gcd(x², 0) = x², g = x²/x² = 1, h = x²/1 = x².
-///   g·h − f_mod = x² − x² = 0, t = 0. T = gcd(1, gcd(x², 0)) = 1.
+/// - Dedekind criterion: f̄ = x², so ḡ = x and h̄ = x; lifts g = h = x give
+///   F = (f − g·h)/2 = (−2)/2 = −1, F̄ = 1, and T = gcd(1, x, x) = 1.
 ///   So index_divisible = false: ℤ[√2] IS the full ring of integers at p = 2.
 /// - Root of f mod 2: f(0) = −2 ≡ 0 (mod 2), f(1) = −1 ≡ 1 (mod 2). Root: r = 0.
 /// - One ideal: (2, α − 0) = (2, α), representing the unique prime above 2 in ℤ[√2].
@@ -295,4 +311,131 @@ fn panics_on_nonpositive_p() {
         dedekind_factor(&k, &bi(-7));
     });
     assert!(result_neg.is_err(), "dedekind_factor should panic when p < 0");
+}
+
+// ─── Dedekind index criterion ─────────────────────────────────────────────────
+
+/// f = x² − 12, p = 2: 2 divides the index. α = 2√3, so ℤ[α] = ℤ[2√3] has index 2 in ℤ[√3].
+///
+/// Derivation: f̄ = x², ḡ = h̄ = x. Lifts g = h = x give g·h = x², F = (f − x²)/2 = −6, F̄ = 0.
+/// T = gcd(0, x, x) = x, of positive degree.
+#[test]
+fn index_divisible_x2_minus_12_at_2() {
+    let t = dedekind_index_test(&poly(&[-12, 0, 1]), prime(2)).unwrap();
+    assert!(t.divides_index());
+    assert_eq!(t.obstruction(), &fp(2, &[0, 1]));
+    assert_eq!(t.prime(), prime(2));
+}
+
+/// f = x² − 3, p = 3: 3 does not divide the index (ℤ[√3] is maximal, since 3 ≡ 3 mod 4).
+///
+/// Derivation: f̄ = x², ḡ = h̄ = x, g = h = x, F = (f − x²)/3 = −1, F̄ = 2 (a unit),
+/// so T = gcd(2, x, x) = 1. Reducing f mod 3 before forming F would give F = 0 and a false T = x.
+#[test]
+fn index_not_divisible_x2_minus_3_at_3() {
+    let t = dedekind_index_test(&poly(&[-3, 0, 1]), prime(3)).unwrap();
+    assert!(!t.divides_index());
+    assert_eq!(t.obstruction(), &FpPoly::one(prime(3)));
+}
+
+/// f = x² − 2, p = 2: a bad prime, but the index is not divisible (F = (f − x²)/2 = −1, T = 1).
+#[test]
+fn index_not_divisible_x2_minus_2_at_2() {
+    let t = dedekind_index_test(&poly(&[-2, 0, 1]), prime(2)).unwrap();
+    assert!(!t.divides_index());
+    assert_eq!(t.obstruction(), &FpPoly::one(prime(2)));
+}
+
+/// f = x² + 3, p = 2: 2 divides the index; ℤ[√−3] ⊂ ℤ[(1+√−3)/2] with index 2.
+///
+/// Derivation: f̄ = x² + 1 = (x + 1)², ḡ = h̄ = x + 1. Lifts g = h = x + 1 give
+/// g·h = x² + 2x + 1, F = (f − g·h)/2 = (2 − 2x)/2 = 1 − x, F̄ = x + 1. T = x + 1.
+#[test]
+fn index_divisible_x2_plus_3_at_2() {
+    let t = dedekind_index_test(&poly(&[3, 0, 1]), prime(2)).unwrap();
+    assert!(t.divides_index());
+    assert_eq!(t.obstruction(), &fp(2, &[1, 1]));
+}
+
+/// f = x³ − 10, p = 3: 3 divides the index because 10 ≡ 1 (mod 9) (Dedekind's pure-cubic case).
+///
+/// Derivation: f̄ = x³ − 1 = (x − 1)³ = (x + 2)³, ḡ = x + 2, h̄ = (x + 2)². Lifts g = x + 2 and
+/// h = x² + 4x + 4 give g·h = x³ + 6x² + 12x + 8, F = (f − g·h)/3 = −2x² − 4x − 6, so
+/// F̄ = x² + 2x = x(x + 2). T = gcd(x(x + 2), x + 2, (x + 2)²) = x + 2.
+/// Cross-check: disc(f) = −2700 and disc(ℚ(∛10)) = −300, so the index is √(2700/300) = 3.
+#[test]
+fn index_divisible_x3_minus_10_at_3() {
+    let t = dedekind_index_test(&poly(&[-10, 0, 0, 1]), prime(3)).unwrap();
+    assert!(t.divides_index());
+    assert_eq!(t.obstruction(), &fp(3, &[2, 1]));
+}
+
+/// f = x³ − 2, p = 3: ℤ[∛2] is maximal (2 ≢ ±1 mod 9), so 3 does not divide the index.
+///
+/// Derivation: f̄ = x³ + 1 = (x + 1)³, ḡ = x + 1, h̄ = (x + 1)². Lifts g = x + 1,
+/// h = x² + 2x + 1 give g·h = x³ + 3x² + 3x + 1, F = −x² − x − 1, F̄ = 2(x − 1)². Since
+/// (x − 1)² at x = −1 is 4 ≡ 1 ≠ 0, F̄ is coprime to x + 1 and T = 1.
+#[test]
+fn index_not_divisible_x3_minus_2_at_3() {
+    let t = dedekind_index_test(&poly(&[-2, 0, 0, 1]), prime(3)).unwrap();
+    assert!(!t.divides_index());
+    assert_eq!(t.obstruction(), &FpPoly::one(prime(3)));
+}
+
+/// f = x³ − 2, p = 2: Eisenstein at 2, so ℤ[∛2] is 2-maximal.
+///
+/// Derivation: f̄ = x³, ḡ = x, h̄ = x²; g = x, h = x², F = (f − x³)/2 = −1, T = 1.
+#[test]
+fn index_not_divisible_x3_minus_2_at_2() {
+    let t = dedekind_index_test(&poly(&[-2, 0, 0, 1]), prime(2)).unwrap();
+    assert!(!t.divides_index());
+    assert_eq!(t.obstruction(), &FpPoly::one(prime(2)));
+}
+
+/// The fifth cyclotomic polynomial at p = 5: f̄ = (x − 1)⁴ is totally ramified, yet ℤ[ζ₅] is
+/// maximal.
+///
+/// Derivation: ḡ = x − 1, h̄ = (x − 1)³. With lifts g = x − 1, h = (x − 1)³ the difference
+/// f − g·h = 5x³ − 5x² + 5x, so F = x³ − x² + x = x(x² − x + 1). At x = 1 this is 1 ≠ 0, so
+/// F̄ is coprime to x − 1 and T = 1.
+#[test]
+fn index_not_divisible_cyclotomic_5_at_5() {
+    let t = dedekind_index_test(&poly(&[1, 1, 1, 1, 1]), prime(5)).unwrap();
+    assert!(!t.divides_index());
+}
+
+/// A prime not dividing disc(f) has f̄ squarefree, so h̄ = 1 and T = 1.
+#[test]
+fn index_not_divisible_at_good_primes() {
+    for (f, p) in [(poly(&[-2, 0, 1]), 7), (poly(&[-1, -1, 0, 1]), 5), (poly(&[-1, -1, 0, 1]), 2)] {
+        assert!(!is_bad_prime(&f, &bi(p)));
+        let t = dedekind_index_test(&f, prime(p as u64)).unwrap();
+        assert!(!t.divides_index());
+        assert_eq!(t.obstruction(), &FpPoly::one(prime(p as u64)));
+    }
+}
+
+/// The extended factorisation reports the criterion's answer rather than recomputing its own.
+#[test]
+fn extended_reports_index_criterion() {
+    let k = NumberField::new(poly(&[-12, 0, 1]));
+    let r = dedekind_factor_extended(&k, &bi(2));
+    assert!(r.is_bad_prime);
+    assert!(r.index_divisible, "2 divides the index of ℤ[2√3]");
+
+    let k = NumberField::new(poly(&[-3, 0, 1]));
+    let r = dedekind_factor_extended(&k, &bi(3));
+    assert!(r.is_bad_prime);
+    assert!(!r.index_divisible, "ℤ[√3] is 3-maximal");
+}
+
+/// A non-monic polynomial is rejected, as is a zero or constant one.
+#[test]
+fn index_test_rejects_invalid_polynomials() {
+    let p = prime(3);
+    assert_eq!(dedekind_index_test(&poly(&[1, 0, 2]), p), Err(DedekindError::NotMonic));
+    assert_eq!(dedekind_index_test(&poly(&[1, 0, -1]), p), Err(DedekindError::NotMonic));
+    assert_eq!(dedekind_index_test(&poly(&[1]), p), Err(DedekindError::ConstantPolynomial));
+    assert_eq!(dedekind_index_test(&poly(&[7]), p), Err(DedekindError::ConstantPolynomial));
+    assert_eq!(dedekind_index_test(&IntPoly::zero(), p), Err(DedekindError::ConstantPolynomial));
 }

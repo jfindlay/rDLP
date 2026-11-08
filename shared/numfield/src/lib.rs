@@ -7,8 +7,11 @@
 //! - [`NumberFieldElement`] — an element of K, represented as a reduced polynomial in α.
 //! - [`Ideal`] — a fractional ideal of ℤ[α] in two-element primary representation `(p, α − r)`.
 //! - [`dedekind_factor`] — Dedekind factorisation of the ideal (p) in ℤ[α].
-//! - [`dedekind_factor_extended`] — Dedekind factorisation with bad-prime handling.
+//! - [`dedekind_factor_extended`] — Dedekind factorisation reporting bad primes and whether p
+//!   divides the index.
 //! - [`DedekindResult`] — result type for `dedekind_factor_extended`.
+//! - [`dedekind_index_test`] — the Dedekind criterion: does p divide [ℤ_K : ℤ[α]]? Returns an
+//!   [`IndexTest`] or a [`DedekindError`].
 //! - [`discriminant`] — discriminant of a monic polynomial f ∈ ℤ[x].
 //! - [`is_bad_prime`] — test whether p | disc(f).
 //! - [`FpPoly`] — polynomials over a proved-prime field F_p, with gcd, `pow_mod`, an exact
@@ -39,7 +42,8 @@ pub mod residue_field;
 pub mod resultant;
 
 pub use dedekind::{
-    dedekind_factor, dedekind_factor_extended, discriminant, is_bad_prime, DedekindResult,
+    dedekind_factor, dedekind_factor_extended, dedekind_index_test, discriminant, is_bad_prime,
+    DedekindError, DedekindResult, IndexTest,
 };
 pub use element::{NumberField, NumberFieldElement};
 pub use fp_poly::{

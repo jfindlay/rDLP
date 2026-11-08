@@ -387,9 +387,12 @@ the factorisation process. See Neukirch [N99, §I.3] for the full argument. $\sq
 **Why this matters for GNFS.** The ring of integers $\mathcal{O}_K$ of a number field $K =
 \mathbb{Q}(\alpha)$ is a Dedekind domain. The GNFS exploits the unique factorisation of ideals in
 $\mathcal{O}_K$ to connect smoothness of norms in $\mathbb{Z}$ to smoothness of ideals in
-$\mathcal{O}_K$. The *bad primes* — primes dividing the index $[\mathcal{O}_K : \mathbb{Z}[\alpha]]$
-— are exactly the primes where $\mathbb{Z}[\alpha]$ fails to be a Dedekind domain, and they require
-special handling (the Dedekind index criterion).
+$\mathcal{O}_K$. The primes dividing the index $[\mathcal{O}_K : \mathbb{Z}[\alpha]]$ are exactly
+the primes $p$ at which $\mathbb{Z}[\alpha]$ fails to be integrally closed, and they require special
+handling (the Dedekind index criterion). They are distinct from the *bad primes*, those dividing
+$\mathrm{disc}(f)$: since $\mathrm{disc}(f) = [\mathcal{O}_K : \mathbb{Z}[\alpha]]^2 \cdot
+\mathrm{disc}(K)$, every prime dividing the index is bad, but a bad prime need not divide the index
+(for $f = x^2 - 2$ the prime $2$ is bad, yet $\mathbb{Z}[\sqrt{2}]$ is maximal).
 
 #### Elliptic curves
 

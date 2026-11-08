@@ -1,8 +1,8 @@
-//! Dedekind factorisation of the ideal (p) in ℤ[α], with bad-prime handling.
+//! Dedekind factorisation of the ideal (p) in ℤ[α], with the Dedekind index criterion.
 //!
 //! Given a number field K = ℚ(α) with defining polynomial f ∈ ℤ[x] and a rational prime p,
 //! this module decomposes the ideal (p) into prime ideals of ℤ[α] using Dedekind's theorem
-//! and the Dedekind criterion (index criterion) for bad primes.
+//! and decides, by the Dedekind criterion, whether ℤ[α] is the full ring of integers at p.
 //!
 //! # Dedekind's theorem (concrete form)
 //!
@@ -12,29 +12,40 @@
 //! - For an irreducible factor of degree > 1, the prime ideal still exists but its two-element
 //!   representation requires a second generator that is not simply α − r for an integer r.
 //!
-//! # Bad primes and the Dedekind criterion
+//! # Bad primes and primes dividing the index
 //!
-//! A prime p is **bad** (or ramified in the discriminant) if p | disc(f). For bad primes,
-//! Dedekind's theorem does not directly apply: the ring ℤ[α] may not be the full ring of
-//! integers at p, meaning (p) may not factor correctly via f mod p alone.
+//! Two distinct notions are in play. A prime p is **bad** for f when p | disc(f). A prime p
+//! **divides the index** when p | [ℤ_K : ℤ[α]]. Since disc(f) = [ℤ_K : ℤ[α]]² · disc(K), every
+//! prime dividing the index is bad, but not conversely: p = 2 is bad for x² − 2 (disc 8), yet
+//! ℤ[√2] is maximal, so 2 does not divide the index.
 //!
-//! The **Dedekind criterion** (index criterion) tests whether ℤ[α] is the full ring of integers
-//! at p:
-//! 1. Let g = squarefree part of f mod p (i.e., g = f / gcd(f, f') mod p).
-//! 2. Let h = f / g mod p.
-//! 3. Let t = (g·h − f) / p mod p (an integer polynomial since p | (g·h − f)).
-//! 4. Compute T = gcd(g, gcd(h, t)) mod p.
-//! 5. If T = 1 (constant), then p ∤ [ℤ_K : ℤ[α]] and Dedekind's theorem applies normally.
-//! 6. If T ≠ 1, then p | [ℤ_K : ℤ[α]] and the full ring of integers is larger than ℤ[α].
+//! Dedekind's theorem reads the factorisation of (p) off f mod p exactly when p does not divide
+//! the index; [`dedekind_index_test`] decides that.
+//!
+//! # The Dedekind criterion
+//!
+//! For monic f ∈ ℤ[x] and a prime p (Cohen, *A Course in Computational Algebraic Number Theory*,
+//! §6.1.2, Dedekind's criterion):
+//! 1. Factor f̄ = f mod p as ∏ tᵢ^eᵢ over 𝔽_p.
+//! 2. Let ḡ = ∏ tᵢ (the radical of f̄) and h̄ = f̄ / ḡ.
+//! 3. Lift ḡ and h̄ to monic integer polynomials g and h (any lifts).
+//! 4. Form F = (f − g·h) / p from the original integer polynomial f. The numerator is divisible
+//!    by p because g·h ≡ f (mod p).
+//! 5. Let T = gcd(F̄, ḡ, h̄), monic in 𝔽_p[x].
+//! 6. p divides [ℤ_K : ℤ[α]] if and only if deg T > 0.
+//!
+//! F must be formed from the integer polynomial f itself: the quotient by p carries information
+//! that reducing f mod p first would discard. The result does not depend on the lifts: replacing
+//! g by g + p·u changes F̄ by a multiple of h̄, and replacing h by h + p·v changes it by a
+//! multiple of ḡ, so the gcd is unchanged.
 //!
 //! # Scope of this implementation
 //!
 //! This implementation handles the **linear-factor case** for both good and bad primes:
 //! it finds all r ∈ {0, …, p−1} with f(r) ≡ 0 (mod p) and returns the corresponding prime
-//! ideals (p, α − r). For bad primes where the Dedekind criterion detects index divisibility
-//! (T ≠ 1), the result is flagged and a caveat is documented: higher-degree factors of f mod p
-//! may yield additional prime ideals not representable in two-element form without the full
-//! Round 2 / HNF-basis algorithm.
+//! ideals (p, α − r). When p divides the index, the result is flagged and a caveat is
+//! documented: ℤ[α] is not the full ring of integers at p, so those ideals are primes of ℤ[α]
+//! only, and the factorisation of (p) in ℤ_K requires the full Round 2 / HNF-basis algorithm.
 //!
 //! # Inert primes
 //!
@@ -53,13 +64,16 @@
 //!
 //! Panics if `p ≤ 0`.
 
+use std::fmt;
+
 use num_bigint::BigInt;
-use num_traits::{Signed, Zero};
+use num_traits::{Signed, ToPrimitive, Zero};
 
 use crate::element::NumberField;
+use crate::fp_poly::{FpPoly, FpPolyError, PrimeModulus};
 use crate::ideal::Ideal;
 use crate::poly::IntPoly;
-use crate::resultant::{resultant, subresultant_gcd};
+use crate::resultant::resultant;
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -67,31 +81,108 @@ use crate::resultant::{resultant, subresultant_gcd};
 pub struct DedekindResult<'a> {
     /// Prime ideals above p in two-element form (p, α − r).
     ///
-    /// For good primes and bad primes where T = 1 (Dedekind criterion passes), this is
-    /// the complete factorisation of (p) restricted to linear factors of f mod p.
+    /// When p does not divide the index [ℤ_K : ℤ[α]] (`index_divisible = false`), this is the
+    /// complete factorisation of (p) restricted to linear factors of f mod p.
     ///
-    /// For bad primes where T ≠ 1 (`index_divisible = true`), this list covers only the
-    /// linear factors of f mod p. Higher-degree irreducible factors of f mod p may yield
-    /// additional prime ideals above p that are not representable in two-element form
-    /// without the full Round 2 / HNF-basis algorithm (out of scope for this implementation).
+    /// When p divides the index (`index_divisible = true`), this list covers only the linear
+    /// factors of f mod p, and those ideals are primes of ℤ[α], not necessarily of ℤ_K. The
+    /// prime ideals of ℤ_K above p are not described by it: they require the full Round 2 /
+    /// HNF-basis algorithm (out of scope for this implementation).
     pub ideals: Vec<Ideal<'a>>,
 
     /// True if p | disc(f), i.e., p is a bad prime for f.
     ///
-    /// Bad primes are exactly those where Dedekind's theorem does not apply directly.
-    /// The Dedekind criterion (`index_divisible`) gives the finer test.
+    /// Every prime dividing the index is bad, but a bad prime need not divide the index;
+    /// `index_divisible` gives the finer test.
     pub is_bad_prime: bool,
 
-    /// True if the Dedekind criterion detected that p | [ℤ_K : ℤ[α]].
+    /// True if p | [ℤ_K : ℤ[α]], as decided by the Dedekind criterion.
     ///
-    /// When true, ℤ[α] is not the full ring of integers at p, and `ideals` may be
-    /// incomplete: higher-degree factors of f mod p contribute additional prime ideals
-    /// not captured here. The full factorisation requires the Round 2 algorithm (HNF
-    /// basis computation), which is out of scope for this implementation.
+    /// When true, ℤ[α] is not the full ring of integers at p and `ideals` does not describe
+    /// the factorisation of (p) in ℤ_K.
     ///
-    /// Always false when `is_bad_prime` is false (good primes pass the criterion
-    /// automatically since p ∤ disc(f) implies p ∤ [ℤ_K : ℤ[α]]).
+    /// Always false when `is_bad_prime` is false (p ∤ disc(f) implies p ∤ [ℤ_K : ℤ[α]]).
     pub index_divisible: bool,
+}
+
+/// Failure of [`dedekind_index_test`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DedekindError {
+    /// The polynomial is not monic.
+    NotMonic,
+    /// The polynomial is zero or has degree 0; no number field is defined.
+    ConstantPolynomial,
+    /// A prime-field polynomial operation failed.
+    Field(FpPolyError),
+    /// A budgeted root enumeration ran out of resources before finishing. This reports
+    /// exhaustion of the budget, not a mathematical statement about the polynomial.
+    RootSearchExhausted {
+        /// Distinct roots found before the budget ran out.
+        distinct_root_count: usize,
+        /// Evaluations performed before the budget ran out.
+        evaluations: u64,
+    },
+}
+
+impl fmt::Display for DedekindError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotMonic => f.write_str("defining polynomial is not monic"),
+            Self::ConstantPolynomial => {
+                f.write_str("defining polynomial is zero or constant")
+            }
+            Self::Field(e) => write!(f, "prime-field polynomial error: {e}"),
+            Self::RootSearchExhausted { distinct_root_count, evaluations } => write!(
+                f,
+                "root search exhausted its budget after {evaluations} evaluations \
+                 ({distinct_root_count} distinct roots found)"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for DedekindError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Field(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<FpPolyError> for DedekindError {
+    fn from(e: FpPolyError) -> Self {
+        Self::Field(e)
+    }
+}
+
+/// Outcome of the Dedekind criterion for one polynomial and prime.
+///
+/// Records T = gcd(F̄, ḡ, h̄) in 𝔽_p[x]; see the module documentation for the construction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexTest {
+    prime: PrimeModulus,
+    obstruction: FpPoly,
+}
+
+impl IndexTest {
+    /// The prime p that was tested.
+    #[must_use]
+    pub fn prime(&self) -> PrimeModulus {
+        self.prime
+    }
+
+    /// The obstruction T = gcd(F̄, ḡ, h̄), monic in 𝔽_p[x].
+    #[must_use]
+    pub fn obstruction(&self) -> &FpPoly {
+        &self.obstruction
+    }
+
+    /// True iff p divides [ℤ_K : ℤ[α]], i.e. iff deg T > 0.
+    #[must_use]
+    pub fn divides_index(&self) -> bool {
+        self.obstruction.degree().is_some_and(|d| d > 0)
+    }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -119,9 +210,9 @@ pub fn discriminant(f: &IntPoly) -> BigInt {
 
 /// Test whether p divides disc(f), i.e., whether p is a bad prime for f.
 ///
-/// Returns true iff p | disc(f). For good primes (p ∤ disc(f)), Dedekind's theorem
-/// applies directly. For bad primes, use `dedekind_factor_extended` which applies the
-/// Dedekind criterion to detect whether ℤ[α] is the full ring of integers at p.
+/// Returns true iff p | disc(f). For primes not dividing disc(f), Dedekind's theorem applies
+/// directly. A bad prime may or may not divide the index [ℤ_K : ℤ[α]]; use
+/// [`dedekind_index_test`] (or `dedekind_factor_extended`) to decide that.
 pub fn is_bad_prime(f: &IntPoly, p: &BigInt) -> bool {
     let disc = discriminant(f);
     if disc.is_zero() {
@@ -129,6 +220,34 @@ pub fn is_bad_prime(f: &IntPoly, p: &BigInt) -> bool {
         return true;
     }
     (&disc % p).is_zero()
+}
+
+/// Decide whether p divides the index [ℤ_K : ℤ[α]] by the Dedekind criterion.
+///
+/// `f` must be monic of positive degree; irreducibility is the caller's responsibility, as for
+/// [`NumberField`]. The result does not depend on the integer lifts used internally.
+///
+/// # Errors
+///
+/// - [`DedekindError::NotMonic`] if `f` is not monic.
+/// - [`DedekindError::ConstantPolynomial`] if `f` is zero or constant.
+/// - [`DedekindError::Field`] if a prime-field operation fails.
+pub fn dedekind_index_test(f: &IntPoly, p: PrimeModulus) -> Result<IndexTest, DedekindError> {
+    if f.degree().is_none_or(|d| d == 0) {
+        return Err(DedekindError::ConstantPolynomial);
+    }
+    if !f.is_monic() {
+        return Err(DedekindError::NotMonic);
+    }
+
+    // f is monic, so f̄ is monic of the same degree; ḡ = rad(f̄) and h̄ = f̄ / ḡ are monic too.
+    let f_bar = FpPoly::from_int_poly(f, p);
+    let g_bar = f_bar.radical()?;
+    let (h_bar, _zero_remainder) = f_bar.div_rem(&g_bar)?;
+
+    let obstruction =
+        obstruction_from_lifts(f, p, &g_bar.to_int_poly(), &h_bar.to_int_poly())?;
+    Ok(IndexTest { prime: p, obstruction })
 }
 
 /// Factorise the ideal (p) in ℤ[α] using Dedekind's theorem.
@@ -154,7 +273,7 @@ pub fn is_bad_prime(f: &IntPoly, p: &BigInt) -> bool {
 /// # Note
 ///
 /// This function does NOT handle primes dividing disc(f) (bad primes). For those, use
-/// `dedekind_factor_extended` which applies the Dedekind criterion.
+/// `dedekind_factor_extended`, which also reports whether p divides the index.
 pub fn dedekind_factor<'a>(field: &'a NumberField, p: &BigInt) -> Vec<Ideal<'a>> {
     assert!(p.is_positive(), "prime p must be positive, got {p}");
 
@@ -183,30 +302,30 @@ pub fn dedekind_factor<'a>(field: &'a NumberField, p: &BigInt) -> Vec<Ideal<'a>>
     }
 }
 
-/// Factorise the ideal (p) in ℤ[α], handling both good and bad primes.
+/// Factorise the ideal (p) in ℤ[α], reporting whether p is bad and whether it divides the index.
 ///
-/// For good primes (p ∤ disc(f)) or bad primes where the Dedekind criterion gives T = 1:
-/// equivalent to `dedekind_factor` — returns the prime ideals from linear factors of f mod p.
-///
-/// For bad primes where T ≠ 1 (p | [ℤ_K : ℤ[α]]): returns prime ideals from linear factors
-/// of f mod p, with `index_divisible = true` to document that higher-degree factors may yield
-/// additional ideals not representable in two-element form without the full Round 2 algorithm.
-///
-/// The Dedekind criterion is always computed for bad primes; for good primes it is skipped
-/// (p ∤ disc(f) implies p ∤ [ℤ_K : ℤ[α]] automatically).
+/// Returns the prime ideals from linear factors of f mod p, as `dedekind_factor` does, together
+/// with `is_bad_prime` (p | disc(f)) and `index_divisible` (p | [ℤ_K : ℤ[α]], decided by
+/// [`dedekind_index_test`]). When `index_divisible` is true, ℤ[α] is not maximal at p and the
+/// returned ideals are primes of ℤ[α] only; the factorisation of (p) in ℤ_K needs the full
+/// Round 2 algorithm.
 ///
 /// # Panics
 ///
-/// Panics if `p ≤ 0`.
+/// Panics if `p` is not a prime that fits in a `u64`.
 pub fn dedekind_factor_extended<'a>(field: &'a NumberField, p: &BigInt) -> DedekindResult<'a> {
     assert!(p.is_positive(), "prime p must be positive, got {p}");
 
     let f = &field.f;
-    let bad = is_bad_prime(f, p);
+    let modulus = p
+        .to_u64()
+        .and_then(|v| PrimeModulus::new(v).ok())
+        .unwrap_or_else(|| panic!("p must be a prime that fits in a u64, got {p}"));
 
-    // Apply the Dedekind criterion only for bad primes.
-    // For good primes, p ∤ disc(f) guarantees p ∤ [ℤ_K : ℤ[α]], so T = 1 automatically.
-    let index_divisible = if bad { dedekind_criterion(f, p) } else { false };
+    let bad = is_bad_prime(f, p);
+    // `NumberField` guarantees f is monic of positive degree, so the test cannot fail.
+    let index = dedekind_index_test(f, modulus)
+        .expect("a NumberField's defining polynomial is monic of positive degree");
 
     // Find linear factors (roots) of f mod p — same logic as dedekind_factor.
     let p_usize = p_to_usize(p);
@@ -226,64 +345,35 @@ pub fn dedekind_factor_extended<'a>(field: &'a NumberField, p: &BigInt) -> Dedek
         roots.into_iter().map(|r| Ideal::new(field, p.clone(), r)).collect()
     };
 
-    DedekindResult { ideals, is_bad_prime: bad, index_divisible }
+    DedekindResult { ideals, is_bad_prime: bad, index_divisible: index.divides_index() }
 }
 
 // ─── Dedekind criterion ───────────────────────────────────────────────────────
 
-/// Apply the Dedekind criterion to test whether p | [ℤ_K : ℤ[α]].
+/// Compute T = gcd(F̄, ḡ, h̄) for explicit monic integer lifts `g` and `h` of ḡ and h̄.
 ///
-/// Returns true if p divides the index (T ≠ 1 mod p), false if T = 1 (Dedekind's theorem
-/// applies normally). This is the index criterion / Dedekind's index test.
-///
-/// Algorithm:
-/// 1. g = squarefree part of f mod p = f / gcd(f, f') mod p.
-/// 2. h = f / g mod p.
-/// 3. t = (g·h − f) / p mod p.
-/// 4. T = gcd(g, gcd(h, t)) mod p.
-/// 5. Return T ≠ 1 (i.e., deg(T) > 0 or T's constant is not ≡ 1 mod p).
-fn dedekind_criterion(f: &IntPoly, p: &BigInt) -> bool {
-    // Step 1: compute g = squarefree part of f mod p.
-    let f_mod = poly_mod(f, p);
-    let f_prime = formal_derivative(f);
-    let f_prime_mod = poly_mod(&f_prime, p);
+/// Requires ḡ·h̄ = f̄ so that p divides every coefficient of f − g·h.
+fn obstruction_from_lifts(
+    f: &IntPoly,
+    p: PrimeModulus,
+    g: &IntPoly,
+    h: &IntPoly,
+) -> Result<FpPoly, DedekindError> {
+    let big_p = BigInt::from(p.get());
+    let numerator = f.sub(&g.mul(h));
+    let quotient: Vec<BigInt> = numerator
+        .coeffs
+        .iter()
+        .map(|c| {
+            debug_assert!((c % &big_p).is_zero(), "g·h must reduce to f mod p");
+            c / &big_p
+        })
+        .collect();
 
-    // gcd(f mod p, f' mod p) in 𝔽_p[x] — subresultant_gcd gives a primitive representative.
-    let gcd_ff_prime = subresultant_gcd(&f_mod, &f_prime_mod);
-    let gcd_ff_prime = poly_mod(&gcd_ff_prime, p);
-
-    // g = f / gcd(f, f') mod p — exact division in 𝔽_p[x].
-    // Use pseudo_div_rem on the ℤ-polynomials (coefficients in [0,p)) and reduce mod p.
-    let g = poly_exact_div_mod(&f_mod, &gcd_ff_prime, p);
-
-    // Step 2: h = f / g mod p.
-    let h = poly_exact_div_mod(&f_mod, &g, p);
-
-    // Step 3: t = (g·h − f) / p mod p.
-    // g·h − f should be divisible by p coefficient-wise.
-    // Compute g·h − f over ℤ (not mod p yet) to extract the factor of p.
-    // We need the actual integer polynomial g·h − f (with coefficients in ℤ, not reduced mod p).
-    // Since g and h have coefficients in [0,p), their product has coefficients in [0, p²·deg).
-    // f has coefficients in [0,p) (f_mod). So g·h − f_mod has coefficients that are multiples of p.
-    let gh_int = g.mul(&h);
-    let diff = gh_int.sub(&f_mod);
-    // Each coefficient of diff should be divisible by p.
-    let t_coeffs: Vec<BigInt> = diff.coeffs.iter().map(|c| {
-        let (q, r) = (c / p, c % p);
-        // r should be zero; if not, something went wrong. We proceed defensively.
-        debug_assert!(r.is_zero(), "Dedekind criterion: coefficient not divisible by p");
-        q
-    }).collect();
-    let t_raw = IntPoly::from_coeffs(t_coeffs);
-    let t = poly_mod(&t_raw, p);
-
-    // Step 4: T = gcd(g, gcd(h, t)) mod p.
-    let gcd_ht = poly_mod(&subresultant_gcd(&h, &t), p);
-    let big_t = poly_mod(&subresultant_gcd(&g, &gcd_ht), p);
-
-    // Step 5: T ≠ 1 iff deg(T) > 0 or T's constant coefficient ≢ 1 (mod p).
-    // A constant polynomial with value c ≡ 1 (mod p) means T = 1 in 𝔽_p[x].
-    !poly_is_one_mod(&big_t, p)
+    let f_cap = FpPoly::from_int_poly(&IntPoly::from_coeffs(quotient), p);
+    let g_bar = FpPoly::from_int_poly(g, p);
+    let h_bar = FpPoly::from_int_poly(h, p);
+    Ok(f_cap.gcd(&g_bar.gcd(&h_bar)?)?)
 }
 
 // ─── Polynomial helpers ────────────────────────────────────────────────────────
@@ -301,54 +391,6 @@ fn formal_derivative(f: &IntPoly) -> IntPoly {
     IntPoly::from_coeffs(coeffs)
 }
 
-/// Reduce all coefficients of f modulo p into [0, p).
-fn poly_mod(f: &IntPoly, p: &BigInt) -> IntPoly {
-    let coeffs: Vec<BigInt> = f.coeffs.iter().map(|c| mod_reduce(c, p)).collect();
-    IntPoly::from_coeffs(coeffs)
-}
-
-/// Exact division of f by g in 𝔽_p[x]: returns q such that f = q·g in 𝔽_p[x].
-///
-/// Uses `pseudo_div_rem` on the ℤ-polynomials (with coefficients in [0,p)) and reduces
-/// the quotient mod p. The remainder is discarded (caller must ensure g | f in 𝔽_p[x]).
-///
-/// This works because pseudo_div_rem computes lc(g)^e · f = q · g + r over ℤ. When g is
-/// monic mod p (leading coefficient 1), the pseudo-multiplier is 1 and the division is exact.
-/// When g is not monic, the quotient is scaled by lc(g)^e; reducing mod p gives the correct
-/// quotient in 𝔽_p[x] since lc(g) is a unit in 𝔽_p.
-fn poly_exact_div_mod(f: &IntPoly, g: &IntPoly, p: &BigInt) -> IntPoly {
-    if g.degree().is_none() {
-        // g = 0: return f unchanged (degenerate case; caller should not pass zero divisor).
-        return f.clone();
-    }
-    if f.degree().is_none() {
-        return IntPoly::zero();
-    }
-    // If deg(f) < deg(g), quotient is 0.
-    if f.degree().unwrap() < g.degree().unwrap() {
-        return IntPoly::zero();
-    }
-
-    let (q, _r) = f.pseudo_div_rem(g);
-    poly_mod(&q, p)
-}
-
-/// Test whether a polynomial T is the unit 1 in 𝔽_p[x].
-///
-/// T = 1 in 𝔽_p[x] iff T has degree 0 and its constant coefficient ≡ 1 (mod p),
-/// or T is the zero polynomial (which represents 0, not 1 — so zero returns false).
-fn poly_is_one_mod(t: &IntPoly, p: &BigInt) -> bool {
-    match t.degree() {
-        None => false, // zero polynomial is not 1
-        Some(0) => {
-            // Constant polynomial: check if coefficient ≡ 1 (mod p).
-            let c = mod_reduce(&t.coeffs[0], p);
-            c == BigInt::from(1u32)
-        }
-        Some(_) => false, // degree > 0: not a unit
-    }
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Reduce `a` into the canonical range [0, m) for m > 0.
@@ -362,7 +404,6 @@ fn mod_reduce(a: &BigInt, m: &BigInt) -> BigInt {
 /// Panics if p does not fit in usize (primes this large are not supported by the
 /// brute-force root-finding loop).
 fn p_to_usize(p: &BigInt) -> usize {
-    use num_traits::ToPrimitive;
     p.to_usize().expect("prime p must fit in usize for root-finding iteration")
 }
 
@@ -375,6 +416,14 @@ mod tests {
 
     fn bi(n: i64) -> BigInt {
         BigInt::from(n)
+    }
+
+    fn poly(coeffs: &[i64]) -> IntPoly {
+        IntPoly::from_coeffs(coeffs.iter().map(|&c| bi(c)).collect())
+    }
+
+    fn prime(p: u64) -> PrimeModulus {
+        PrimeModulus::new(p).unwrap()
     }
 
     /// f = x² − 2 (defines ℚ(√2))
@@ -452,23 +501,59 @@ mod tests {
     }
 
     #[test]
-    fn dedekind_criterion_good_prime() {
-        // p = 7, f = x² − 2: good prime, criterion should give T = 1 (false).
-        let f = IntPoly::from_coeffs(vec![bi(-2), bi(0), bi(1)]);
-        assert!(!dedekind_criterion(&f, &bi(7)), "p=7 is a good prime; criterion should be false");
+    fn index_test_good_prime_has_trivial_obstruction() {
+        // p = 7 ∤ disc(x² − 2) = 8: f̄ is squarefree, so h̄ = 1 and T = 1.
+        let f = poly(&[-2, 0, 1]);
+        let t = dedekind_index_test(&f, prime(7)).unwrap();
+        assert!(!t.divides_index());
+        assert_eq!(t.obstruction(), &FpPoly::one(prime(7)));
+        assert_eq!(t.prime(), prime(7));
     }
 
     #[test]
-    fn dedekind_criterion_bad_prime_sqrt2() {
-        // p = 2, f = x² − 2: bad prime. f mod 2 = x², f' mod 2 = 0.
-        // gcd(x², 0) = x², g = x²/x² = 1, h = x²/1 = x².
-        // g·h − f = x² − x² = 0 over ℤ (since f_mod = x²). t = 0.
-        // T = gcd(1, gcd(x², 0)) = gcd(1, x²) = 1.
-        // So criterion returns false (T = 1) for x² − 2 at p = 2.
-        // This is correct: even though 2 | disc, the Dedekind criterion at p=2 for x²−2
-        // gives T=1 because ℤ[√2] IS the full ring of integers (it's a PID).
-        let f = IntPoly::from_coeffs(vec![bi(-2), bi(0), bi(1)]);
-        // For x²−2 at p=2: ℤ[√2] is the maximal order, so index_divisible should be false.
-        assert!(!dedekind_criterion(&f, &bi(2)));
+    fn index_test_bad_prime_sqrt2_is_maximal() {
+        // p = 2, f = x² − 2: f̄ = x², ḡ = h̄ = x, lifts g = h = x, F = (f − x²)/2 = −1.
+        // T = gcd(1, x, x) = 1, so ℤ[√2] is 2-maximal even though 2 | disc.
+        let t = dedekind_index_test(&poly(&[-2, 0, 1]), prime(2)).unwrap();
+        assert!(!t.divides_index());
+    }
+
+    #[test]
+    fn obstruction_is_independent_of_lifts() {
+        // f = x³ − 10 at p = 3: f̄ = (x − 1)³, ḡ = x − 1, h̄ = (x − 1)².
+        // Shift each lift's coefficients by multiples of p; T must stay x + 2 = x − 1.
+        let f = poly(&[-10, 0, 0, 1]);
+        let p = prime(3);
+        let expected = FpPoly::from_coeffs(p, &[2, 1]);
+
+        // (g, h) as coefficient lists, least significant first; all lift (x−1, (x−1)²) mod 3.
+        let lifts: [(&[i64], &[i64]); 4] = [
+            (&[-1, 1], &[1, -2, 1]),
+            (&[2, 1], &[4, 4, 1]),
+            (&[-4, 1], &[1, 1, 1]),
+            (&[5, 1], &[-2, 7, 1]),
+        ];
+        for (g, h) in lifts {
+            let t = obstruction_from_lifts(&f, p, &poly(g), &poly(h)).unwrap();
+            assert_eq!(t, expected, "lifts g = {g:?}, h = {h:?}");
+        }
+    }
+
+    #[test]
+    fn extended_routes_through_index_test() {
+        // x² − 12 at 2: bad, and 2 divides the index (ℤ[2√3] ⊊ ℤ[√3]).
+        let k = NumberField::new(poly(&[-12, 0, 1]));
+        let r = dedekind_factor_extended(&k, &bi(2));
+        assert!(r.is_bad_prime);
+        assert!(r.index_divisible);
+    }
+
+    #[test]
+    fn extended_panics_on_composite_p() {
+        let k = field_sqrt2();
+        let result = std::panic::catch_unwind(|| {
+            dedekind_factor_extended(&k, &bi(4));
+        });
+        assert!(result.is_err(), "a composite modulus is not a prime");
     }
 }

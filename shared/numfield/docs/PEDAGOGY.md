@@ -545,95 +545,117 @@ excluded from the algebraic factor base: the sentinel signals "no linear-factor 
 
 ## 9. Bad Primes and the Dedekind Criterion
 
-### What makes a prime "bad"
+### Two notions: bad primes and primes dividing the index
 
-A prime p is **bad** for f (equivalently, **ramified** in the discriminant) if p | disc(f). The
-discriminant of a monic polynomial f of degree d is:
+Two distinct conditions on a prime p are easy to conflate:
 
-> disc(f) = (−1)^{d(d−1)/2} · Res(f, f')
+- p is **bad** for f if p | disc(f). This is what `is_bad_prime` tests. The discriminant of a
+  monic polynomial f of degree d is:
 
-where f' is the formal derivative. The `discriminant` function computes this via the standalone
-`resultant` from `resultant.rs`:
+  > disc(f) = (−1)^{d(d−1)/2} · Res(f, f')
 
-```rust
-pub fn discriminant(f: &IntPoly) -> BigInt {
-    let f_prime = formal_derivative(f);
-    let res = resultant(f, &f_prime);
-    let sign_exp = d * (d - 1) / 2;
-    if sign_exp % 2 == 0 { res } else { -res }
-}
-```
+  where f' is the formal derivative. The `discriminant` function computes this via the standalone
+  `resultant` from `resultant.rs`:
 
-For bad primes, Dedekind's theorem does not apply directly: f may be non-squarefree mod p (some
-eᵢ > 1), and the ring ℤ[α] may not be the full ring of integers ℤ_K at p.
+  ```rust
+  pub fn discriminant(f: &IntPoly) -> BigInt {
+      let f_prime = formal_derivative(f);
+      let res = resultant(f, &f_prime);
+      let sign_exp = d * (d - 1) / 2;
+      if sign_exp % 2 == 0 { res } else { -res }
+  }
+  ```
+
+- p **divides the index** if p | [ℤ_K : ℤ[α]], that is, if ℤ[α] is strictly smaller than the full
+  ring of integers ℤ_K at p. This is what the Dedekind criterion decides.
+
+The two are linked by disc(f) = [ℤ_K : ℤ[α]]² · disc(K): every prime dividing the index divides
+disc(f), so is bad. The converse fails. A bad prime is a necessary but not sufficient condition for
+dividing the index.
+
+Dedekind's theorem (§8) reads the factorisation of (p) off f mod p exactly when p does not divide
+the index. For a prime dividing the index, f may be non-squarefree mod p and the primes of ℤ[α]
+above p are not the primes of ℤ_K.
 
 ### The Dedekind criterion
 
-The **Dedekind criterion** (also called the index criterion) tests whether p divides the index
-[ℤ_K : ℤ[α]] — that is, whether ℤ[α] is strictly smaller than the full ring of integers at p.
-The algorithm is:
+The **Dedekind criterion** (also called the index criterion; Cohen, *A Course in Computational
+Algebraic Number Theory*, §6.1.2) decides, for any prime p, whether p divides the index. The
+algorithm, as implemented by `dedekind_index_test`, is:
 
-1. Compute g = squarefree part of f mod p: g = f / gcd(f, f') mod p.
-2. Compute h = f / g mod p.
-3. Compute t = (g·h − f) / p mod p. (The numerator is divisible by p coefficient-wise because
-   g·h ≡ f mod p by construction.)
-4. Compute T = gcd(g, gcd(h, t)) mod p.
-5. If T = 1 in 𝔽_p[x] (constant polynomial with value 1 mod p), then p ∤ [ℤ_K : ℤ[α]] and
-   Dedekind's theorem applies normally. If T ≠ 1, then p | [ℤ_K : ℤ[α]] and ℤ[α] is not the
-   maximal order at p.
+1. Factor f̄ = f mod p as ∏ tᵢ^eᵢ over 𝔽_p, with tᵢ distinct monic irreducibles.
+2. Let ḡ = ∏ tᵢ (the radical of f̄) and h̄ = f̄ / ḡ.
+3. Lift ḡ and h̄ to monic integer polynomials g and h. Any lifts will do.
+4. Form F = (f − g·h) / p, computed from the **original integer polynomial f**. The numerator is
+   divisible by p coefficient-wise because g·h ≡ f (mod p) by construction.
+5. Compute T = gcd(F̄, ḡ, h̄) in 𝔽_p[x], normalised monic.
+6. p divides [ℤ_K : ℤ[α]] if and only if deg T > 0.
 
-The GCDs in steps 4 and 5 are computed via `subresultant_gcd` from `resultant.rs`, followed by
-reduction mod p.
+Two points are easy to get wrong.
+
+- **F comes from f, not from f mod p.** The quotient by p discards exactly what is being measured
+  if f has already been reduced: g·h − f̄ would be an identity over ℤ and F would vanish.
+- **The lifts do not matter.** Replacing g by g + p·u changes F by −u·h, and replacing h by
+  h + p·v changes F by −g·v; after reduction these are multiples of h̄ and ḡ respectively, so the
+  gcd with ḡ and h̄ is unaffected. The implementation lifts with representatives in [0, p) and a
+  unit test shifts the lifts by multiples of p to confirm T is unchanged.
+
+The factorisation in step 1 is only needed up to the radical, so the code uses the square-free
+decomposition of f̄ (`FpPoly::radical`) rather than a full irreducible factorisation. This
+handles multiplicities that are multiples of p, where the characteristic-0 shortcut f̄ / gcd(f̄, f̄')
+fails: a factor tᵉ with p | e has zero derivative, so it is divided out entirely and is missed.
 
 ### The ℤ[√2] example
 
-The polynomial f = x² − 2 has discriminant 8, so p = 2 is a bad prime. However, the Dedekind
-criterion gives T = 1 at p = 2:
+The polynomial f = x² − 2 has discriminant 8, so p = 2 is a bad prime. The Dedekind criterion
+gives T = 1 at p = 2:
 
-- f mod 2 = x² (since −2 ≡ 0 mod 2).
-- f' mod 2 = 0 (since 2x ≡ 0 mod 2).
-- gcd(x², 0) = x², so g = x²/x² = 1, h = x²/1 = x².
-- g·h − f_mod = x² − x² = 0, so t = 0.
-- T = gcd(1, gcd(x², 0)) = gcd(1, x²) = 1.
+- f̄ = x² (since −2 ≡ 0 mod 2), so ḡ = x and h̄ = x.
+- Lift g = h = x, so g·h = x².
+- F = (f − g·h)/2 = (−2)/2 = −1, and F̄ = 1.
+- T = gcd(1, x, x) = 1.
 
-The criterion returns false (T = 1), meaning p = 2 does not divide [ℤ_K : ℤ[√2]]. This is
-correct: ℤ[√2] is already the full ring of integers of ℚ(√2) — it is a PID, and the prime 2 is
-totally ramified (2 = −(√2)²) but ℤ[√2] is already maximal. The prime 2 is bad (it divides the
-discriminant) but the index is not divisible by 2.
+So p = 2 does not divide [ℤ_K : ℤ[√2]]. This is correct: ℤ[√2] is already the full ring of
+integers of ℚ(√2) — it is a PID, and the prime 2 is totally ramified (2 = (√2)² up to a unit)
+but ℤ[√2] is already maximal at 2. The prime 2 is bad (it divides the discriminant) but does not
+divide the index.
 
-This distinction — **bad prime** (p | disc) vs. **index divisible** (p | [ℤ_K : ℤ[α]]) — is
-pedagogically important. A bad prime is a necessary but not sufficient condition for index
-divisibility.
+Contrast f = x² − 12 at p = 2, where α = 2√3. Again f̄ = x², ḡ = h̄ = x, g = h = x, but now
+F = (f − x²)/2 = −6, so F̄ = 0 and T = gcd(0, x, x) = x has degree 1. Here 2 divides the index:
+ℤ[2√3] has index 2 in ℤ[√3]. A computation that reduced f mod 2 to x² before forming F would
+get F = 0 for *both* polynomials and could not tell them apart.
 
-### The `DedekindResult` struct
+### The `IndexTest` and `DedekindResult` types
 
-The extended function `dedekind_factor_extended` returns a `DedekindResult` that carries both the
-prime ideals and the bad-prime metadata:
+`dedekind_index_test(f, p)` takes a `PrimeModulus` and returns an `IndexTest`, which records the
+prime and the obstruction T. `IndexTest::divides_index` is true iff deg T > 0. Errors are
+`DedekindError::NotMonic` and `DedekindError::ConstantPolynomial` for invalid input, and
+`DedekindError::Field` for a failure inside the prime-field arithmetic.
+
+The extended function `dedekind_factor_extended` routes through it and returns a
+`DedekindResult` that carries both the prime ideals and the two flags:
 
 ```rust
 pub struct DedekindResult<'a> {
     pub ideals: Vec<Ideal<'a>>,
-    pub is_bad_prime: bool,
-    pub index_divisible: bool,
+    pub is_bad_prime: bool,       // p | disc(f)
+    pub index_divisible: bool,    // p | [ℤ_K : ℤ[α]], from the Dedekind criterion
 }
 ```
 
-The `index_divisible` flag is always false for good primes (p ∤ disc implies p ∤ [ℤ_K : ℤ[α]]
-automatically). For bad primes, it reflects the Dedekind criterion result.
+`index_divisible` implies `is_bad_prime`, never the other way round.
 
-### The Round 2 / HNF algorithm
+### Beyond the criterion: Round 2
 
-When `index_divisible` is true — that is, when ℤ[α] is strictly smaller than ℤ_K at p — the
-correct factorisation of (p) requires the **Round 2 algorithm** (also called the HNF-basis
-algorithm or Zassenhaus's algorithm). This algorithm computes a ℤ-basis for the full ring of
-integers ℤ_K at p, expressed as an HNF (Hermite Normal Form) matrix, and then factors (p) using
-this basis.
+When `index_divisible` is true, ℤ[α] is strictly smaller than ℤ_K at p, the listed ideals are
+primes of ℤ[α] rather than of ℤ_K, and the correct factorisation of (p) in ℤ_K requires
+enlarging the order, which is the job of the **Round 2 algorithm** (also called Zassenhaus's
+algorithm, built on HNF computation over ℤ-modules). It is mentioned here for context and is not
+implemented in this crate: the reason is engineering scale, not mathematical omission.
 
-This algorithm is described but not implemented in this crate. The reason is engineering scale, not
-mathematical omission: the Round 2 algorithm requires HNF computation over ℤ-modules, which is a
-substantial implementation effort orthogonal to the core GNFS substrate. For the toy-scale
-polynomials used in this project, index-divisible bad primes are rare and can be excluded from the
-factor base without loss of correctness at demonstration fidelity.
+Primes dividing the index cannot simply be excluded from a factor base: the prime ideals of ℤ_K
+above p still occur in the factorisations of norms, and the ideals of ℤ[α] above p do not
+describe them. Such primes must be handled by Round 2 or reported as unresolved.
 
 ---
 
@@ -724,6 +746,16 @@ each one verifies. All tests are in `shared/numfield/tests/`.
 | `kat7_is_bad_prime` | `dedekind_kat.rs` | 2 | disc(x²−2) = 8 (bad); 3 ∤ 8 (good) |
 | `kat8_bad_prime_extended` | `dedekind_kat.rs` | p=2 is bad for x²−2 but index_divisible=false; ℤ[√2] is maximal order |
 | `kat9_good_prime_extended` | `dedekind_kat.rs` | p=7 is good for x²−2; extended interface agrees with basic interface |
+| `index_divisible_x2_minus_12_at_2` | `dedekind_kat.rs` | F = −6 from the integer f gives T = x: 2 divides the index of ℤ[2√3] |
+| `index_not_divisible_x2_minus_3_at_3` | `dedekind_kat.rs` | F = −1 gives T = 1: ℤ[√3] is 3-maximal; reducing f mod 3 first would wrongly give T = x |
+| `index_not_divisible_x2_minus_2_at_2` | `dedekind_kat.rs` | T = 1: ℤ[√2] is 2-maximal though 2 divides disc |
+| `index_divisible_x2_plus_3_at_2` | `dedekind_kat.rs` | T = x+1: 2 divides the index of ℤ[√−3] |
+| `index_divisible_x3_minus_10_at_3` | `dedekind_kat.rs` | T = x+2 (10 ≡ 1 mod 9): multiplicity 3 = p combined with a non-trivial obstruction |
+| `index_not_divisible_x3_minus_2_at_3`, `…_at_2` | `dedekind_kat.rs` | ℤ[∛2] is maximal: T = 1 at 3 and at 2 |
+| `index_not_divisible_cyclotomic_5_at_5` | `dedekind_kat.rs` | totally ramified f̄ = (x−1)⁴ yet T = 1: ℤ[ζ₅] is maximal |
+| `index_not_divisible_at_good_primes` | `dedekind_kat.rs` | p ∤ disc(f) gives T = 1 |
+| `extended_reports_index_criterion` | `dedekind_kat.rs` | `index_divisible` for x²−12 at 2 and x²−3 at 3 comes from the criterion |
+| `index_test_rejects_invalid_polynomials` | `dedekind_kat.rs` | non-monic input is `NotMonic`; zero or constant input is `ConstantPolynomial` |
 | `kat_prime_modulus_accepts_small_and_boundary_primes` | `fp_poly_kat.rs` | 2, 3, 5, 7, 2³¹−1, 2⁶¹−1 and 2⁶⁴−59 are accepted as moduli |
 | `kat_prime_modulus_rejects_units_and_composites` | `fp_poly_kat.rs` | 0, 1, 4, 9, 561 and 2⁶⁴−1 are rejected with `NotPrime` |
 | `kat_prime_modulus_rejects_strong_pseudoprimes` | `fp_poly_kat.rs` | each listed strong pseudoprime equals an explicit product of factors, so it is composite independently of Miller–Rabin |
