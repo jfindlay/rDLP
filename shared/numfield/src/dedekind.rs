@@ -9,8 +9,8 @@
 //! For a monic f ∈ ℤ[x] and a prime p with p ∤ disc(f):
 //! - Factor f mod p. Each irreducible factor of f mod p corresponds to a prime ideal above p.
 //! - For a linear factor (x − r), the prime ideal is (p, α − r) in two-element form.
-//! - For an irreducible factor of degree > 1, the prime ideal still exists but its two-element
-//!   representation requires a second generator that is not simply α − r for an integer r.
+//! - For an irreducible factor of degree > 1, the prime ideal still exists but has no
+//!   representation of the form (p, α − r) with r an integer.
 //!
 //! # Bad primes and primes dividing the index
 //!
@@ -41,68 +41,70 @@
 //!
 //! # Scope of this implementation
 //!
-//! This implementation handles the **linear-factor case** for both good and bad primes:
-//! it finds all r ∈ {0, …, p−1} with f(r) ≡ 0 (mod p) and returns the corresponding prime
-//! ideals (p, α − r). When p divides the index, the result is flagged and a caveat is
-//! documented: ℤ[α] is not the full ring of integers at p, so those ideals are primes of ℤ[α]
-//! only, and the factorisation of (p) in ℤ_K requires the full Round 2 / HNF-basis algorithm.
+//! [`dedekind_factor`] reports the **degree-one primes** above p: the ideals (p, α − r) for the
+//! roots r of f̄ in 𝔽_p, each with its multiplicity as a root of f̄. Irreducible factors of
+//! higher degree are not represented by an ideal; their combined contribution to deg f is
+//! reported only as [`DedekindReport::nonlinear_degree`]. A prime with no roots mod p therefore
+//! yields an empty list and `nonlinear_degree = deg f`: no ideal stands in for it.
 //!
-//! # Inert primes
+//! When p does not divide the index, the multiplicities are ramification indices and the listed
+//! ideals are primes of ℤ_K. When p divides the index, ℤ[α] is not maximal at p, so the listed
+//! ideals are primes of ℤ[α] of norm p and nothing is claimed about the factorisation of (p) in
+//! ℤ_K; that requires the Round 2 / HNF-basis algorithm.
 //!
-//! If f has no roots mod p (all factors of f mod p have degree > 1), then (p) is inert (or
-//! factors only into higher-degree prime ideals). In this case, `dedekind_factor` returns a
-//! single sentinel ideal `(p, α − 0)` to indicate that (p) is prime (or has no linear-factor
-//! decomposition). This sentinel is documented by the `is_inert` flag on the return type.
-//!
-//! **Convention**: an empty `Vec` would be ambiguous (no ideals vs. inert). Instead, the caller
-//! can check whether the returned `Vec` has length 1 with `r == 0` and the field has no roots
-//! mod p — but for simplicity, the function returns the sentinel `Ideal { p, r: 0 }` for inert
-//! primes. Callers that only care about linear-factor ideals should filter by checking
-//! `f.eval(&r) % p == 0` for each returned ideal's `r`.
-//!
-//! # Panics
-//!
-//! Panics if `p ≤ 0`.
+//! The roots come from a budgeted search; running out of budget is an error, never a claim that
+//! a root is absent.
 
 use std::fmt;
 
 use num_bigint::BigInt;
-use num_traits::{Signed, ToPrimitive, Zero};
+use num_traits::Zero;
 
 use crate::element::NumberField;
-use crate::fp_poly::{FpPoly, FpPolyError, PrimeModulus};
+use crate::fp_poly::{FpPoly, FpPolyError, PrimeModulus, RootEnumeration, RootSearchLimits};
 use crate::ideal::Ideal;
 use crate::poly::IntPoly;
 use crate::resultant::resultant;
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
-/// Result of `dedekind_factor_extended`: prime ideals above p with bad-prime metadata.
-pub struct DedekindResult<'a> {
-    /// Prime ideals above p in two-element form (p, α − r).
-    ///
-    /// When p does not divide the index [ℤ_K : ℤ[α]] (`index_divisible = false`), this is the
-    /// complete factorisation of (p) restricted to linear factors of f mod p.
-    ///
-    /// When p divides the index (`index_divisible = true`), this list covers only the linear
-    /// factors of f mod p, and those ideals are primes of ℤ[α], not necessarily of ℤ_K. The
-    /// prime ideals of ℤ_K above p are not described by it: they require the full Round 2 /
-    /// HNF-basis algorithm (out of scope for this implementation).
-    pub ideals: Vec<Ideal<'a>>,
+/// The degree-one primes above p, the part of the factorisation of (p) that this crate can
+/// represent, with the bookkeeping needed to know what is missing.
+///
+/// Invariant: the sum of the multiplicities of `degree_one` plus `nonlinear_degree` equals
+/// deg f.
+///
+/// If `index` does not divide the index, each listed ideal is a prime of ℤ_K of residue degree 1
+/// whose ramification index is its multiplicity, and `nonlinear_degree` is Σ eᵢfᵢ over the
+/// remaining primes (those with fᵢ > 1). If it does divide the index, each listed ideal is a prime
+/// of ℤ[α] of norm p and nothing is claimed about the factorisation of (p) in ℤ_K.
+pub struct DedekindReport<'a> {
+    /// Degree-one primes (p, α − r), in ascending r.
+    pub degree_one: Vec<DegreeOnePrime<'a>>,
 
-    /// True if p | disc(f), i.e., p is a bad prime for f.
+    /// deg f minus the total multiplicity of the degree-one primes.
     ///
-    /// Every prime dividing the index is bad, but a bad prime need not divide the index;
-    /// `index_divisible` gives the finer test.
+    /// Zero iff f̄ splits into linear factors over 𝔽_p. An inert prime has no degree-one primes
+    /// and `nonlinear_degree = deg f`.
+    pub nonlinear_degree: usize,
+
+    /// True iff p | disc(f), i.e. p is a bad prime for f.
+    ///
+    /// Every prime dividing the index is bad, but a bad prime need not divide the index; `index`
+    /// gives the finer test.
     pub is_bad_prime: bool,
 
-    /// True if p | [ℤ_K : ℤ[α]], as decided by the Dedekind criterion.
-    ///
-    /// When true, ℤ[α] is not the full ring of integers at p and `ideals` does not describe
-    /// the factorisation of (p) in ℤ_K.
-    ///
-    /// Always false when `is_bad_prime` is false (p ∤ disc(f) implies p ∤ [ℤ_K : ℤ[α]]).
-    pub index_divisible: bool,
+    /// The Dedekind criterion for p, deciding which reading of `degree_one` applies.
+    pub index: IndexTest,
+}
+
+/// A degree-one prime (p, α − r) together with the multiplicity of r as a root of f̄.
+pub struct DegreeOnePrime<'a> {
+    /// The ideal (p, α − r), with r the least nonnegative residue.
+    pub ideal: Ideal<'a>,
+
+    /// The multiplicity of r as a root of f mod p.
+    pub multiplicity: usize,
 }
 
 /// Failure of [`dedekind_index_test`].
@@ -212,7 +214,7 @@ pub fn discriminant(f: &IntPoly) -> BigInt {
 ///
 /// Returns true iff p | disc(f). For primes not dividing disc(f), Dedekind's theorem applies
 /// directly. A bad prime may or may not divide the index [ℤ_K : ℤ[α]]; use
-/// [`dedekind_index_test`] (or `dedekind_factor_extended`) to decide that.
+/// [`dedekind_index_test`] (or the `index` of a [`DedekindReport`]) to decide that.
 pub fn is_bad_prime(f: &IntPoly, p: &BigInt) -> bool {
     let disc = discriminant(f);
     if disc.is_zero() {
@@ -250,102 +252,60 @@ pub fn dedekind_index_test(f: &IntPoly, p: PrimeModulus) -> Result<IndexTest, De
     Ok(IndexTest { prime: p, obstruction })
 }
 
-/// Factorise the ideal (p) in ℤ[α] using Dedekind's theorem.
+/// Report the degree-one primes above p, with their multiplicities, and what they leave out.
 ///
-/// Given a number field K = ℚ(α) with defining polynomial f ∈ ℤ[x] and a rational prime p
-/// not dividing disc(f), returns the prime ideals above p that correspond to linear factors
-/// of f mod p.
+/// The roots of f̄ = f mod p are found on its radical under `limits`; each root's multiplicity
+/// comes from the square-free decomposition of f̄. See [`DedekindReport`] for what the listed
+/// ideals are (primes of ℤ_K or only of ℤ[α]) and for the invariant tying the report to deg f.
 ///
-/// Each returned ideal is in two-element form `(p, α − r)` where r ∈ {0, …, p−1} satisfies
-/// f(r) ≡ 0 (mod p).
+/// # Errors
 ///
-/// # Inert primes
-///
-/// If f has no roots mod p (all factors of f mod p have degree > 1), the function returns a
-/// single sentinel ideal `Ideal { p, r: 0 }`. This represents the convention that (p) is
-/// inert (prime) in ℤ[α] with respect to linear factors. The sentinel ideal `(p, α − 0) = (p, α)`
-/// generates the same ideal as (p) when f is irreducible mod p.
-///
-/// # Panics
-///
-/// Panics if `p ≤ 0`.
-///
-/// # Note
-///
-/// This function does NOT handle primes dividing disc(f) (bad primes). For those, use
-/// `dedekind_factor_extended`, which also reports whether p divides the index.
-pub fn dedekind_factor<'a>(field: &'a NumberField, p: &BigInt) -> Vec<Ideal<'a>> {
-    assert!(p.is_positive(), "prime p must be positive, got {p}");
-
+/// - [`DedekindError::RootSearchExhausted`] if `limits` ran out before every root was found. No
+///   report is returned, since the missing roots would make the multiplicities and
+///   `nonlinear_degree` wrong.
+/// - [`DedekindError::Field`] if a prime-field operation fails.
+pub fn dedekind_factor<'a>(
+    field: &'a NumberField,
+    p: PrimeModulus,
+    limits: RootSearchLimits,
+) -> Result<DedekindReport<'a>, DedekindError> {
     let f = &field.f;
-    let p_usize = p_to_usize(p);
+    let index = dedekind_index_test(f, p)?;
+    let is_bad = is_bad_prime(f, &BigInt::from(p.get()));
 
-    // Find all roots r ∈ {0, …, p−1} with f(r) ≡ 0 (mod p).
-    let mut roots: Vec<BigInt> = Vec::new();
-    for r in 0..p_usize {
-        let r_big = BigInt::from(r);
-        let val = f.eval(&r_big);
-        // val mod p, reduced to [0, p)
-        let rem = mod_reduce(&val, p);
-        if rem.is_zero() {
-            roots.push(r_big);
+    let parts = FpPoly::from_int_poly(f, p).squarefree_decomposition()?;
+    let radical = parts.iter().try_fold(FpPoly::one(p), |acc, (s, _)| acc.mul(s))?;
+    let roots = match radical.roots(limits)? {
+        RootEnumeration::Complete { roots, .. } => roots,
+        RootEnumeration::Truncated { distinct_root_count, evaluations, .. } => {
+            return Err(DedekindError::RootSearchExhausted { distinct_root_count, evaluations });
         }
-    }
-
-    if roots.is_empty() {
-        // Inert prime: no linear factors. Return the sentinel ideal (p, α − 0).
-        // The ideal (p, α) = (p, α − 0) generates the same ideal as (p) when f is
-        // irreducible mod p, representing the inert prime above p.
-        vec![Ideal::new(field, p.clone(), BigInt::zero())]
-    } else {
-        roots.into_iter().map(|r| Ideal::new(field, p.clone(), r)).collect()
-    }
-}
-
-/// Factorise the ideal (p) in ℤ[α], reporting whether p is bad and whether it divides the index.
-///
-/// Returns the prime ideals from linear factors of f mod p, as `dedekind_factor` does, together
-/// with `is_bad_prime` (p | disc(f)) and `index_divisible` (p | [ℤ_K : ℤ[α]], decided by
-/// [`dedekind_index_test`]). When `index_divisible` is true, ℤ[α] is not maximal at p and the
-/// returned ideals are primes of ℤ[α] only; the factorisation of (p) in ℤ_K needs the full
-/// Round 2 algorithm.
-///
-/// # Panics
-///
-/// Panics if `p` is not a prime that fits in a `u64`.
-pub fn dedekind_factor_extended<'a>(field: &'a NumberField, p: &BigInt) -> DedekindResult<'a> {
-    assert!(p.is_positive(), "prime p must be positive, got {p}");
-
-    let f = &field.f;
-    let modulus = p
-        .to_u64()
-        .and_then(|v| PrimeModulus::new(v).ok())
-        .unwrap_or_else(|| panic!("p must be a prime that fits in a u64, got {p}"));
-
-    let bad = is_bad_prime(f, p);
-    // `NumberField` guarantees f is monic of positive degree, so the test cannot fail.
-    let index = dedekind_index_test(f, modulus)
-        .expect("a NumberField's defining polynomial is monic of positive degree");
-
-    // Find linear factors (roots) of f mod p — same logic as dedekind_factor.
-    let p_usize = p_to_usize(p);
-    let mut roots: Vec<BigInt> = Vec::new();
-    for r in 0..p_usize {
-        let r_big = BigInt::from(r);
-        let val = f.eval(&r_big);
-        let rem = mod_reduce(&val, p);
-        if rem.is_zero() {
-            roots.push(r_big);
-        }
-    }
-
-    let ideals = if roots.is_empty() {
-        vec![Ideal::new(field, p.clone(), BigInt::zero())]
-    } else {
-        roots.into_iter().map(|r| Ideal::new(field, p.clone(), r)).collect()
     };
 
-    DedekindResult { ideals, is_bad_prime: bad, index_divisible: index.divides_index() }
+    // The parts are pairwise coprime and multiply to the radical, so each root lies in exactly
+    // one part and that part's exponent is the root's multiplicity in f̄.
+    let mut rooted: Vec<(u64, usize)> = parts
+        .iter()
+        .flat_map(|(s, e)| roots.iter().filter(|&&r| s.eval(r) == 0).map(move |&r| (r, *e)))
+        .collect();
+    rooted.sort_unstable();
+
+    let big_p = BigInt::from(p.get());
+    let degree_one: Vec<DegreeOnePrime<'a>> = rooted
+        .into_iter()
+        .map(|(r, multiplicity)| DegreeOnePrime {
+            ideal: Ideal::new(field, big_p.clone(), BigInt::from(r)),
+            multiplicity,
+        })
+        .collect();
+    let linear_degree: usize = degree_one.iter().map(|d| d.multiplicity).sum();
+
+    Ok(DedekindReport {
+        degree_one,
+        nonlinear_degree: field.degree() - linear_degree,
+        is_bad_prime: is_bad,
+        index,
+    })
 }
 
 // ─── Dedekind criterion ───────────────────────────────────────────────────────
@@ -391,22 +351,6 @@ fn formal_derivative(f: &IntPoly) -> IntPoly {
     IntPoly::from_coeffs(coeffs)
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/// Reduce `a` into the canonical range [0, m) for m > 0.
-fn mod_reduce(a: &BigInt, m: &BigInt) -> BigInt {
-    let r = a % m;
-    if r.is_negative() { r + m } else { r }
-}
-
-/// Convert a `BigInt` prime to `usize` for iteration.
-///
-/// Panics if p does not fit in usize (primes this large are not supported by the
-/// brute-force root-finding loop).
-fn p_to_usize(p: &BigInt) -> usize {
-    p.to_usize().expect("prime p must fit in usize for root-finding iteration")
-}
-
 // ─── Unit tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -431,35 +375,38 @@ mod tests {
         NumberField::new(IntPoly::from_coeffs(vec![bi(-2), bi(0), bi(1)]))
     }
 
+    const AMPLE: RootSearchLimits = RootSearchLimits { max_evaluations: 1_000 };
+
     #[test]
-    fn inert_prime_returns_sentinel() {
-        // p = 3, f = x² − 2: 2 is a QNR mod 3, so f is irreducible mod 3.
-        // f(0) = -2 ≡ 1, f(1) = -1 ≡ 2, f(2) = 2 ≡ 2 mod 3 — no roots.
+    fn inert_prime_has_no_degree_one_primes() {
+        // p = 3, f = x² − 2: f(0) = −2 ≡ 1, f(1) = −1 ≡ 2, f(2) = 2 (mod 3), so no roots.
         let k = field_sqrt2();
-        let ideals = dedekind_factor(&k, &bi(3));
-        assert_eq!(ideals.len(), 1, "inert prime should return one sentinel ideal");
-        assert_eq!(ideals[0].p, bi(3));
-        assert_eq!(ideals[0].r, bi(0), "sentinel ideal has r = 0");
+        let report = dedekind_factor(&k, prime(3), AMPLE).unwrap();
+        assert!(report.degree_one.is_empty());
+        assert_eq!(report.nonlinear_degree, 2);
     }
 
     #[test]
-    fn split_prime_returns_two_ideals() {
+    fn split_prime_lists_roots_ascending() {
         // p = 7, f = x² − 2: 3² = 9 ≡ 2 and 4² = 16 ≡ 2 mod 7, so roots are 3 and 4.
         let k = field_sqrt2();
-        let ideals = dedekind_factor(&k, &bi(7));
-        assert_eq!(ideals.len(), 2, "split prime should return two ideals");
-        let mut rs: Vec<i64> = ideals.iter().map(|i| i.r.to_string().parse().unwrap()).collect();
-        rs.sort();
-        assert_eq!(rs, vec![3i64, 4], "roots of x²−2 mod 7 should be 3 and 4");
+        let report = dedekind_factor(&k, prime(7), AMPLE).unwrap();
+        let rs: Vec<(BigInt, usize)> =
+            report.degree_one.iter().map(|d| (d.ideal.r.clone(), d.multiplicity)).collect();
+        assert_eq!(rs, vec![(bi(3), 1), (bi(4), 1)]);
+        assert_eq!(report.nonlinear_degree, 0);
     }
 
     #[test]
-    fn panics_on_zero_p() {
+    fn exhausted_budget_is_an_error() {
+        // Two roots (3 and 4) exist mod 7; a budget of 2 never reaches them.
         let k = field_sqrt2();
-        let result = std::panic::catch_unwind(|| {
-            dedekind_factor(&k, &bi(0));
-        });
-        assert!(result.is_err(), "dedekind_factor should panic when p = 0");
+        let limits = RootSearchLimits { max_evaluations: 2 };
+        let err = dedekind_factor(&k, prime(7), limits).err().unwrap();
+        assert_eq!(
+            err,
+            DedekindError::RootSearchExhausted { distinct_root_count: 2, evaluations: 2 }
+        );
     }
 
     #[test]
@@ -540,20 +487,11 @@ mod tests {
     }
 
     #[test]
-    fn extended_routes_through_index_test() {
+    fn report_carries_the_index_test() {
         // x² − 12 at 2: bad, and 2 divides the index (ℤ[2√3] ⊊ ℤ[√3]).
         let k = NumberField::new(poly(&[-12, 0, 1]));
-        let r = dedekind_factor_extended(&k, &bi(2));
+        let r = dedekind_factor(&k, prime(2), AMPLE).unwrap();
         assert!(r.is_bad_prime);
-        assert!(r.index_divisible);
-    }
-
-    #[test]
-    fn extended_panics_on_composite_p() {
-        let k = field_sqrt2();
-        let result = std::panic::catch_unwind(|| {
-            dedekind_factor_extended(&k, &bi(4));
-        });
-        assert!(result.is_err(), "a composite modulus is not a prime");
+        assert!(r.index.divides_index());
     }
 }

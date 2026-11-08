@@ -6,10 +6,9 @@
 //! - [`NumberField`] — a number field K = ℚ(α) defined by a monic irreducible f ∈ ℤ[x].
 //! - [`NumberFieldElement`] — an element of K, represented as a reduced polynomial in α.
 //! - [`Ideal`] — a fractional ideal of ℤ[α] in two-element primary representation `(p, α − r)`.
-//! - [`dedekind_factor`] — Dedekind factorisation of the ideal (p) in ℤ[α].
-//! - [`dedekind_factor_extended`] — Dedekind factorisation reporting bad primes and whether p
-//!   divides the index.
-//! - [`DedekindResult`] — result type for `dedekind_factor_extended`.
+//! - [`dedekind_factor`] — the degree-one primes (p, α − r) above p with their multiplicities,
+//!   the degree left to higher-degree primes, bad-prime status and the index test, as a
+//!   [`DedekindReport`] of [`DegreeOnePrime`]s; root-search exhaustion is a [`DedekindError`].
 //! - [`dedekind_index_test`] — the Dedekind criterion: does p divide [ℤ_K : ℤ[α]]? Returns an
 //!   [`IndexTest`] or a [`DedekindError`].
 //! - [`discriminant`] — discriminant of a monic polynomial f ∈ ℤ[x].
@@ -42,8 +41,8 @@ pub mod residue_field;
 pub mod resultant;
 
 pub use dedekind::{
-    dedekind_factor, dedekind_factor_extended, dedekind_index_test, discriminant, is_bad_prime,
-    DedekindError, DedekindResult, IndexTest,
+    dedekind_factor, dedekind_index_test, discriminant, is_bad_prime, DedekindError,
+    DedekindReport, DegreeOnePrime, IndexTest,
 };
 pub use element::{NumberField, NumberFieldElement};
 pub use fp_poly::{

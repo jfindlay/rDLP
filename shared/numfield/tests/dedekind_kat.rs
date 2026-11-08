@@ -1,22 +1,26 @@
-//! Known-answer tests for `dedekind_factor`, `dedekind_factor_extended`, and
-//! `dedekind_index_test`: Dedekind factorisation of (p) in ℤ[α] and the index criterion.
+//! Known-answer tests for `dedekind_factor` and `dedekind_index_test`: the degree-one primes
+//! above p in ℤ[α], their multiplicities, and the index criterion.
 //!
-//! Tests cover inert primes, split primes, cubic fields, norm-product verification,
-//! discriminant computation, bad-prime detection, and the Dedekind index criterion with
-//! hand-derived obstruction polynomials.
+//! Tests cover inert, split, ramified and partially split primes, root-search exhaustion, the
+//! degree invariant of the report, discriminant computation, bad-prime detection, and the
+//! Dedekind index criterion with hand-derived obstruction polynomials.
 //!
-//! # Inert-prime convention
-//!
-//! When f has no roots mod p (all irreducible factors of f mod p have degree > 1), the ideal (p)
-//! is inert (or factors only into higher-degree prime ideals). `dedekind_factor` returns a single
-//! sentinel ideal `Ideal { p, r: 0 }` in this case. The sentinel represents the convention that
-//! (p, α − 0) = (p, α) generates the same ideal as (p) when f is irreducible mod p.
+//! A prime with no roots mod p has no degree-one primes: its report is empty and
+//! `nonlinear_degree` is deg f. No ideal stands in for it.
 
 use num_bigint::BigInt;
 use shared_numfield::{
-    dedekind_factor, dedekind_factor_extended, dedekind_index_test, discriminant, is_bad_prime,
-    DedekindError, FpPoly, IntPoly, NumberField, PrimeModulus,
+    dedekind_factor, dedekind_index_test, discriminant, is_bad_prime, DedekindError,
+    DedekindReport, FpPoly, IntPoly, NumberField, PrimeModulus, RootSearchLimits,
 };
+
+/// A budget far above any root search over the small primes used here.
+const AMPLE: RootSearchLimits = RootSearchLimits { max_evaluations: 1_000 };
+
+/// The (r, multiplicity) pairs of a report, in the order reported.
+fn roots_and_multiplicities(report: &DedekindReport<'_>) -> Vec<(BigInt, usize)> {
+    report.degree_one.iter().map(|d| (d.ideal.r.clone(), d.multiplicity)).collect()
+}
 
 fn bi(n: i64) -> BigInt {
     BigInt::from(n)
@@ -48,114 +52,64 @@ fn field_cubic() -> NumberField {
     NumberField::new(IntPoly::from_coeffs(vec![bi(-1), bi(-1), bi(0), bi(1)]))
 }
 
-// ─── KAT 1 — Inert prime ──────────────────────────────────────────────────────
+// ─── Degree-one prime report ──────────────────────────────────────────────────
 
-/// f = x² − 2, p = 3: 2 is a quadratic non-residue mod 3 (Legendre(2,3) = −1),
-/// so f is irreducible mod 3 and (3) is inert in ℤ[√2].
-///
-/// Verification: f(0) = −2 ≡ 1, f(1) = −1 ≡ 2, f(2) = 2 ≡ 2 (mod 3) — no roots.
-///
-/// `dedekind_factor` returns the sentinel ideal (3, α − 0) indicating (3) is inert.
+/// f = x² − 2, p = 3: f(0) = −2 ≡ 1, f(1) = −1 ≡ 2, f(2) = 2 (mod 3), so f̄ has no roots and is
+/// irreducible. (3) is inert: there are no degree-one primes and the whole degree is nonlinear.
+/// In particular no ideal such as (3, α) is listed: that ideal is the unit ideal here, since it
+/// contains 3 and α² = 2, hence 3 − 2 = 1.
 #[test]
-fn kat1_inert_prime() {
+fn kat1_inert_prime_has_no_degree_one_primes() {
     let k = field_sqrt2();
-    let ideals = dedekind_factor(&k, &bi(3));
+    let report = dedekind_factor(&k, prime(3), AMPLE).unwrap();
 
-    // Inert: single sentinel ideal
-    assert_eq!(
-        ideals.len(),
-        1,
-        "inert prime p=3 should return one sentinel ideal, got {} ideals",
-        ideals.len()
-    );
-    assert_eq!(ideals[0].p, bi(3), "sentinel ideal should have p = 3");
-    assert_eq!(ideals[0].r, bi(0), "sentinel ideal for inert prime should have r = 0");
+    assert!(report.degree_one.is_empty(), "x²−2 has no roots mod 3");
+    assert_eq!(report.nonlinear_degree, 2);
+    assert!(!report.is_bad_prime);
+    assert!(!report.index.divides_index());
 }
 
-// ─── KAT 2 — Split prime ──────────────────────────────────────────────────────
-
-/// f = x² − 2, p = 7: 2 is a quadratic residue mod 7 (3² = 9 ≡ 2, 4² = 16 ≡ 2 mod 7),
-/// so f splits as (x − 3)(x − 4) mod 7 and (7) splits into two prime ideals in ℤ[√2].
-///
-/// `dedekind_factor` returns two ideals: (7, α − 3) and (7, α − 4).
+/// f = x² − 2, p = 7: 3² = 9 ≡ 2 and 4² = 16 ≡ 2 (mod 7), so f̄ = (x − 3)(x − 4), two distinct
+/// roots of multiplicity 1, listed in ascending order.
 #[test]
 fn kat2_split_prime() {
     let k = field_sqrt2();
-    let ideals = dedekind_factor(&k, &bi(7));
+    let report = dedekind_factor(&k, prime(7), AMPLE).unwrap();
 
-    assert_eq!(
-        ideals.len(),
-        2,
-        "split prime p=7 should return two ideals, got {} ideals",
-        ideals.len()
-    );
-
-    // Both ideals should have p = 7
-    for ideal in &ideals {
-        assert_eq!(ideal.p, bi(7), "each ideal above 7 should have p = 7");
+    assert_eq!(roots_and_multiplicities(&report), vec![(bi(3), 1), (bi(4), 1)]);
+    for d in &report.degree_one {
+        assert_eq!(d.ideal.p, bi(7));
     }
-
-    // The r values should be 3 and 4 (in some order)
-    let mut rs: Vec<BigInt> = ideals.iter().map(|i| i.r.clone()).collect();
-    rs.sort();
-    assert_eq!(rs, vec![bi(3), bi(4)], "roots of x²−2 mod 7 should be 3 and 4");
+    assert_eq!(report.nonlinear_degree, 0);
+    assert!(!report.is_bad_prime);
+    assert!(!report.index.divides_index());
 }
 
-// ─── KAT 3 — Cubic field, partial split ───────────────────────────────────────
-
-/// f = x³ − x − 1, p = 5: f factors as (x − 2)(irreducible quadratic) mod 5.
-///
-/// Verification: f(2) = 8 − 2 − 1 = 5 ≡ 0 (mod 5). The other factor x² + 2x + 3 has
-/// discriminant 4 − 12 = −8 ≡ 2 (mod 5), and Legendre(2, 5) = −1, so it is irreducible.
-///
-/// `dedekind_factor` returns at least one ideal with r = 2 (the linear factor).
-/// The irreducible quadratic factor also contributes a prime ideal above 5, but its
-/// two-element representation is not handled by this implementation (linear-factor scope only).
+/// f = x³ − x − 1, p = 5: f(0) = −1, f(1) = −1, f(2) = 5 ≡ 0, f(3) = 23 ≡ 3, f(4) = 59 ≡ 4 (mod 5),
+/// so the only root is 2, and (x − 2) divides f̄ with quotient x² + 2x + 3. That quadratic has
+/// discriminant 4 − 12 = −8 ≡ 2 (mod 5), a non-residue, so it is irreducible: one degree-one
+/// prime and nonlinear degree 2. Since 5 ∤ disc = −23, the multiplicity is 1.
 #[test]
 fn kat3_cubic_partial_split() {
     let k = field_cubic();
-    let ideals = dedekind_factor(&k, &bi(5));
+    let report = dedekind_factor(&k, prime(5), AMPLE).unwrap();
 
-    // At least one ideal with r = 2 (from the linear factor x − 2)
-    let has_r2 = ideals.iter().any(|i| i.r == bi(2));
-    assert!(
-        has_r2,
-        "dedekind_factor for f=x³−x−1, p=5 should include an ideal with r=2 (root of f mod 5)"
-    );
-
-    // All returned ideals should have p = 5
-    for ideal in &ideals {
-        assert_eq!(ideal.p, bi(5), "each ideal above 5 should have p = 5");
-    }
-
-    // Verify r=2 is indeed a root: f(2) = 8 − 2 − 1 = 5 ≡ 0 (mod 5)
-    let f = &k.f;
-    let val = f.eval(&bi(2));
-    assert_eq!(&val % bi(5), bi(0), "f(2) should be ≡ 0 (mod 5)");
+    assert_eq!(roots_and_multiplicities(&report), vec![(bi(2), 1)]);
+    assert_eq!(report.nonlinear_degree, 2);
+    assert!(!report.is_bad_prime);
 }
 
-// ─── KAT 4 — Norm product ─────────────────────────────────────────────────────
-
-/// For f = x² − 2, p = 7 (totally split), the product of norms of the returned ideals
-/// equals p^deg(f) = 7² = 49.
-///
-/// Each prime ideal (7, α − r) has norm 7 (residue degree 1). The product is 7 · 7 = 49.
-/// This verifies the fundamental identity: ∏ N(𝔭ᵢ)^eᵢ = p^[K:ℚ].
+/// f = x² − 2, p = 7 (totally split): both degree-one primes have norm 7, so the product of
+/// N(𝔭)^e over the report is p^deg f = 49, as the degree invariant requires.
 #[test]
 fn kat4_norm_product() {
     let k = field_sqrt2();
-    let ideals = dedekind_factor(&k, &bi(7));
+    let report = dedekind_factor(&k, prime(7), AMPLE).unwrap();
 
-    // For a totally split prime in a degree-2 field, we get exactly 2 ideals.
-    assert_eq!(ideals.len(), 2, "p=7 should split into 2 prime ideals in ℚ(√2)");
-
-    // Product of norms = p^d = 7^2 = 49
-    let norm_product: BigInt = ideals.iter().map(|i| i.norm()).product();
-    let expected = bi(7).pow(2u32);
-    assert_eq!(
-        norm_product, expected,
-        "product of norms should equal p^d = 7^2 = 49, got {norm_product}"
-    );
+    assert_eq!(report.nonlinear_degree, 0);
+    let norm_product: BigInt =
+        report.degree_one.iter().map(|d| d.ideal.norm().pow(d.multiplicity as u32)).product();
+    assert_eq!(norm_product, bi(7).pow(2u32));
 }
 
 // ─── KAT 5 — Discriminant of x² − 2 ─────────────────────────────────────────
@@ -220,97 +174,185 @@ fn kat7_is_bad_prime() {
     );
 }
 
-// ─── KAT 8 — Bad prime extended: f = x² − 2, p = 2 ──────────────────────────
+// ─── Ramified and bad primes ──────────────────────────────────────────────────
 
-/// For f = x² − 2, p = 2: `dedekind_factor_extended` returns `is_bad_prime = true`.
+/// f = x² − 2, p = 2: f̄ = x² (since −2 ≡ 0), a single root r = 0 of multiplicity 2.
 ///
-/// Analysis:
-/// - disc(x² − 2) = 8, and 2 | 8, so p = 2 is a bad prime.
-/// - f mod 2 = x² (since −2 ≡ 0 mod 2), f' mod 2 = 0 (since 2x ≡ 0 mod 2).
-/// - Dedekind criterion: f̄ = x², so ḡ = x and h̄ = x; lifts g = h = x give
-///   F = (f − g·h)/2 = (−2)/2 = −1, F̄ = 1, and T = gcd(1, x, x) = 1.
-///   So index_divisible = false: ℤ[√2] IS the full ring of integers at p = 2.
-/// - Root of f mod 2: f(0) = −2 ≡ 0 (mod 2), f(1) = −1 ≡ 1 (mod 2). Root: r = 0.
-/// - One ideal: (2, α − 0) = (2, α), representing the unique prime above 2 in ℤ[√2].
-///
-/// The prime ideal (2, α) = (√2) satisfies (2, α)² = (2) in ℤ[√2], confirming that 2
-/// is totally ramified in ℚ(√2).
+/// disc = 8 so 2 is bad. The Dedekind criterion has F = (f − x·x)/2 = −1, T = gcd(1, x, x) = 1,
+/// so ℤ[√2] is maximal at 2 and the listed ideal (2, α) = (√2) is a prime of the ring of
+/// integers with ramification index 2 (2 is totally ramified).
 #[test]
-fn kat8_bad_prime_extended() {
+fn kat8_ramified_prime_with_maximal_order() {
     let k = field_sqrt2();
-    let result = dedekind_factor_extended(&k, &bi(2));
+    let report = dedekind_factor(&k, prime(2), AMPLE).unwrap();
 
-    assert!(result.is_bad_prime, "p=2 should be flagged as a bad prime for x²−2");
-    // ℤ[√2] is the maximal order, so the Dedekind criterion gives T=1 (index not divisible).
-    assert!(
-        !result.index_divisible,
-        "index should not be divisible by p=2 for x²−2 (ℤ[√2] is the maximal order)"
-    );
-
-    // One ideal with r = 0 (the unique prime above 2 in ℤ[√2]).
-    assert_eq!(
-        result.ideals.len(),
-        1,
-        "p=2 should give one prime ideal above 2 in ℤ[√2], got {}",
-        result.ideals.len()
-    );
-    assert_eq!(result.ideals[0].p, bi(2), "ideal should have p = 2");
-    assert_eq!(result.ideals[0].r, bi(0), "ideal above 2 in ℤ[√2] should have r = 0");
+    assert!(report.is_bad_prime);
+    assert!(!report.index.divides_index());
+    assert_eq!(roots_and_multiplicities(&report), vec![(bi(0), 2)]);
+    assert_eq!(report.nonlinear_degree, 0);
 }
 
-// ─── KAT 9 — Good prime extended: f = x² − 2, p = 7 ─────────────────────────
-
-/// For f = x² − 2, p = 7: `dedekind_factor_extended` returns `is_bad_prime = false`,
-/// `index_divisible = false`, and two ideals with r ∈ {3, 4}.
-///
-/// This is the same split as KAT 2, now verified through the extended interface.
-/// Since 7 ∤ disc(x²−2) = 8, p = 7 is a good prime and the Dedekind criterion is
-/// not applied (index_divisible is always false for good primes).
+/// f = x³ − 10, p = 3: f̄ = x³ − 1 = (x − 1)³, so one root r = 1 of multiplicity 3, and 3 | disc =
+/// −2700 is bad. Since 10 ≡ 1 (mod 9) the index test is positive (T = x + 2): the ideal (3, α − 1)
+/// is a prime of ℤ[α] of norm 3, and the multiplicity is the multiplicity in f̄ only. It is not a
+/// ramification index, because ℤ[α] is not maximal at 3: (3) = 𝔭₁²𝔭₂ in the ring of integers.
 #[test]
-fn kat9_good_prime_extended() {
+fn kat9_degree_one_report_when_the_index_is_divisible() {
+    let k = NumberField::new(poly(&[-10, 0, 0, 1]));
+    let report = dedekind_factor(&k, prime(3), AMPLE).unwrap();
+
+    assert!(report.is_bad_prime);
+    assert!(report.index.divides_index());
+    assert_eq!(roots_and_multiplicities(&report), vec![(bi(1), 3)]);
+    assert_eq!(report.nonlinear_degree, 0);
+}
+
+/// f = x² − 12, p = 2: f̄ = x², root 0 of multiplicity 2, and the index test is positive.
+#[test]
+fn kat_divisible_index_with_a_double_root() {
+    let k = NumberField::new(poly(&[-12, 0, 1]));
+    let report = dedekind_factor(&k, prime(2), AMPLE).unwrap();
+
+    assert!(report.is_bad_prime);
+    assert!(report.index.divides_index());
+    assert_eq!(roots_and_multiplicities(&report), vec![(bi(0), 2)]);
+}
+
+/// f = x² − 3, p = 3: f̄ = x², root 0 of multiplicity 2; ℤ[√3] is 3-maximal, so the index test is
+/// negative even though 3 divides disc = 12.
+#[test]
+fn kat_bad_prime_with_a_maximal_order() {
+    let k = NumberField::new(poly(&[-3, 0, 1]));
+    let report = dedekind_factor(&k, prime(3), AMPLE).unwrap();
+
+    assert!(report.is_bad_prime);
+    assert!(!report.index.divides_index());
+    assert_eq!(roots_and_multiplicities(&report), vec![(bi(0), 2)]);
+}
+
+/// Φ₅ = x⁴ + x³ + x² + x + 1, p = 5: f̄ = (x − 1)⁴, root 1 of multiplicity 4. ℤ[ζ₅] is maximal,
+/// so this is a totally ramified prime of the ring of integers.
+#[test]
+fn kat_totally_ramified_cyclotomic_prime() {
+    let k = NumberField::new(poly(&[1, 1, 1, 1, 1]));
+    let report = dedekind_factor(&k, prime(5), AMPLE).unwrap();
+
+    assert!(!report.index.divides_index());
+    assert_eq!(roots_and_multiplicities(&report), vec![(bi(1), 4)]);
+    assert_eq!(report.nonlinear_degree, 0);
+}
+
+/// f = x³ − x − 1, p = 2: f̄ = x³ + x + 1 has f̄(0) = f̄(1) = 1, so no roots and, being a cubic,
+/// it is irreducible: the whole degree is nonlinear.
+#[test]
+fn kat_irreducible_cubic_reduction_is_all_nonlinear() {
+    let k = field_cubic();
+    let report = dedekind_factor(&k, prime(2), AMPLE).unwrap();
+
+    assert!(report.degree_one.is_empty());
+    assert_eq!(report.nonlinear_degree, 3);
+}
+
+/// The defining polynomial need not be irreducible for the data about f̄ to be checked: a
+/// reducible monic f gives a hand-derivable mix of multiplicities. f = x²(x − 1)(x² + 1), p = 3,
+/// has f̄ = x²·(x − 1)·(x² + 1) with x² + 1 irreducible (values 1, 2, 2 at 0, 1, 2): root 0 with
+/// multiplicity 2 (found in the second squarefree part) listed before root 1 with multiplicity 1
+/// (found in the first), and nonlinear degree 2.
+#[test]
+fn kat_roots_ascend_across_multiplicity_classes() {
+    let f = poly(&[0, 0, 1]).mul(&poly(&[-1, 1])).mul(&poly(&[1, 0, 1]));
+    let k = NumberField::new(f);
+    let report = dedekind_factor(&k, prime(3), AMPLE).unwrap();
+
+    assert_eq!(roots_and_multiplicities(&report), vec![(bi(0), 2), (bi(1), 1)]);
+    assert_eq!(report.nonlinear_degree, 2);
+}
+
+/// A multiplicity divisible by p comes from the p-th-power branch of the decomposition.
+/// f = (x³ − 1)(x + 1) = x⁴ + x³ − x − 1 (reducible, used only for its reduction), p = 3:
+/// f̄ = (x − 1)³(x + 1), so root 1 has multiplicity 3 and root 2 (≡ −1) multiplicity 1.
+#[test]
+fn kat_multiplicity_equal_to_the_characteristic() {
+    let f = poly(&[-1, 0, 0, 1]).mul(&poly(&[1, 1]));
+    let k = NumberField::new(f);
+    let report = dedekind_factor(&k, prime(3), AMPLE).unwrap();
+
+    assert_eq!(roots_and_multiplicities(&report), vec![(bi(1), 3), (bi(2), 1)]);
+    assert_eq!(report.nonlinear_degree, 0);
+}
+
+// ─── Budget exhaustion ────────────────────────────────────────────────────────
+
+/// f = x² − 2, p = 7 has roots 3 and 4. The scan finds 3 on its 4th evaluation and 4 on its 5th,
+/// so a budget of 4 is exhausted with both roots counted but not all found, and 5 succeeds.
+/// Exhaustion is an error carrying the exact root count, never a (wrong) report.
+#[test]
+fn kat_truncated_budget_is_an_error_not_a_claim() {
     let k = field_sqrt2();
-    let result = dedekind_factor_extended(&k, &bi(7));
-
-    assert!(!result.is_bad_prime, "p=7 should not be a bad prime for x²−2");
-    assert!(
-        !result.index_divisible,
-        "index should not be divisible by p=7 (good prime)"
-    );
-
-    assert_eq!(
-        result.ideals.len(),
-        2,
-        "p=7 should split into 2 prime ideals in ℚ(√2), got {}",
-        result.ideals.len()
-    );
-
-    // Both ideals should have p = 7
-    for ideal in &result.ideals {
-        assert_eq!(ideal.p, bi(7), "each ideal above 7 should have p = 7");
+    for max_evaluations in [0, 1, 2, 3, 4] {
+        let limits = RootSearchLimits { max_evaluations };
+        let outcome = dedekind_factor(&k, prime(7), limits);
+        assert!(
+            matches!(
+                outcome,
+                Err(DedekindError::RootSearchExhausted {
+                    distinct_root_count: 2,
+                    evaluations,
+                }) if evaluations == max_evaluations
+            ),
+            "budget {max_evaluations} must be reported as exhausted"
+        );
     }
-
-    // The r values should be 3 and 4 (in some order) — same as KAT 2.
-    let mut rs: Vec<BigInt> = result.ideals.iter().map(|i| i.r.clone()).collect();
-    rs.sort();
-    assert_eq!(rs, vec![bi(3), bi(4)], "roots of x²−2 mod 7 should be 3 and 4");
+    let report = dedekind_factor(&k, prime(7), RootSearchLimits { max_evaluations: 5 }).unwrap();
+    assert_eq!(roots_and_multiplicities(&report), vec![(bi(3), 1), (bi(4), 1)]);
 }
 
-// ─── Panic test ───────────────────────────────────────────────────────────────
-
-/// `dedekind_factor` must panic when p ≤ 0.
+/// The root count is computed exactly before any scan, so a rootless reduction needs no budget:
+/// an inert prime is reported as inert even under a zero budget.
 #[test]
-fn panics_on_nonpositive_p() {
+fn kat_rootless_reduction_needs_no_budget() {
     let k = field_sqrt2();
+    let report = dedekind_factor(&k, prime(3), RootSearchLimits { max_evaluations: 0 }).unwrap();
+    assert!(report.degree_one.is_empty());
+    assert_eq!(report.nonlinear_degree, 2);
+}
 
-    let result_zero = std::panic::catch_unwind(|| {
-        dedekind_factor(&k, &bi(0));
-    });
-    assert!(result_zero.is_err(), "dedekind_factor should panic when p = 0");
+// ─── Degree invariant ─────────────────────────────────────────────────────────
 
-    let result_neg = std::panic::catch_unwind(|| {
-        dedekind_factor(&k, &bi(-7));
-    });
-    assert!(result_neg.is_err(), "dedekind_factor should panic when p < 0");
+/// For every fixture the multiplicities of the degree-one primes plus the nonlinear degree sum to
+/// deg f, the roots ascend, and every ideal is (p, α − r) with r the root's residue in [0, p).
+#[test]
+fn kat_multiplicities_plus_nonlinear_degree_equal_the_degree() {
+    let fixtures: [(&[i64], u64); 13] = [
+        (&[-2, 0, 1], 2),
+        (&[-2, 0, 1], 3),
+        (&[-2, 0, 1], 7),
+        (&[-12, 0, 1], 2),
+        (&[-3, 0, 1], 3),
+        (&[-1, -1, 0, 1], 2),
+        (&[-1, -1, 0, 1], 5),
+        (&[-10, 0, 0, 1], 3),
+        (&[-2, 0, 0, 1], 3),
+        (&[-2, 0, 0, 1], 2),
+        (&[1, 1, 1, 1, 1], 5),
+        (&[1, 1, 1], 2),
+        (&[1, 1, 1], 3),
+    ];
+    for (coeffs, p) in fixtures {
+        let k = NumberField::new(poly(coeffs));
+        let report = dedekind_factor(&k, prime(p), AMPLE).unwrap();
+
+        let total: usize = report.degree_one.iter().map(|d| d.multiplicity).sum();
+        assert_eq!(total + report.nonlinear_degree, k.degree(), "f = {coeffs:?}, p = {p}");
+
+        let rs: Vec<&BigInt> = report.degree_one.iter().map(|d| &d.ideal.r).collect();
+        assert!(rs.windows(2).all(|w| w[0] < w[1]), "ascending roots, f = {coeffs:?}, p = {p}");
+        for d in &report.degree_one {
+            assert_eq!(d.ideal.p, bi(p as i64));
+            assert!(d.ideal.r >= bi(0) && d.ideal.r < bi(p as i64));
+            assert_eq!(k.f.eval(&d.ideal.r) % bi(p as i64), bi(0), "r is a root mod p");
+        }
+    }
 }
 
 // ─── Dedekind index criterion ─────────────────────────────────────────────────
@@ -415,18 +457,15 @@ fn index_not_divisible_at_good_primes() {
     }
 }
 
-/// The extended factorisation reports the criterion's answer rather than recomputing its own.
+/// The report carries the same index test as `dedekind_index_test` returns for the same inputs.
 #[test]
-fn extended_reports_index_criterion() {
-    let k = NumberField::new(poly(&[-12, 0, 1]));
-    let r = dedekind_factor_extended(&k, &bi(2));
-    assert!(r.is_bad_prime);
-    assert!(r.index_divisible, "2 divides the index of ℤ[2√3]");
-
-    let k = NumberField::new(poly(&[-3, 0, 1]));
-    let r = dedekind_factor_extended(&k, &bi(3));
-    assert!(r.is_bad_prime);
-    assert!(!r.index_divisible, "ℤ[√3] is 3-maximal");
+fn report_index_matches_the_standalone_index_test() {
+    for (coeffs, p) in [(&[-12, 0, 1][..], 2), (&[-3, 0, 1], 3), (&[-10, 0, 0, 1], 3)] {
+        let f = poly(coeffs);
+        let k = NumberField::new(f.clone());
+        let report = dedekind_factor(&k, prime(p), AMPLE).unwrap();
+        assert_eq!(report.index, dedekind_index_test(&f, prime(p)).unwrap());
+    }
 }
 
 /// A non-monic polynomial is rejected, as is a zero or constant one.
