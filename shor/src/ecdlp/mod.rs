@@ -82,8 +82,13 @@
 //!
 //! # Solver entry point
 //!
-//! - [`solve_ecdlp`]: run the two-register period-finding, recover `k`, verify `k·G == Q`,
-//!   retry on failure, return `k`. Handles trivial cases (`Q = ∞ → k = 0`, `Q = G → k = 1`).
+//! - [`solve_ecdlp`]: measure the two-register circuit, take the single candidate
+//!   [`extract_k_from_measurement`] gives, and accept it only if `k·G == Q`; otherwise measure
+//!   again with a fresh seed, up to [`DEFAULT_MAX_ATTEMPTS`] times. A success is an
+//!   [`EcdlpSolution`] carrying the measured pair that produced it (or
+//!   [`EcdlpEvidence::Trivial`] for `Q = ∞ → k = 0` and `Q = G → k = 1`). Running out of
+//!   attempts is [`EcdlpError::AttemptsExhausted`], a resource outcome rather than a negative:
+//!   there is no classical fallback, and no exponent is enumerated.
 //!
 //! # References
 //!
@@ -405,108 +410,118 @@ pub fn primary_success_probability(g: Point, q: Point) -> f64 {
 
 // ── end-to-end ECDLP driver ───────────────────────────────────────────────────
 
+/// Default number of measurement attempts made by [`solve_ecdlp`].
+///
+/// One measurement yields the correct exponent with probability about 0.64 for every
+/// `k` in `2..r` on the toy curve (exact values: [`primary_success_probability`]; the
+/// range over `k = 2..=12` is 0.6376–0.6568), so a budget of 8 attempts is exhausted with
+/// probability about `0.36⁸ ≈ 3·10⁻⁴`.
+pub const DEFAULT_MAX_ATTEMPTS: usize = 8;
+
+/// A verified solution of the ECDLP `Q = k·G`, with the evidence that produced it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EcdlpSolution {
+    /// The exponent, satisfying `k·G == Q`.
+    pub k: u64,
+    /// How `k` was obtained.
+    pub evidence: EcdlpEvidence,
+}
+
+/// The provenance of an accepted exponent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EcdlpEvidence {
+    /// `Q = ∞` (so `k = 0`) or `Q = G` (so `k = 1`); no measurement was made.
+    Trivial,
+    /// `k` was extracted from one measured exponent pair.
+    ///
+    /// `extract_k_from_measurement(c, d, r) == Some(k)`, and
+    /// `run_period_finding_circuit(g, q, seed) == (c, d)`.
+    Measurement {
+        /// Seed of the circuit run that produced the pair (the caller's seed plus `attempt`).
+        seed: u64,
+        /// Zero-based index of the successful attempt.
+        attempt: usize,
+        /// Measured a-register value.
+        c: u64,
+        /// Measured b-register value.
+        d: u64,
+    },
+}
+
+/// Why [`solve_ecdlp`] returned no solution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EcdlpError {
+    /// The generator is the point at infinity, which generates no group.
+    InvalidGenerator,
+    /// Every attempt measured a pair whose single candidate was missing or failed verification.
+    ///
+    /// A resource outcome: it says nothing about whether a logarithm exists.
+    AttemptsExhausted {
+        /// Number of measurement attempts made.
+        attempts: usize,
+    },
+}
+
 /// Solve the ECDLP `Q = k·G` using Shor's two-register period-finding algorithm.
 ///
-/// Handles trivial cases first, then runs the quantum period-finding circuit, recovers a
-/// candidate `k` from the measured pair `(c, d)` by the dual-lattice rounding rule of
-/// [`extract_k_from_measurement`], and verifies `k·G == Q`. Retries with incremented seeds on
-/// failure.
+/// Handles the trivial cases first, then repeats measure–extract–verify with a fresh seed per
+/// attempt, up to [`DEFAULT_MAX_ATTEMPTS`] attempts. See [`solve_ecdlp_with_retries`].
 ///
-/// # Trivial cases
+/// # Errors
 ///
-/// - `Q = ∞`: returns `Some(0)` (since `0·G = ∞`).
-/// - `Q = G`: returns `Some(1)` (since `1·G = G`).
+/// [`EcdlpError::InvalidGenerator`] if `g` is ∞; [`EcdlpError::AttemptsExhausted`] if no
+/// attempt yielded a verified exponent.
+pub fn solve_ecdlp(g: Point, q: Point, seed: u64) -> Result<EcdlpSolution, EcdlpError> {
+    solve_ecdlp_with_retries(g, q, seed, DEFAULT_MAX_ATTEMPTS)
+}
+
+/// Solve the ECDLP with an explicit attempt budget.
 ///
 /// # Algorithm
 ///
-/// 1. Check trivial cases.
-/// 2. Run `run_period_finding_circuit(G, Q, seed)` to get `(c, d)`.
-/// 3. Attempt `extract_k_from_measurement(c, d, r)` to get a candidate `k`.
-/// 4. Verify `k·G == Q`. If verified, return `Some(k)`.
-/// 5. If the extraction fails verification, fall back to brute-force over `k ∈ 0..r`.
-///    This exhaustive search is a toy-scale stopgap, not part of the quantum algorithm.
-/// 6. If all candidates fail, retry with `seed + 1`.
-/// 7. Return `None` after `max_retries` failed attempts.
+/// 1. `g = ∞` is [`EcdlpError::InvalidGenerator`].
+/// 2. `Q = ∞` gives `k = 0` and `Q = G` gives `k = 1`, with [`EcdlpEvidence::Trivial`].
+/// 3. For attempt `i` in `0..max_attempts`, run [`run_period_finding_circuit`] with seed
+///    `seed + i` (wrapping) to get `(c, d)`, and take the single candidate
+///    [`extract_k_from_measurement`] gives.
+/// 4. Accept the candidate only if `k·G == Q`; return it with the measured pair.
+/// 5. Otherwise measure again. Repeating the same randomized measurement with fresh randomness is
+///    the algorithm itself; no other method is tried and no exponent is enumerated.
 ///
-/// # Arguments
+/// # Errors
 ///
-/// - `g` — generator point G
-/// - `q` — target point Q = k·G
-/// - `seed` — base RNG seed for reproducible measurement (incremented per retry)
-///
-/// # Returns
-///
-/// `Some(k)` such that `k·G == Q`, or `None` after `max_retries` failed attempts.
-///
-/// # Panics
-///
-/// Panics if `g` is ∞.
-#[must_use]
-pub fn solve_ecdlp(g: Point, q: Point, seed: u64) -> Option<u64> {
-    solve_ecdlp_with_retries(g, q, seed, 8)
-}
-
-/// Solve the ECDLP with an explicit retry budget.
-///
-/// Same as [`solve_ecdlp`] but with a configurable `max_retries` parameter.
-/// Useful for testing with a small retry budget.
-///
-/// # Panics
-///
-/// Panics if `g` is ∞.
-#[must_use]
-pub fn solve_ecdlp_with_retries(g: Point, q: Point, seed: u64, max_retries: usize) -> Option<u64> {
-    assert!(!g.is_infinity(), "solve_ecdlp: g must not be ∞");
-
-    // Trivial case: Q = ∞ → k = 0.
+/// [`EcdlpError::InvalidGenerator`] if `g` is ∞. [`EcdlpError::AttemptsExhausted`] with
+/// `attempts == max_attempts` if no attempt yielded a verified exponent; exhausting the budget
+/// proves nothing about the instance. `q` is assumed to lie in the group generated by `g`; for a
+/// point outside it, every attempt fails verification and the budget is exhausted.
+pub fn solve_ecdlp_with_retries(
+    g: Point,
+    q: Point,
+    seed: u64,
+    max_attempts: usize,
+) -> Result<EcdlpSolution, EcdlpError> {
+    if g.is_infinity() {
+        return Err(EcdlpError::InvalidGenerator);
+    }
     if q.is_infinity() {
-        return Some(0);
+        return Ok(EcdlpSolution { k: 0, evidence: EcdlpEvidence::Trivial });
     }
-
-    // Trivial case: Q = G → k = 1.
     if q == g {
-        return Some(1);
+        return Ok(EcdlpSolution { k: 1, evidence: EcdlpEvidence::Trivial });
     }
 
-    let r = R;
-
-    for attempt in 0..max_retries {
+    for attempt in 0..max_attempts {
         let trial_seed = seed.wrapping_add(attempt as u64);
-
-        // Run the two-register period-finding circuit.
         let (c, d) = run_period_finding_circuit(g, q, trial_seed);
-
-        // Primary extraction: dual-lattice rounding of the measured pair.
-        if let Some(k) = extract_k_from_measurement(c, d, r) {
-            let kg = curve::scalar_mul(k, g);
-            if kg == q {
-                return Some(k);
-            }
-            // The candidate failed verification: the finite-precision peak was rounded to a
-            // wrong lattice point. Fall through to the stopgap below.
-        }
-
-        // Toy-scale fallback: brute-force over k ∈ 0..r.
-        //
-        // At toy scale (r=13), the quantum circuit still performs the period-finding; the
-        // classical extraction is just exhaustive search. The quantum measurement biases
-        // the search toward the correct k (the high-probability outcomes cluster near the
-        // true period), but at r=13 the brute-force is fast enough to be honest.
-        //
-        // This is the documented toy-scale fallback: at r=13, brute-force over k ∈ 0..r is
-        // honest — the quantum circuit still performs the period-finding; the classical
-        // extraction is just exhaustive search.
-        for k in 0..r {
-            let kg = curve::scalar_mul(k, g);
-            if kg == q {
-                return Some(k);
+        if let Some(k) = extract_k_from_measurement(c, d, R) {
+            if curve::scalar_mul(k, g) == q {
+                return Ok(EcdlpSolution {
+                    k,
+                    evidence: EcdlpEvidence::Measurement { seed: trial_seed, attempt, c, d },
+                });
             }
         }
-
-        // Should not reach here: brute-force over 0..r always finds k if Q is on the curve.
-        // This path is only taken if Q is not in the group generated by G (impossible for
-        // the toy curve since G has full order r=13).
     }
 
-    None
+    Err(EcdlpError::AttemptsExhausted { attempts: max_attempts })
 }

@@ -13,12 +13,15 @@
 //!    circuit amplitudes equals the classical Fourier-sum formula, and the extraction rule has
 //!    positive success probability.
 //!
-//! 4. **End-to-end ECDLP** — `solve_ecdlp(G, Q=k·G)` recovers `k` for a fixture of `k` values
-//!    on the toy curve, with a fixed measurement seed so the run is reproducible. The assertion
-//!    checks `recovered_k · G == Q` (relationship-preservation).
+//! 4. **End-to-end ECDLP** — `solve_ecdlp(G, Q=k·G)` at fixed measurement seeds returns `k` with
+//!    `Measurement` evidence: the reported pair `(c, d)` is in range and
+//!    `extract_k_from_measurement(c, d, r) == Some(k)`. The trivial cases report `Trivial`, a
+//!    generator at infinity is `InvalidGenerator`, and a budget spent on a measurement whose
+//!    candidate is wrong is `AttemptsExhausted` with the exact attempt count.
 //!
-//! 5. **rho cross-check** (`#[ignore]`-gated) — `rho::ecdlp::solve_brent` on the equivalent
-//!    `rho::Curve` returns a `k'` satisfying `k'·G = Q` for the same instances.
+//! 5. **rho cross-check** (`#[ignore]`-gated for cost) — `rho::ecdlp::solve_brent` on the
+//!    equivalent `rho::Curve` returns a `k'` satisfying `k'·G = Q`, and agrees with the Shor
+//!    solver's `k` for the same instance.
 //!
 //! # Toy curve parameters
 //!
@@ -48,7 +51,8 @@ use std::sync::OnceLock;
 use shor::curve::{self, G, Point, R};
 use shor::ecdlp::{
     exponent_outcome_distribution, extract_k_from_measurement, primary_success_probability,
-    run_period_finding_circuit, solve_ecdlp, EXP_BITS, TOTAL_QUBITS,
+    run_period_finding_circuit, solve_ecdlp, solve_ecdlp_with_retries, EcdlpError, EcdlpEvidence,
+    EcdlpSolution, DEFAULT_MAX_ATTEMPTS, EXP_BITS, TOTAL_QUBITS,
 };
 
 // ── KAT group 1: order/group-law KATs (classical verification) ────────────────
@@ -319,100 +323,166 @@ fn primary_success_probability_positive_all_k() {
     }
 }
 
-// ── KAT group 3: end-to-end ECDLP (quantum circuit + classical post-processing) ──
+// ── KAT group 4: end-to-end ECDLP (quantum circuit + classical post-processing) ──
 //
-// These KATs run the full Shor ECDLP algorithm end-to-end with fixed seeds.
-// Seeds are chosen so that the circuit measurement yields an informative (a', b') pair
-// that recovers the correct k on the first or early retry.
-//
-// The assertion checks recovered_k · G == Q (relationship-preservation), not recovered_k == k,
-// since the quantum algorithm may return any k' satisfying k'·G = Q (which equals k mod r).
+// These KATs run the full Shor ECDLP algorithm end-to-end at fixed seeds. A solution is
+// `Measurement` evidence: the measured pair `(c, d)` must itself extract to `k`, so the test
+// checks the mechanism's own identity and not only the self-certifying `k·G == Q`.
 
-/// Helper: assert that solve_ecdlp(G, Q=k·G, seed) recovers a k' with k'·G = Q.
-fn assert_solve_ecdlp(k: u64, seed: u64, label: &str) {
-    let q = curve::scalar_mul(k, G);
-    let result = solve_ecdlp(G, q, seed);
-    assert!(
-        result.is_some(),
-        "{label}: solve_ecdlp(G, {k}·G, seed={seed}) returned None"
-    );
-    let recovered_k = result.unwrap();
-    let kg = curve::scalar_mul(recovered_k, G);
+/// Assert `solution` is `Measurement` evidence for logarithm `k` of `q`, obtained from the
+/// circuit run at `base_seed + attempt`, and return the measured pair.
+fn assert_measurement_evidence(
+    solution: &EcdlpSolution,
+    k: u64,
+    q: Point,
+    base_seed: u64,
+    label: &str,
+) -> (u64, u64) {
+    assert_eq!(solution.k, k, "{label}: wrong exponent");
+    assert_eq!(curve::scalar_mul(solution.k, G), q, "{label}: k·G ≠ Q");
+    let EcdlpEvidence::Measurement { seed, attempt, c, d } = solution.evidence else {
+        panic!("{label}: expected Measurement evidence, got {:?}", solution.evidence);
+    };
+    assert_eq!(seed, base_seed + attempt as u64, "{label}: seed is not base seed + attempt");
+    assert!(attempt < DEFAULT_MAX_ATTEMPTS, "{label}: attempt {attempt} beyond the default budget");
+    assert!(c < M && d < M, "{label}: measured pair ({c}, {d}) out of range");
     assert_eq!(
-        kg, q,
-        "{label}: recovered_k={recovered_k}, but recovered_k·G={kg:?} ≠ Q={q:?}"
+        extract_k_from_measurement(c, d, R),
+        Some(k),
+        "{label}: reported pair ({c}, {d}) does not extract to k={k}"
+    );
+    (c, d)
+}
+
+/// Assert `solve_ecdlp(G, k·G, 0)` succeeds on its first measurement with the recorded pair.
+///
+/// Seed 0 was kept for every fixture after a recorded search over seeds 0..16 for
+/// k ∈ {3, 5, 7, 9, 12}: seed 0 extracts the correct `k` on its first attempt in all five cases,
+/// so each fixture costs one circuit run. The expected pair is the one seed 0 measures.
+fn assert_solve_first_attempt(k: u64, expected_pair: (u64, u64)) {
+    let q = curve::scalar_mul(k, G);
+    let solution = solve_ecdlp(G, q, 0).unwrap_or_else(|e| panic!("k={k}: solve_ecdlp failed: {e:?}"));
+    let pair = assert_measurement_evidence(&solution, k, q, 0, &format!("k={k}"));
+    assert_eq!(pair, expected_pair, "k={k}: seed 0 measured a different pair");
+    assert_eq!(
+        solution.evidence,
+        EcdlpEvidence::Measurement { seed: 0, attempt: 0, c: pair.0, d: pair.1 }
     );
 }
 
-/// solve_ecdlp: trivial case Q=∞ → k=0.
+/// Q=∞: k=0 with `Trivial` evidence, no circuit run.
 #[test]
 fn ecdlp_trivial_q_infinity() {
-    let result = solve_ecdlp(G, Point::Infinity, 0);
-    assert_eq!(result, Some(0), "solve_ecdlp(G, ∞, 0) should return Some(0)");
+    assert_eq!(
+        solve_ecdlp(G, Point::Infinity, 0),
+        Ok(EcdlpSolution { k: 0, evidence: EcdlpEvidence::Trivial })
+    );
 }
 
-/// solve_ecdlp: trivial case Q=G → k=1.
+/// Q=G: k=1 with `Trivial` evidence, no circuit run.
 #[test]
 fn ecdlp_trivial_q_equals_g() {
-    let result = solve_ecdlp(G, G, 0);
-    assert_eq!(result, Some(1), "solve_ecdlp(G, G, 0) should return Some(1)");
+    assert_eq!(solve_ecdlp(G, G, 0), Ok(EcdlpSolution { k: 1, evidence: EcdlpEvidence::Trivial }));
 }
 
-/// solve_ecdlp: k=3, Q=3·G=(2,2). Seed 0.
-///
-/// Verifies that the two-register circuit recovers k=3 (or any k' with k'·G = 3·G).
+/// G=∞ is an invalid generator, whatever Q is; no circuit run.
 #[test]
-fn ecdlp_k3_seed0() {
-    assert_solve_ecdlp(3, 0, "ecdlp_k3_seed0");
-}
-
-/// solve_ecdlp: k=5, Q=5·G=(3,3). Seed 0.
-#[test]
-fn ecdlp_k5_seed0() {
-    assert_solve_ecdlp(5, 0, "ecdlp_k5_seed0");
-}
-
-/// solve_ecdlp: k=7, Q=7·G=(5,4). Seed 0.
-#[test]
-fn ecdlp_k7_seed0() {
-    assert_solve_ecdlp(7, 0, "ecdlp_k7_seed0");
-}
-
-/// solve_ecdlp: k=9, Q=9·G=(4,2). Seed 0.
-#[test]
-fn ecdlp_k9_seed0() {
-    assert_solve_ecdlp(9, 0, "ecdlp_k9_seed0");
-}
-
-/// solve_ecdlp: k=12, Q=12·G=(1,5). Seed 0.
-///
-/// k=12 is the largest non-trivial scalar (r-1=12), testing the boundary.
-#[test]
-fn ecdlp_k12_seed0() {
-    assert_solve_ecdlp(12, 0, "ecdlp_k12_seed0");
-}
-
-/// solve_ecdlp: all non-trivial k values (2..=12) recover k'·G = Q.
-///
-/// Runs solve_ecdlp for every non-trivial k on the toy curve with seed=0.
-/// Verifies relationship-preservation: recovered_k · G == Q.
-///
-/// Marked `#[ignore]` because it runs 11 full quantum circuit instances (~165s in debug
-/// mode). The targeted fixture tests (k=3, k=5, k=7, k=9, k=12) cover the same ground.
-#[test]
-#[ignore]
-fn ecdlp_all_k_values_seed0() {
-    for k in 2..R {
-        assert_solve_ecdlp(k, 0, &format!("ecdlp_k{k}_seed0"));
+fn ecdlp_invalid_generator() {
+    for q in [Point::Infinity, G] {
+        assert_eq!(solve_ecdlp(Point::Infinity, q, 0), Err(EcdlpError::InvalidGenerator));
     }
 }
 
-/// solve_ecdlp is reproducible: same seed → same result.
-///
-/// Marked `#[ignore]` because it runs 6 full quantum circuit instances (~90s in debug mode).
-/// Reproducibility is verified by the deterministic seeded RNG in `measure_all_seeded`.
+/// k=3, Q=3·G=(2,2), seed 0.
 #[test]
-#[ignore]
+fn ecdlp_k3_seed0() {
+    assert_solve_first_attempt(3, (10, 13));
+}
+
+/// k=5, Q=5·G=(3,3), seed 0.
+#[test]
+fn ecdlp_k5_seed0() {
+    assert_solve_first_attempt(5, (12, 13));
+}
+
+/// k=7, Q=7·G=(5,4), seed 0.
+#[test]
+fn ecdlp_k7_seed0() {
+    assert_solve_first_attempt(7, (9, 12));
+}
+
+/// k=9, Q=9·G=(4,2), seed 0.
+#[test]
+fn ecdlp_k9_seed0() {
+    assert_solve_first_attempt(9, (8, 13));
+}
+
+/// k=12, Q=12·G=(1,5), seed 0. k=12 = r−1 is the largest non-trivial scalar.
+#[test]
+fn ecdlp_k12_seed0() {
+    assert_solve_first_attempt(12, (4, 12));
+}
+
+/// One attempt whose single candidate is wrong exhausts the budget: `AttemptsExhausted` with the
+/// exact count, never a recovered `k`.
+///
+/// For k=3, seed 2 measures (2, 11), which extracts to 11 ≠ 3 (found by the same bounded search
+/// over seeds 0..16 as above; seeds 2, 7, 9 and 11 fail for k=3). With a budget of one attempt
+/// the failure is therefore certain, not probabilistic. The old exhaustive fallback would have
+/// returned k=3 here.
+#[test]
+fn ecdlp_budget_exhausted_on_wrong_candidate() {
+    let q = curve::scalar_mul(3, G);
+    assert_eq!(
+        solve_ecdlp_with_retries(G, q, 2, 1),
+        Err(EcdlpError::AttemptsExhausted { attempts: 1 })
+    );
+}
+
+/// A failed attempt is followed by a fresh-seed attempt: k=3 from seed 2 fails at seed 2
+/// (candidate 11) and succeeds at seed 3 (pair (13, 9) extracts to 3), so the evidence reports
+/// attempt 1 and seed 3.
+#[test]
+fn ecdlp_retry_uses_fresh_seed() {
+    let q = curve::scalar_mul(3, G);
+    let solution = solve_ecdlp_with_retries(G, q, 2, 2).expect("seed 3 extracts k=3");
+    let (c, d) = assert_measurement_evidence(&solution, 3, q, 2, "retry k=3");
+    assert_eq!(solution.evidence, EcdlpEvidence::Measurement { seed: 3, attempt: 1, c, d });
+    assert_eq!((c, d), (13, 9));
+}
+
+/// A zero budget makes no measurement and reports exhaustion with zero attempts.
+#[test]
+fn ecdlp_zero_budget_is_exhausted() {
+    let q = curve::scalar_mul(3, G);
+    assert_eq!(
+        solve_ecdlp_with_retries(G, q, 0, 0),
+        Err(EcdlpError::AttemptsExhausted { attempts: 0 })
+    );
+}
+
+/// Every non-trivial k (2..=12) is solved at seed 0 within the default budget, with
+/// `Measurement` evidence that extracts to `k`.
+///
+/// Ignored for cost: at least one full circuit simulation per k (~10 s each in debug mode). The
+/// fixtures above cover k = 3, 5, 7, 9, 12.
+#[test]
+#[ignore = "cost: at least one full circuit simulation per k (~10 s each in debug)"]
+fn ecdlp_all_k_values_within_default_budget() {
+    for k in 2..R {
+        let q = curve::scalar_mul(k, G);
+        let solution = solve_ecdlp(G, q, 0)
+            .unwrap_or_else(|e| panic!("k={k}: solve_ecdlp failed: {e:?}"));
+        assert_measurement_evidence(&solution, k, q, 0, &format!("k={k}"));
+    }
+}
+
+/// solve_ecdlp is reproducible: same seed → same solution, evidence included.
+///
+/// Ignored for cost: two full solves per k (several circuit simulations, ~10 s each in debug).
+/// Reproducibility comes from the deterministic seeded RNG in `measure_all_seeded`.
+#[test]
+#[ignore = "cost: two full solves per k (~10 s per circuit simulation in debug)"]
 fn ecdlp_reproducible() {
     for k in [3u64, 7, 9] {
         let q = curve::scalar_mul(k, G);
@@ -436,11 +506,13 @@ fn period_finding_sample_in_support_of_distribution() {
     assert!(p > 1e-12, "measured pair ({c}, {d}) has probability {p}");
 }
 
-// ── KAT group 4: rho cross-check (#[ignore]-gated) ────────────────────────────
+// ── KAT group 5: rho cross-check (#[ignore]-gated for cost) ───────────────────
 //
-// These KATs use rho::ecdlp::solve_brent as an oracle to cross-check the Shor solver.
-// They are #[ignore]-gated so they do not run in the normal test suite (the rho solver
-// is a dev-dependency, and the cross-check is not part of the green path).
+// These KATs run `rho::ecdlp::solve_brent` on the same toy instance and compare it with the
+// Shor solver. They are not oracle tests: `rho` is an in-workspace dev-dependency, no external
+// tool is needed. They are `#[ignore]`-gated as a group; the cost is in the Shor comparison, whose
+// full solve runs circuit simulations (~10 s each in debug). The two rho-only tests take about
+// 0.2 s and stay ignored only because they belong to this group.
 //
 // The rho::Curve struct has fields: p, a, b, n, gx, gy (all Uint<4>).
 // The toy curve parameters: p=7, a=0, b=3, n=13, gx=1, gy=2.
@@ -449,11 +521,8 @@ fn period_finding_sample_in_support_of_distribution() {
 ///
 /// Builds a rho::Curve from the toy curve parameters and calls solve_brent.
 /// The returned k' must satisfy k'·G = Q (relationship-preservation).
-///
-/// This test is #[ignore]-gated: it requires the rho dev-dependency and is not
-/// part of the green path (the Shor solver is oracle-free).
 #[test]
-#[ignore]
+#[ignore = "cross-check group kept off the default path; cheap on its own (~0.2 s), unlike the Shor comparison"]
 fn rho_crosscheck_k3() {
     use crypto_bigint::Uint;
     use rho::curve::{AffinePoint, Curve};
@@ -484,7 +553,7 @@ fn rho_crosscheck_k3() {
 
 /// rho cross-check: solve_brent recovers k'·G = Q for k=7 on the toy curve.
 #[test]
-#[ignore]
+#[ignore = "cross-check group kept off the default path; cheap on its own (~0.2 s), unlike the Shor comparison"]
 fn rho_crosscheck_k7() {
     use crypto_bigint::Uint;
     use rho::curve::{AffinePoint, Curve};
@@ -511,12 +580,13 @@ fn rho_crosscheck_k7() {
     assert_eq!(check, q_rho, "rho cross-check: k'·G ≠ Q (k'={k}, expected k={k_target})");
 }
 
-/// rho cross-check: solve_brent and solve_ecdlp agree on k'·G = Q for k=5.
+/// rho cross-check: solve_brent and solve_ecdlp agree on k for k=5.
 ///
-/// Both solvers should return a k' satisfying k'·G = Q = 5·G.
-/// The specific k' values may differ (any valid discrete log is acceptable).
+/// Both solvers must return a k' satisfying k'·G = Q = 5·G. The group has prime order 13, so the
+/// logarithm in `0..13` is unique and the two values must be equal; the Shor result also carries
+/// `Measurement` evidence that extracts to it.
 #[test]
-#[ignore]
+#[ignore = "cost: a full Shor solve (circuit simulations, ~10 s each in debug) plus a rho walk"]
 fn rho_crosscheck_agrees_with_shor_k5() {
     use crypto_bigint::Uint;
     use rho::curve::{AffinePoint, Curve};
@@ -542,13 +612,11 @@ fn rho_crosscheck_agrees_with_shor_k5() {
     let check_rho = toy_curve.scalar_mul(&g_rho, &Uint::<4>::from(k_rho));
     assert_eq!(check_rho, q_rho, "rho: k'·G ≠ Q (k'={k_rho})");
 
-    // Shor solver.
+    // Shor solver, with its measurement evidence.
     let q_shor = curve::scalar_mul(k_target, G);
-    let k_shor = solve_ecdlp(G, q_shor, 0).expect("solve_ecdlp failed for k=5");
-    let check_shor = curve::scalar_mul(k_shor, G);
-    assert_eq!(check_shor, q_shor, "shor: k'·G ≠ Q (k'={k_shor})");
+    let solution = solve_ecdlp(G, q_shor, 0).expect("solve_ecdlp failed for k=5");
+    assert_measurement_evidence(&solution, k_target, q_shor, 0, "shor k=5");
 
-    // Both agree on the point Q (relationship-preservation).
-    // (The specific k' values may differ since any valid discrete log is acceptable.)
-    eprintln!("rho k'={k_rho}, shor k'={k_shor} — both satisfy k'·G = Q = {k_target}·G");
+    // Prime group order: the logarithm in 0..r is unique, so both solvers return it.
+    assert_eq!(solution.k, k_rho % R, "shor k={} vs rho k={k_rho}", solution.k);
 }
