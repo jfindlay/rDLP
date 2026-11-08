@@ -164,9 +164,9 @@ impl IndexTest {
     pub fn obstruction(&self) -> &FpPoly;
     /// p | [O_K : ℤ[α]] iff deg T > 0.
     pub fn divides_index(&self) -> bool;
-    /// deg T = log_p [O′ : ℤ[α]]; may be dropped in 2 if the reference does not confirm it.
-    pub fn enlargement_exponent(&self) -> usize;
 }
+// `enlargement_exponent` was dropped in row 2: the one-step enlargement's ring property was not
+// confirmed against the reference (digest 2).
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DedekindError {
@@ -196,6 +196,7 @@ pub struct DedekindReport<'a> {
     pub index: IndexTest,
 }
 pub struct DegreeOnePrime<'a> { pub ideal: Ideal<'a>, pub multiplicity: usize }
+// The report types derive nothing (`Ideal` derives nothing; digest 3).
 ```
 
 Prose invariants: Σ multiplicity + nonlinear_degree = deg f. If `!index.divides_index()`, each
@@ -214,7 +215,7 @@ config: no flags (self-continue at junctures; no `may-reshard`, no `halt-at-boun
 | 1 | Square-free decomposition over prime fields | done | adf138e | C-SquarefreeDecomposition |
 | 2 | Canonical Dedekind index criterion | done | 0073ab8 | C-IndexTest (without `enlargement_exponent`) |
 | 3 | Honest degree-one prime report above p | done | 17b1604 | C-DedekindReport (report types carry no derives) |
-| 4 | Cross-check against PARI/GP ◆ | done | a2e0d39 | none (test-only); boundary check pending |
+| 4 | Cross-check against PARI/GP ◆ | done | a2e0d39, 8827d84 | none (test-only). Boundary: `still-on-intent`; prose corrections in 8827d84 (fix-loop 1 of 2); 4 `gnfs` contradictions surfaced, not absorbed (see Discoveries & risks) |
 | 5 | Anneal cleanup (skippable) | pending | | |
 
 ## Action-frame digest
@@ -280,6 +281,35 @@ Texture: committer wrote one commit body unwrapped in row 2 (0073ab8); not amend
   docs; any consumer wiring; non-monic support; Round 2/distinct-degree factorisation (out of scope
   by the purpose boundary).
 - **Preflight:** PLAN and ROADMAP will be dirty after sharding; commit them before `/plan-run`.
+- **Boundary verdict (row 4, 2026-11-08): `still-on-intent`.** No contradiction of the corrected
+  contract survives in the enrolled files; PARI agreed on all 84 cases; no consumer was wired. One
+  precision defect and three nits in enrolled files were corrected in 8827d84.
+- **Surfaced, not absorbed (outside `shared/numfield`; no `may-reshard`):** four `gnfs` prose
+  contradictions of the corrected bad-prime/index and factor-base-consumer claims, for the
+  project-wide claim/anneal register (fix together with the unrelated `principle-4` label at the same
+  sites, one pass):
+  1. `gnfs/docs/PEDAGOGY.md:881-883` — "At bad primes, Dedekind's theorem does not apply directly".
+     Correction: some bad primes divide the index [ℤ_K : ℤ[α]]; Dedekind's theorem applies exactly
+     when p does not divide the index, and not every bad prime does (x²−2 at 2).
+  2. `gnfs/src/sieve/factor_base.rs:31-32` — same claim in the module comment; say the flag does not
+     tell index-dividing bad primes apart.
+  3. `gnfs/src/sieve/factor_base.rs:78-82` — merges "residue degree > 1 is never of the form
+     (p, α − r)" (true at every prime) with Round 2 (about index-dividing primes); separate them.
+  4. `gnfs/docs/PEDAGOGY.md:688-690` — says `PolyPair::number_field()` is used by the sieve for
+     "Dedekind factorisation, factor-base construction"; it is used only by the NFS-DL relation code
+     (`gnfs/src/dl/relation.rs:159`, `dl/ext/relation.rs:106`); the factor base works from f.
+- **Stale rolling text:** `docs/ROADMAP.md:57` and `:86-103` ("repair in progress"; `dedekind_criterion`
+  "uses" an integer gcd; "Neither trace was executed") stop being true now; close out the scope there
+  and keep the section as history. `docs/ROADMAP.md:393-396` remains accurate (no production consumer;
+  adoption blocked by monic-only `NumberField`).
+- **Anneal at ◆:** zero denylist hits in any Rust file of the arc. One hit in the arc's added lines:
+  the §10 contract-table row `| C-Dedekind | G.A.3 | none yet |` (labels pre-existing; only the
+  consumer cell changed): classified pre-existing §10 label scope. Two prose lines over 100
+  characters, left for the general sweep: `shared/numfield/src/dedekind.rs:77` and
+  `shared/numfield/docs/PEDAGOGY.md:612` (Markdown table rows over 100 follow the existing table
+  convention). Minimalism candidate: the local gp-invocation helper is duplicated across oracle tests.
+- **Nits not acted on:** committer wrote unwrapped / over-72 bodies for 0073ab8, 1e550ce (history is
+  not rewritten).
 
 ## Notes for executors
 
