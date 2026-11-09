@@ -2616,9 +2616,10 @@ log in the $\ell$-order subgroup. Recovering the full log modulo $p - 1$ require
 $\ell_i^{e_i}$, and combine via CRT.
 
 **Code realisation.** The descent substrate is implemented in `gnfs/src/dl/descent/`. The key
-types and functions are `DescentNode<F>`, `DescentFrontier<F>`, `init_descent_frontier`, `descend_node`, `run_descent`, and `assemble_log`.
-The entry point `solve_dl(g, h, p, k, ell)` is consumed across crates by the MOV reduction
-(§10.5). See `gnfs/docs/PEDAGOGY.md` §66 for the code-tour.
+types and functions are `DescentNode<F>`, `DescentFrontier<F>`, `init_descent_frontier`,
+`descend_node`, `run_descent`, and `assemble_log`. The entry point `solve_dl(g, h, p, k, ell)` is
+consumed across crates by the MOV reduction (§10.5). See `gnfs/docs/PEDAGOGY.md` §66 for the
+code-tour.
 
 **Engineering-scale boundary ($k > 1$).** The `solve_dl` function
 returns `SolveDlError::Unsupported { k }` immediately for $k > 1$ (extension fields
@@ -3241,10 +3242,10 @@ for every $j$ — cancels every unknown $l_j$ when the relations are summed with
 $$u^{\top} a + (u^{\top} b) \cdot x \equiv 0 \pmod{\ell}.$$
 
 When $u^{\top} b \not\equiv 0$ this determines $x \equiv -\,u^{\top} a \,/\, u^{\top} b$. The
-factor-base logarithms $l_j$ are never solved for. A kernel vector with $u^{\top} b \equiv 0$ says nothing
-about $x$, and for honest relations it must also have $u^{\top} a \equiv 0$. The code computes a
-complete basis of the left kernel (the transposed exponent matrix has the relations as columns,
-and its right kernel is the left kernel of $E$). At this scale the kernel routine
+factor-base logarithms $l_j$ are never solved for. A kernel vector with $u^{\top} b \equiv 0$ says
+nothing about $x$, and for honest relations it must also have $u^{\top} a \equiv 0$. The code
+computes a complete basis of the left kernel (the transposed exponent matrix has the relations as
+columns, and its right kernel is the left kernel of $E$). At this scale the kernel routine
 `block_wiedemann_fl` performs an exact dense row reduction; it is the same entry point as the
 NFS-DL linear algebra (§9), not a Krylov (block-Wiedemann or block-Lanczos) iteration.
 
@@ -3476,8 +3477,8 @@ row for the five algebraic ECDLP attacks. The baseline is Pollard rho.
 table are NOT observable at the toy scale of the benchmark fixtures ($p = 47$, $p = 7$). The
 table reports the theoretical complexity class; the toy-scale benchmark setup is in the
 cross-attack harness section of `docs/BENCHMARKS.md`. The separation between $L[1, 1/2]$ (rho),
-$L[1/2]$ (index calculus), $L[1/3]$ (MOV via NFS-DL), and $L[0]$ (SSA) is a statement about asymptotic behaviour at cryptographic scale —
-not a ranking of the toy-scale timings.
+$L[1/2]$ (index calculus), $L[1/3]$ (MOV via NFS-DL), and $L[0]$ (SSA) is a statement about
+asymptotic behaviour at cryptographic scale — not a ranking of the toy-scale timings.
 
 ---
 
@@ -3930,9 +3931,9 @@ amplitudes; at $n = 25$ qubits, this is $2^{25} \approx 33\,\mathrm{M}$ entries 
 this project's layout ($2 \cdot n_{\mathrm{bits}}(N)$ qubits) would need about 4100 qubits — an
 arithmetic consequence of the layout, not a published estimate — requiring a $2^{4100}$-entry
 amplitude array, far beyond any classical computer. The simulator demonstrates Shor's
-mathematics correctly at toy scale; it does not claim quantum speedup, which requires real quantum hardware out of scope by
-construction. See `shor/docs/PEDAGOGY.md` §6.3 and the Shor factoring section of
-`docs/BENCHMARKS.md` for the full resource-scale annotation.
+mathematics correctly at toy scale; it does not claim quantum speedup, which requires real quantum
+hardware out of scope by construction. See `shor/docs/PEDAGOGY.md` §6.3 and the Shor factoring
+section of `docs/BENCHMARKS.md` for the full resource-scale annotation.
 
 ---
 
@@ -4060,8 +4061,8 @@ $j \in \{1, \ldots, 12\}$ the pair $(c, d)$ of integers nearest to $(jM/r,\ lM/r
 $l = kj \bmod r$, extracts $k$;
 `extract_j_zero_returns_none` checks that, for $M = 16$ and $r = 13$, only $c = 0$ gives
 `None`; `extract_rejects_c_out_of_range` and `extract_rejects_d_out_of_range` check that
-$c, d \ge M$ is rejected as invalid input. These tests pin the rule on exact lattice points; they do not say how
-likely a real measurement is to land on one.
+$c, d \ge M$ is rejected as invalid input. These tests pin the rule on exact lattice points; they do
+not say how likely a real measurement is to land on one.
 
 **Success probability per measurement (estimate).** The probability that one measurement
 yields a candidate equal to the true logarithm is
@@ -4313,9 +4314,9 @@ post-quantum migration is the engineering response to this mathematical reality.
 
 **The scale statement for the Shor chapter.** The implementation demonstrates Shor's
 mathematics at toy scale (up to 17 qubits for ECDLP with $r = 13$; factoring $N \leq 91$). The
-~25-qubit simulator ceiling is a resource-scale wall: the dense state-vector simulator holds $2^n$ complex
-amplitudes, and at $n = 25$ this is the practical memory limit on a laptop. The ceiling is not
-a mathematical one: the simulator computes the exact state at any size (the ECDLP extraction
+~25-qubit simulator ceiling is a resource-scale wall: the dense state-vector simulator holds $2^n$
+complex amplitudes, and at $n = 25$ this is the practical memory limit on a laptop. The ceiling is
+not a mathematical one: the simulator computes the exact state at any size (the ECDLP extraction
 rule is analysed here only at $r = 13$, §11.4.3). The quantum speedup (the polynomial
 vs subexponential separation) is not observable at toy scale; it requires real quantum hardware
 with thousands of fault-tolerant qubits. The migration is *surveyed, not built* — the

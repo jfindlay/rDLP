@@ -14,8 +14,8 @@ document is the lesson.
 
 **How to read this document.** The umbrella synthesis (§0) names the through-line once and maps
 all five families. The per-family chapters (§§1–7 for Pollard rho, §§8–18 for the algebraic ECDLP
-attacks) are the depth for those two families; the remaining three are threaded here as synthesis chapters that cite their
-per-crate tours for the implementation detail. The per-crate tours are:
+attacks) are the depth for those two families; the remaining three are threaded here as synthesis
+chapters that cite their per-crate tours for the implementation detail. The per-crate tours are:
 
 | Family | Code-tour | Sections here |
 |--------|-----------|---------------|
@@ -64,9 +64,9 @@ $L$-notation:
 
 $$L_N[\alpha, c] = \exp\!\left(c \cdot (\log N)^\alpha \cdot (\log \log N)^{1-\alpha}\right)$$
 
-The table below gives the leading complexity for each algorithm, read from the per-algorithm derivations
-in `docs/MATHEMATICS.md` (§6 for ρ, §7 for GNFS, §9.7 for NFS-DL, §10.6 for algebraic ECDLP,
-§11.3.4 and §11.4.4 for Shor). **Do not recall these constants from memory — read the cited
+The table below gives the leading complexity for each algorithm, read from the per-algorithm
+derivations in `docs/MATHEMATICS.md` (§6 for ρ, §7 for GNFS, §9.7 for NFS-DL, §10.6 for algebraic
+ECDLP, §11.3.4 and §11.4.4 for Shor). **Do not recall these constants from memory — read the cited
 sections.**
 
 | Algorithm | Problem | L-notation complexity | Structure exploited | Notes |
@@ -84,11 +84,11 @@ sections.**
 
 **The quantitative spine of the library.** Reading the table top-to-bottom is the story of the
 project: from the generic $\sqrt{n}$ baseline (Pollard rho, $\alpha = 1$) through the subexponential
-classical attacks (GNFS/NFS-DL at $\alpha = 1/3$; index calculus at $\alpha = 1/2$; MOV bridging ECDLP
-to the $\alpha = 1/3$ regime) through the polynomial-time anomalous-curve attack (SSA, $\alpha = 0$
-classically) to the quantum dissolution of the $L$-notation framework entirely (Shor, $\alpha = 0$
-polynomially). Each step down the $\alpha$ hierarchy is achieved by finding a new kind of
-exploitable structure.
+classical attacks (GNFS/NFS-DL at $\alpha = 1/3$; index calculus at $\alpha = 1/2$; MOV bridging
+ECDLP to the $\alpha = 1/3$ regime) through the polynomial-time anomalous-curve attack (SSA,
+$\alpha = 0$ classically) to the quantum dissolution of the $L$-notation framework entirely (Shor,
+$\alpha = 0$ polynomially). Each step down the $\alpha$ hierarchy is achieved by finding a new kind
+of exploitable structure.
 
 **Scale honesty.** The $L$-notation separations in this table are NOT observable at the toy
 scale of the project's fixtures. The table reports theoretical complexity classes; the toy-scale
@@ -126,8 +126,8 @@ the mathematical development, see `docs/MATHEMATICS.md` §GNFS §3 "The Number-F
 **The code-tour for GNFS and NFS-DL is `gnfs/docs/PEDAGOGY.md` §§1–71.** This section is the
 synthesis chapter; the per-crate tour is the depth.
 
-Both algorithms live in the `gnfs` crate and exploit the same structure: the number-field bridge. The
-integers $\mathbb{Z}$ embed into a number field $K = \mathbb{Q}(\alpha)$, and the norm map
+Both algorithms live in the `gnfs` crate and exploit the same structure: the number-field bridge.
+The integers $\mathbb{Z}$ embed into a number field $K = \mathbb{Q}(\alpha)$, and the norm map
 $N_{K/\mathbb{Q}}$ connects factorisation in $K$ to factorisation in $\mathbb{Z}$. By sieving for
 pairs $(a, b)$ whose norms on both sides are $B$-smooth, collecting enough such *relations*, and
 solving a linear system, both algorithms extract the answer — a factor (GNFS) or a discrete
@@ -148,23 +148,23 @@ special-$q$ sieve that rewrites each target as a combination of factor-base elem
 complexity is $L_p[1/3, (64/9)^{1/3}]$ — the same exponent and constant as GNFS, because the
 descent is asymptotically subdominant (the delta proof is in `docs/MATHEMATICS.md` §9.7).
 
-**The shared substrate threading GNFS and NFS-DL.** Both algorithms consume the α-substrate (smoothness
-detection, ECM for large-prime variations) and the number-field substrate (polynomial arithmetic,
-norm map, ideal factorisation, Dedekind criterion). The `PolyPair` type is the load-bearing
-interface: it carries the polynomial pair $(f, g)$ with the shared-root invariant
+**The shared substrate threading GNFS and NFS-DL.** Both algorithms consume the α-substrate
+(smoothness detection, ECM for large-prime variations) and the number-field substrate (polynomial
+arithmetic, norm map, ideal factorisation, Dedekind criterion). The `PolyPair` type is the
+load-bearing interface: it carries the polynomial pair $(f, g)$ with the shared-root invariant
 $f(m) \equiv 0 \pmod{N}$, and is consumed unchanged by the NFS-DL relation collection.
 
 ### §0.5 Shor's Algorithm
 
-**The code-tour for Shor's algorithm is `shor/docs/PEDAGOGY.md`.** This section is the synthesis chapter;
-the per-crate tour is the depth.
+**The code-tour for Shor's algorithm is `shor/docs/PEDAGOGY.md`.** This section is the synthesis
+chapter; the per-crate tour is the depth.
 
 Shor's algorithm is the fifth and final escape from search: quantum period-finding. Where
-the classical families find algebraic structure that *reduces* the search cost, Shor's algorithm finds a quantum
-period that **dissolves** the $L$-notation bound to polynomial time. The complexity drops from
-$L_N[1/3, (64/9)^{1/3}]$ (GNFS) to $O((\log N)^3)$ (Shor factoring) and from $L_n[1, 1/2]$
-(Pollard rho) to $O((\log r)^3)$ (Shor ECDLP): from subexponential or fully exponential to
-polynomial in the bit-length.
+the classical families find algebraic structure that *reduces* the search cost, Shor's algorithm
+finds a quantum period that **dissolves** the $L$-notation bound to polynomial time. The complexity
+drops from $L_N[1/3, (64/9)^{1/3}]$ (GNFS) to $O((\log N)^3)$ (Shor factoring) and from
+$L_n[1, 1/2]$ (Pollard rho) to $O((\log r)^3)$ (Shor ECDLP): from subexponential or fully
+exponential to polynomial in the bit-length.
 
 Shor's algorithm is organised into three parts (`shor/docs/PEDAGOGY.md` §§1–8):
 
@@ -197,33 +197,33 @@ landscape — see `docs/MATHEMATICS.md` ch. 11.
 
 Three connections thread the five families into one story.
 
-**The MOV bridge (algebraic ECDLP → NFS-DL).** The MOV/Frey–Rück reduction (§10) is the cross-family bridge
-of the library. Given an elliptic curve with small embedding degree $k$ ($\ell \mid p^k - 1$), the
-Weil/Tate pairing $e: E[\ell] \times E[\ell] \to \mu_\ell \subset \mathbb{F}_{p^k}^*$ transports
-the ECDLP to a DLP in $\mathbb{F}_{p^k}^*$, where NFS-DL applies. In code: `mov_reduce`
-evaluates the reduced Tate pairing twice, encodes both outputs via the bridge encoder
-(`fpext_to_bigint`), and calls `gnfs::dl::solve_dl` (the `gnfs` crate's discrete-log entry
-point). The MOV bridge is the one place in the library where two families are directly composed at the code
-level.
+**The MOV bridge (algebraic ECDLP → NFS-DL).** The MOV/Frey–Rück reduction (§10) is the cross-family
+bridge of the library. Given an elliptic curve with small embedding degree $k$
+($\ell \mid p^k - 1$), the Weil/Tate pairing
+$e: E[\ell] \times E[\ell] \to \mu_\ell \subset \mathbb{F}_{p^k}^*$ transports the ECDLP to a DLP in
+$\mathbb{F}_{p^k}^*$, where NFS-DL applies. In code: `mov_reduce` evaluates the reduced Tate pairing
+twice, encodes both outputs via the bridge encoder (`fpext_to_bigint`), and calls
+`gnfs::dl::solve_dl` (the `gnfs` crate's discrete-log entry point). The MOV bridge is the one place
+in the library where two families are directly composed at the code level.
 
-**The shared substrate threading GNFS, NFS-DL, and the algebraic ECDLP attacks.** The α-substrate (smoothness detection, ECM) and
-the number-field substrate (polynomial arithmetic, norm map, ideal factorisation) are consumed by
-all three classical-algebraic families. The index-calculus attack (§§13–14) uses the same
-smoothness-detection infrastructure as GNFS and NFS-DL; the Semaev summation polynomial is the
-ECDLP analogue of the NFS factor base. The substrate is specified once, for all consumers —
-the substrate-over-specifies discipline that runs through the whole project.
+**The shared substrate threading GNFS, NFS-DL, and the algebraic ECDLP attacks.** The α-substrate
+(smoothness detection, ECM) and the number-field substrate (polynomial arithmetic, norm map, ideal
+factorisation) are consumed by all three classical-algebraic families. The index-calculus attack
+(§§13–14) uses the same smoothness-detection infrastructure as GNFS and NFS-DL; the Semaev summation
+polynomial is the ECDLP analogue of the NFS factor base. The substrate is specified once, for all
+consumers — the substrate-over-specifies discipline that runs through the whole project.
 
-**The classical → quantum arc (Pollard rho/GNFS/NFS-DL/algebraic ECDLP → Shor).** The five families form a historical and conceptual
-arc. Pollard rho (1978) established the $\sqrt{n}$ generic bound and the first optimisations
-(distinguished points, negation map, GLV). GNFS (1993) broke the $L[1/2]$ quadratic-sieve barrier
-with the number-field bridge, reaching $L[1/3]$. NFS-DL extended the same structure to discrete
-logarithms. The algebraic ECDLP attacks showed that the $\sqrt{n}$ ECDLP bound breaks
-whenever the curve has exploitable structure — pairing, anomalous order, binary field tower, or
-factor-base decomposability. Shor's algorithm (1994) dissolved the $L$-notation framework
-entirely in the quantum model. The arc is: generic search → subexponential classical → polynomial
-quantum. The quantum chapter is the honest coda: the post-quantum migration landscape (NIST PQC, the
-SIDH/Castryck–Decru break) shows that structure is a double-edged sword — the same structural
-richness that enables escapes also enables attacks on post-quantum candidates.
+**The classical → quantum arc (Pollard rho/GNFS/NFS-DL/algebraic ECDLP → Shor).** The five families
+form a historical and conceptual arc. Pollard rho (1978) established the $\sqrt{n}$ generic bound
+and the first optimisations (distinguished points, negation map, GLV). GNFS (1993) broke the
+$L[1/2]$ quadratic-sieve barrier with the number-field bridge, reaching $L[1/3]$. NFS-DL extended
+the same structure to discrete logarithms. The algebraic ECDLP attacks showed that the $\sqrt{n}$
+ECDLP bound breaks whenever the curve has exploitable structure — pairing, anomalous order, binary
+field tower, or factor-base decomposability. Shor's algorithm (1994) dissolved the $L$-notation
+framework entirely in the quantum model. The arc is: generic search → subexponential classical →
+polynomial quantum. The quantum chapter is the honest coda: the post-quantum migration landscape
+(NIST PQC, the SIDH/Castryck–Decru break) shows that structure is a double-edged sword — the same
+structural richness that enables escapes also enables attacks on post-quantum candidates.
 
 **The honest terminus.** The whole library demonstrates the *mathematics* of each escape at toy
 scale, never at cryptographically relevant scale. The toy fixtures (secp_k1_toy at 63 bits,
@@ -240,7 +240,8 @@ runs through every chapter.
 > argument, Floyd's cycle detection, the group-homomorphism structure that makes rho work on
 > elliptic curves, orbit-collapsing maps, and the $L$-notation bound — see
 > `docs/MATHEMATICS.md §Pollard Rho for ECDLP`. This chapter is the code-tour sibling: it assumes
-> the reader knows the mathematics and focuses on the implementation, one optimisation at a time, in Rust.
+> the reader knows the mathematics and focuses on the implementation, one optimisation at a time, in
+> Rust.
 
 This chapter explains the optimization sequence implemented in the `rho` crate. It is aimed at a
 reader who knows group theory and has seen the discrete logarithm problem before, but is new to the
@@ -277,8 +278,8 @@ b₂ ≠ b₁ mod n). The expected number of steps to collision is O(√n) by th
 ### What this codebase is
 
 This crate implements two Pollard rho variants — integer factorization and ECDLP — with all
-canonical optimizations, built up one optimization at a time. Each stage adds one optimization, delivers a
-runnable artifact, and produces a measurable speedup. The goal is a clean, readable CPU
+canonical optimizations, built up one optimization at a time. Each stage adds one optimization,
+delivers a runnable artifact, and produces a measurable speedup. The goal is a clean, readable CPU
 implementation that a researcher can extend or benchmark. It is not a constant-time cryptographic
 library; these are *attacks on* cryptographic problems, run on toy parameters.
 
@@ -357,9 +358,10 @@ represent a point (X : Y : Z) with affine coordinates (X/Z², Y/Z³), allowing a
 with only multiplications and squarings (no inversions), at the cost of a single inversion when
 converting back to affine.
 
-Two curves are defined: a generic Weierstrass curve over a ~64-bit prime (used for the single-threaded baseline through batched inversion), and
-`secp_k1_toy` — a 63-bit prime-field curve with a = 0 and an explicit order-3 endomorphism (used
-for the GLV endomorphism). The secp_k1_toy curve mirrors the structure of secp256k1 (y² = x³ + 7, j-invariant
+Two curves are defined: a generic Weierstrass curve over a ~64-bit prime (used for the
+single-threaded baseline through batched inversion), and `secp_k1_toy` — a 63-bit prime-field curve
+with a = 0 and an explicit order-3 endomorphism (used for the GLV endomorphism). The secp_k1_toy
+curve mirrors the structure of secp256k1 (y² = x³ + 7, j-invariant
 0) but over a much smaller prime, making it suitable for pedagogical experiments.
 
 **Code reference:** `src/curve/mod.rs` (group law), `src/curve/secp_k1_toy.rs` (GLV curve
@@ -400,8 +402,8 @@ table and starting point.
 **Code reference:** `src/ecdlp/walk.rs::AddendTable`, `src/ecdlp/walk.rs::WalkState::step`,
 `src/ecdlp/mod.rs::solve_brent`.
 
-**Speedup:** O(√n) expected walk steps — this is the theoretical baseline. All subsequent optimizations
-reduce the constant factor.
+**Speedup:** O(√n) expected walk steps — this is the theoretical baseline. All subsequent
+optimizations reduce the constant factor.
 
 ---
 
@@ -465,9 +467,9 @@ breaks the cycle because 2W is generically not in the same {W, −W} pair.
 **Code reference:** `src/ecdlp/negmap.rs::canonical_rep`, `src/ecdlp/negmap.rs::negate_scalars`,
 `src/ecdlp/negmap.rs::FruitlessCycleDetector`, `src/ecdlp/mod.rs::solve_dp_negmap`.
 
-**Speedup:** ~√2 ≈ 1.41× reduction in expected walk steps vs distinguished points alone. The fruitless-cycle
-overhead is small in practice (escapes are rare for a well-mixing walk), so the net speedup is
-close to the theoretical √2.
+**Speedup:** ~√2 ≈ 1.41× reduction in expected walk steps vs distinguished points alone. The
+fruitless-cycle overhead is small in practice (escapes are rare for a well-mixing walk), so the net
+speedup is close to the theoretical √2.
 
 ---
 
@@ -476,10 +478,10 @@ close to the theoretical √2.
 **What it adds:** 2–4× reduction in per-step cost by amortising field inversions across a batch of
 walks.
 
-In the Jacobian walk (the single-threaded baseline), each step requires one field inversion to convert the current point
-to affine coordinates for the partition function. Field inversion is the most expensive field
-operation — typically 50–100× the cost of a multiplication. This cost dominates the per-step
-budget.
+In the Jacobian walk (the single-threaded baseline), each step requires one field inversion to
+convert the current point to affine coordinates for the partition function. Field inversion is the
+most expensive field operation — typically 50–100× the cost of a multiplication. This cost dominates
+the per-step budget.
 
 The key insight is that if B walks are advanced in lock-step, their B inversion denominators can be
 computed together using Montgomery's batched inversion trick: compute the prefix products
@@ -553,16 +555,16 @@ identically to the negation-map walk.
 `src/curve/secp_k1_toy.rs` (curve constants β, λ), `src/ecdlp/mod.rs::solve_dp_glv`.
 
 **Speedup:** ~√3 ≈ 1.73× reduction in expected walk steps vs the negation map alone, or ~√6 ≈
-2.45× vs distinguished points (plain DP walk). The GLV endomorphism is essentially free to evaluate — one
-multiplication by β per orbit member — so the theoretical speedup is nearly fully realised in
+2.45× vs distinguished points (plain DP walk). The GLV endomorphism is essentially free to evaluate
+— one multiplication by β per orbit member — so the theoretical speedup is nearly fully realised in
 practice.
 
 ---
 
 ## 3. Cumulative Speedup Table
 
-The table below summarises the expected speedup of each optimization relative to the previous one and
-relative to the single-threaded Brent baseline. Speedups marked with √ are reductions in
+The table below summarises the expected speedup of each optimization relative to the previous one
+and relative to the single-threaded Brent baseline. Speedups marked with √ are reductions in
 expected walk length (and therefore in expected time, assuming constant per-step cost); the
 batched-inversion speedup is a reduction in per-step cost rather than walk length.
 
@@ -576,32 +578,34 @@ batched-inversion speedup is a reduction in per-step cost rather than walk lengt
 
 Notes:
 
-- The distinguished-points speedup is N (linear in thread count) because each additional walker independently
-  contributes DPs to the collision pool. This is not a constant-factor improvement — it scales with
-  hardware.
-- The negation map and the GLV endomorphism give √2 and √3 reductions in expected walk *length*. These multiply together
-  because they reduce the effective group size independently: the negation map halves it (factor of 2),
-  the GLV endomorphism reduces it by 3 (factor of 3), for a combined factor of 6 and a combined walk-length
-  reduction of √6.
-- Batched inversion reduces per-step *cost* rather than walk length. Its speedup factor (the "B-factor")
-  depends on the ratio of inversion cost to multiplication cost on the target hardware, and on the
-  batch size B. It composes multiplicatively with the walk-length reductions from the negation map and the GLV endomorphism.
+- The distinguished-points speedup is N (linear in thread count) because each additional walker
+  independently contributes DPs to the collision pool. This is not a constant-factor improvement —
+  it scales with hardware.
+- The negation map and the GLV endomorphism give √2 and √3 reductions in expected walk *length*.
+  These multiply together because they reduce the effective group size independently: the negation
+  map halves it (factor of 2), the GLV endomorphism reduces it by 3 (factor of 3), for a combined
+  factor of 6 and a combined walk-length reduction of √6.
+- Batched inversion reduces per-step *cost* rather than walk length. Its speedup factor (the
+  "B-factor") depends on the ratio of inversion cost to multiplication cost on the target hardware,
+  and on the batch size B. It composes multiplicatively with the walk-length reductions from the
+  negation map and the GLV endomorphism.
 
 ---
 
 ## 4. How Speedups Compose
 
-The speedups from distinguished points, the negation map, batched inversion, and the GLV endomorphism
-multiply rather than add because they act on independent
+The speedups from distinguished points, the negation map, batched inversion, and the GLV
+endomorphism multiply rather than add because they act on independent
 axes of the total computation cost.
 
-The total expected work is (expected walk steps) × (cost per step). Distinguished points reduce expected walk
-steps by a factor of N (more walkers means the birthday collision happens sooner in wall time).
-The negation map and the GLV endomorphism each reduce expected walk steps by reducing the effective
-group size: the negation map by a factor of 2, the GLV endomorphism by a factor of 3 (GLV orbit). Because these reductions apply
-to the same quantity — expected walk steps — they multiply: the combined reduction is √(2 · 3) =
-√6. Batched inversion reduces the cost per step by amortising inversions; this multiplies with the walk-step
-reductions because it is a separate factor.
+The total expected work is (expected walk steps) × (cost per step). Distinguished points reduce
+expected walk steps by a factor of N (more walkers means the birthday collision happens sooner in
+wall time). The negation map and the GLV endomorphism each reduce expected walk steps by reducing
+the effective group size: the negation map by a factor of 2, the GLV endomorphism by a factor of 3
+(GLV orbit). Because these reductions apply to the same quantity — expected walk steps — they
+multiply: the combined reduction is √(2 · 3) = √6. Batched inversion reduces the cost per step by
+amortising inversions; this multiplies with the walk-step reductions because it is a separate
+factor.
 
 The practical ceiling is set by the birthday bound itself: no matter how many optimizations are
 applied, the expected number of *collisions* needed is O(1), and each collision requires O(√(n/m))
@@ -660,9 +664,9 @@ cargo bench --bench ecdlp
 ```
 
 This runs the full ECDLP benchmark suite, measuring walk throughput (steps/second) and time-to-
-solution for each solver variant: `solve_brent` (single-threaded baseline), `solve_dp` (distinguished points),
-`solve_dp_negmap` (negation map), `solve_dp_batch` (batched inversion), and `solve_dp_glv` (GLV
-endomorphism). The benchmark output shows
+solution for each solver variant: `solve_brent` (single-threaded baseline), `solve_dp`
+(distinguished points), `solve_dp_negmap` (negation map), `solve_dp_batch` (batched inversion), and
+`solve_dp_glv` (GLV endomorphism). The benchmark output shows
 the cumulative speedup as each optimization is added.
 
 ### CLI: stepping through the optimization layers
@@ -710,12 +714,13 @@ rho-dlog --curve secp-toy --walkers 4 --batch-size 16 --glv --theta 8
 
 4. **Bos, J. W., Kleinjung, T., Niederhagen, R., and Schwabe, P. (2012).** "ECC2K-130 on Cell
    CPUs." *Progress in Cryptology — AFRICACRYPT 2010*, LNCS 6055, 225–242. Introduces the
-   deterministic fruitless-cycle escape (the BKNS doubling perturbation) used in the negation-map walk.
+   deterministic fruitless-cycle escape (the BKNS doubling perturbation) used in the negation-map
+   walk.
 
 5. **Gallant, R. P., Lambert, R. J., and Vanstone, S. A. (2001).** "Faster point multiplication on
    elliptic curves with efficient endomorphisms." *Advances in Cryptology — CRYPTO 2001*, LNCS
-   2139, 190–200. The GLV decomposition; the endomorphism used in the GLV walk is the order-3 special
-   case.
+   2139, 190–200. The GLV decomposition; the endomorphism used in the GLV walk is the order-3
+   special case.
 
 6. **Montgomery, P. L. (1987).** "Speeding the Pollard and elliptic curve methods of
    factorization." *Mathematics of Computation*, 48(177), 243–264. Introduces both the batched-GCD
@@ -777,7 +782,8 @@ calculus applies. SSA finds an *anomalous endomorphism*: the p-adic formal group
 gives a polynomial-time solve. GHS finds a *field tower*: Weil restriction transfers the ECDLP
 to a hyperelliptic Jacobian DLP over $\mathbb{F}_{2^l}$ (a transfer, not an end-to-end solve).
 Index calculus finds *factor-base decomposability*: Semaev summation polynomials build a
-relation matrix whose solution recovers the discrete log.
+relation matrix whose left-kernel combination over $\mathbb{F}_\ell$ recovers the discrete log
+modulo a prime $\ell \mid n$.
 
 ---
 
@@ -1102,15 +1108,15 @@ $$a_i + b_i \cdot x \equiv \sum_j e_{ij} \cdot l_j \pmod{\ell},$$
 
 in the unknown $x = \log_G(Q) \bmod \ell$ and the unknown factor-base logarithms $l_j$. The
 equation holds modulo $\ell$ because $\ell \,\|\, n$: the $\ell$-Sylow subgroup of
-$\langle G\rangle$ is cyclic, generated by $G_\ell = (n/\ell) \cdot G$, so every point's $\ell$-component has a
-logarithm modulo $\ell$. This is an invariant of the fixture (asserted by `toy_fixture_parameters`),
-not something a test proves independently.
+$\langle G\rangle$ is cyclic, generated by $G_\ell = (n/\ell) \cdot G$, so every point's
+$\ell$-component has a logarithm modulo $\ell$. This is an invariant of the fixture (asserted by
+`toy_fixture_parameters`), not something a test proves independently.
 
 The code does not solve for the $l_j$. It computes the *left kernel* of the exponent matrix — the
 vectors $u$ with $\sum_i u_i e_{ij} \equiv 0$ for every $j$ — and any $u$ with
 $u^{\top} b \not\equiv 0$ gives $x \equiv -u^{\top} a \,/\, u^{\top} b$, because the weighted sum of
-the relations has no $l_j$ left in it. The value of $x$ comes only from a relation combination; no candidate logarithm is ever
-tried.
+the relations has no $l_j$ left in it. The value of $x$ comes only from a relation combination; no
+candidate logarithm is ever tried.
 
 **Scale boundary.** Over $E(\mathbb{F}_p)$, index calculus is NOT faster than Pollard rho — the
 asymptotic win requires the extension-field setting $E(\mathbb{F}_{p^n})$ with $n > 1$ (the genuine
@@ -1177,9 +1183,9 @@ The internal structure:
 
 **How the solver draws relations.** `index_calculus_dlp` starts from `fb_size + 1` relations and
 draws a further `fb_size + 1` per round while no kernel vector has $u^{\top} b \not\equiv 0$. The
-relations come from a deterministic `RelationStream` that visits the pairs $(a, b)$ with $a \in [1, n)$,
-$b \in [0, n)$ along the anti-diagonals $a + b = 1, 2, \ldots$. That enumeration bounds how many
-relations exist to be collected; it is not a search over candidate logarithms.
+relations come from a deterministic `RelationStream` that visits the pairs $(a, b)$ with
+$a \in [1, n)$, $b \in [0, n)$ along the anti-diagonals $a + b = 1, 2, \ldots$. That enumeration
+bounds how many relations exist to be collected; it is not a search over candidate logarithms.
 
 **Outcomes.** `index_calculus_dlp` returns `Ok` only after checking that every basis vector with
 $u^{\top} b \not\equiv 0$ gives the same $x$ and that $x \cdot G_\ell = Q_\ell$ by the group law.
@@ -1381,9 +1387,9 @@ before timing. These asserts are a no-regression invariant: every benched attack
 
 - **`docs/MATHEMATICS.md` ch. 10** (algebraic ECDLP attacks) — the maths-first sibling to this
   integrative chapter. Develops the five algebraic ECDLP attacks mathematically:
-  Pohlig–Hellman (§10.1), Smart–Satoh–Araki (§10.2), GHS/Weil descent (§10.3), index calculus (§10.4), and the
-  **MOV/Frey–Rück reduction (§10.5 — the designated payoff proof)**. Carries the per-attack
-  L-notation comparison (§10.6). Cross-references this chapter for the code realisation.
+  Pohlig–Hellman (§10.1), Smart–Satoh–Araki (§10.2), GHS/Weil descent (§10.3), index calculus
+  (§10.4), and the **MOV/Frey–Rück reduction (§10.5 — the designated payoff proof)**. Carries the
+  per-attack L-notation comparison (§10.6). Cross-references this chapter for the code realisation.
 
 - **`docs/MATHEMATICS.md` §Pollard Rho for ECDLP** — the rho baseline this chapter's
   bound-breaking extends. The $\sqrt{n}$ generic bound established there is the baseline all

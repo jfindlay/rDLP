@@ -17,7 +17,8 @@
 //! # Pollard rho baseline
 //!
 //! Pollard rho is already benched in `rho/benches/ecdlp.rs` on `secp_k1_toy` (63-bit).
-//! That bench is the generic-√n baseline column of the cross-attack cost table. It is NOT duplicated here.
+//! That bench is the generic-√n baseline column of the cross-attack cost table. It is NOT
+//! duplicated here.
 //!
 //! # Scale
 //!
@@ -182,7 +183,7 @@ fn bench_ghs_transfer(c: &mut Criterion) {
 /// Bench: index calculus on `IndexCalcStrategy::toy()` (ℓ = 5, |FB| = 6, m = 2).
 ///
 /// Known answer: the solver recovers `k mod ℓ` for Q = 7·G on the semaev_toy curve.
-/// The bench asserts `index_calculus_dlp` returns a solution `x = k` with `k·G_ℓ = Q_ℓ`
+/// The bench asserts `index_calculus_dlp` returns a solution `x = k` with `x·G_ℓ = Q_ℓ`
 /// before timing.
 ///
 /// Relation/decomposition counts are derived from `collect_relations(...).len()` and
@@ -199,7 +200,7 @@ fn bench_index_calculus(c: &mut Criterion) {
     let solution = index_calculus_dlp(g.clone(), q.clone(), &strategy)
         .expect("index calculus pre-check: index_calculus_dlp must recover k");
     let k = solution.x;
-    // Verify k·G_ℓ = Q_ℓ (the subgroup-log correctness check).
+    // Verify x·G_ℓ = Q_ℓ (the subgroup-log correctness check).
     let ell_u64 = strategy.ell.as_words()[0];
     let n_u64 = curve.n.as_words()[0];
     let cofactor = n_u64 / ell_u64;
@@ -208,7 +209,7 @@ fn bench_index_calculus(c: &mut Criterion) {
     let k_g_ell: AffinePoint<FpNaive> = curve.scalar_mul(&g_ell, &Uint::<4>::from(k));
     assert_eq!(
         k_g_ell, q_ell,
-        "index calculus pre-check: k·G_ℓ ≠ Q_ℓ (k = {k})"
+        "index calculus pre-check: x·G_ℓ ≠ Q_ℓ (x = {k})"
     );
 
     // Derive relation and decomposition counts from the public re-exports.

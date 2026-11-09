@@ -1,4 +1,4 @@
-//! Two-register ECDLP period-finding, 2D-lattice discrete-log extraction, and `solve_ecdlp`.
+//! Two-register ECDLP period-finding, dual-lattice discrete-log extraction, and `solve_ecdlp`.
 //!
 //! This module implements Shor's quantum algorithm for the elliptic-curve discrete logarithm
 //! problem (ECDLP) `Q = k·G` on the toy curve, built on the controlled point addition of
@@ -42,7 +42,7 @@
 //! exponent registers. For each controlled-point-add step, the layout's `ctrl_qubit` is set
 //! to the appropriate exponent-register qubit.
 //!
-//! # Classical 2D-lattice discrete-log extraction
+//! # Classical dual-lattice discrete-log extraction
 //!
 //! With `M = 2^EXP_BITS` and `ω = e^{2πi/M}`, the state after the Hadamards and the two
 //! controlled-addition ladders is
@@ -110,7 +110,7 @@ use crate::statevec::StateVec;
 /// Number of bits in each exponent register: `t = ⌈log₂ r⌉ = ⌈log₂ 13⌉ = 4`.
 ///
 /// The two-register circuit needs `t` bits per exponent register to achieve sufficient
-/// phase resolution for the 2D-lattice extraction.
+/// phase resolution for the dual-lattice extraction.
 pub const EXP_BITS: usize = 4;
 
 /// Start qubit of the a-register (little-endian, LSB first).

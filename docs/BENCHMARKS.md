@@ -425,7 +425,8 @@ rows has been re-measured.
 Criterion benchmark exists for the `gnfs` crate. The only per-stage figures in this file are those
 of the earlier sections (polynomial selection through linear algebra) and were measured on
 their own fixtures. The end-to-end KAT bypasses Murphy-E scoring, whose Dickman-ρ table
-construction is the one measured cost in polynomial selection (~30 ms per `score()` call in debug builds), and uses a hand-built polynomial pair.
+construction is the one measured cost in polynomial selection (~30 ms per `score()` call in debug
+builds), and uses a hand-built polynomial pair.
 
 **Science↔engineering note.** The toy semiprime N = 527 is far below the scale
 at which the GNFS complexity $L_N[1/3, (64/9)^{1/3}]$ is meaningful. At toy scale, the
@@ -435,8 +436,9 @@ why the algorithm is subexponential at cryptographic scale.
 
 ### Test coverage added (end-to-end pipeline)
 
-No new tests are added by the integrative writeup (the end-to-end writeup is a code-tour chapter, not a
-new implementation). The pipeline-level verification is provided by the existing end-to-end KAT:
+No new tests are added by the integrative writeup (the end-to-end writeup is a code-tour chapter,
+not a new implementation). The pipeline-level verification is provided by the existing end-to-end
+KAT:
 
 | Test file | Tests | Scope |
 |-----------|-------|-------|
@@ -521,7 +523,7 @@ attacks chapter of the textbook (`docs/MATHEMATICS.md` ch. 10).
 | `rho/benches/attacks.rs` | `attacks/mov_frey_ruck` | MOV/Frey–Rück on `pairing_toy` (ℓ = 3, k = 2); asserts `mov_reduce` returns k = 2 before timing |
 | `rho/benches/attacks.rs` | `attacks/ssa` | SSA on `anomalous_toy` (p = 7, #E = 7); asserts `ssa_solve` returns k = 3 before timing |
 | `rho/benches/attacks.rs` | `attacks/ghs_transfer` | GHS transfer on `ghs_toy_curve` (GF(2^6)); asserts log-preservation holds for k = 1 before timing |
-| `rho/benches/attacks.rs` | `attacks/index_calculus` | Index calculus on `IndexCalcStrategy::toy` (ℓ = 5, \|FB\| = 6); asserts k·G_ℓ = Q_ℓ before timing |
+| `rho/benches/attacks.rs` | `attacks/index_calculus` | Index calculus on `IndexCalcStrategy::toy` (ℓ = 5, \|FB\| = 6); asserts x·G_ℓ = Q_ℓ before timing |
 | `rho/benches/ecdlp.rs` | (existing) | Pollard-rho baseline on `secp_k1_toy` (63-bit); cited as the generic-√n reference column |
 
 ## Shor simulator — State-vector quantum-circuit simulator: dense vs sparse, qubit scaling
