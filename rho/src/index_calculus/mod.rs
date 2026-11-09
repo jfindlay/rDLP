@@ -56,8 +56,8 @@ pub enum IndexCalcError {
     ///
     /// The index-calculus linear algebra requires the relation exponents to live in a
     /// field `Z/ℓℤ`; this requires ℓ to be prime and to divide n. A composite or
-    /// non-dividing ℓ produces a matrix over a ring, not a field, and the block-Lanczos
-    /// engine does not apply.
+    /// non-dividing ℓ produces a matrix over a ring, not a field, and the F_ℓ kernel
+    /// computation (`block_wiedemann_fl`) does not apply.
     InvalidSubgroup {
         /// The subgroup modulus that was rejected.
         ell: u64,

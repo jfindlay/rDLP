@@ -413,9 +413,10 @@ pub fn primary_success_probability(g: Point, q: Point) -> f64 {
 /// Default number of measurement attempts made by [`solve_ecdlp`].
 ///
 /// One measurement yields the correct exponent with probability about 0.64 for every
-/// `k` in `2..r` on the toy curve (exact values: [`primary_success_probability`]; the
+/// `k` in `2..r` on the toy curve (observed values: [`primary_success_probability`]; the
 /// range over `k = 2..=12` is 0.6376–0.6568), so a budget of 8 attempts is exhausted with
-/// probability about `0.36⁸ ≈ 3·10⁻⁴`.
+/// probability about `0.36⁸ ≈ 3·10⁻⁴` (printed by the ignored
+/// `primary_success_probability_positive_all_k`; no test asserts these values).
 pub const DEFAULT_MAX_ATTEMPTS: usize = 8;
 
 /// A verified solution of the ECDLP `Q = k·G`, with the evidence that produced it.

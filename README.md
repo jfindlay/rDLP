@@ -84,8 +84,9 @@ the curve that breaks the generic $\sqrt{n}$ bound:
   group logarithm gives a polynomial-time solve.
 - **GHS/Weil descent** — binary-curve subfield tower: Weil restriction transfers the ECDLP to a
   hyperelliptic Jacobian DLP over $\mathbb{F}_{2^l}$ (a transfer, not an end-to-end solve).
-- **Semaev / index calculus** — factor-base decomposability: Semaev summation polynomials build a
-  relation matrix whose solution recovers the discrete log.
+- **Semaev / index calculus** — factor-base decomposability: Semaev summation polynomials build
+  relations over a factor base, and a left-kernel combination of the relation matrix over
+  $\mathbb{F}_\ell$ recovers the discrete log modulo a prime $\ell \mid n$.
 
 **Code tour:** [`docs/PEDAGOGY.md`](docs/PEDAGOGY.md) §8–18 (the algebraic-attacks
 integrative chapter).

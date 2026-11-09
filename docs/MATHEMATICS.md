@@ -3567,7 +3567,7 @@ for the five attacks. The chapter-pairing is:
 43. **Proos, J., and Zalka, C. (2003).** "Shor's discrete logarithm quantum algorithm for
     elliptic curves." *Quantum Information and Computation*, 3(4), 317–344. [PZ03] The
     two-register hidden-subgroup construction for ECDLP; the qubit-budget analysis for
-    elliptic-curve period finding. Source for §11.3.
+    elliptic-curve period finding. Source for §11.4.
 
 44. **Nielsen, M. A., and Chuang, I. L. (2000).** *Quantum Computation and Quantum Information*.
     Cambridge University Press. [NC00] §5.3 (order-finding and factoring), §5.4 (discrete
@@ -4315,7 +4315,8 @@ post-quantum migration is the engineering response to this mathematical reality.
 mathematics at toy scale (up to 17 qubits for ECDLP with $r = 13$; factoring $N \leq 91$). The
 ~25-qubit simulator ceiling is a resource-scale wall: the dense state-vector simulator holds $2^n$ complex
 amplitudes, and at $n = 25$ this is the practical memory limit on a laptop. The ceiling is not
-a mathematical one — the algorithm is correct at all scales. The quantum speedup (the polynomial
+a mathematical one: the simulator computes the exact state at any size (the ECDLP extraction
+rule is analysed here only at $r = 13$, §11.4.3). The quantum speedup (the polynomial
 vs subexponential separation) is not observable at toy scale; it requires real quantum hardware
 with thousands of fault-tolerant qubits. The migration is *surveyed, not built* — the
 pedagogical terminus of this project, not a new construction track.

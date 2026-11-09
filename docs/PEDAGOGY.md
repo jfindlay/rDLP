@@ -80,7 +80,7 @@ sections.**
 | Index calculus | ECDLP ($E/\mathbb{F}_{p^n}$, $n > 1$) | $L_{p^n}[1/2,\, c]$ (subexponential) | Factor-base decomposability | Asymptotic win requires extension-field setting; toy fixture is $n = 1$ |
 | Pohlig–Hellman | ECDLP (composite order) | $L_{p_{\max}}[1,\, 1/2]$ (largest prime factor) | CRT group-order homomorphism | Reduces to prime-order subgroup DLPs; speedup requires $p_{\max} \ll n$ |
 | Shor (factoring) | Integer factoring | $O((\log N)^3) = L_N[0,\, 3]$ | Quantum period-finding | Polynomial in $\log N$; dissolves the $L$-notation framework entirely |
-| Shor (ECDLP) | ECDLP | $O((\log r)^3) = L_r[0,\, 3]$ | Quantum period-finding (2-register HSP) | Same polynomial collapse; ~768 qubits for secp256k1 |
+| Shor (ECDLP) | ECDLP | $O((\log r)^3) = L_r[0,\, 3]$ (gate count, from the literature [PZ03]) | Quantum period-finding (2-register HSP) | Same polynomial collapse; this project's layout gives 2·256 + 3·256 = 1280 qubits for a 256-bit curve (arithmetic on the layout, not a published estimate; see the ECDLP qubit-layout discussion in docs/MATHEMATICS.md §11.4.4) |
 
 **The quantitative spine of the library.** Reading the table top-to-bottom is the story of the
 project: from the generic $\sqrt{n}$ baseline (Pollard rho, $\alpha = 1$) through the subexponential
@@ -1176,7 +1176,7 @@ The internal structure:
 - `rho::index_calculus::solve` — full pipeline assembler (`index_calculus_dlp`).
 
 **How the solver draws relations.** `index_calculus_dlp` starts from `fb_size + 1` relations and
-asks for `fb_size` more per round while no kernel vector has $u^{\top} b \not\equiv 0$. The
+draws a further `fb_size + 1` per round while no kernel vector has $u^{\top} b \not\equiv 0$. The
 relations come from a deterministic `RelationStream` that visits the pairs $(a, b)$ with $a \in [1, n)$,
 $b \in [0, n)$ along the anti-diagonals $a + b = 1, 2, \ldots$. That enumeration bounds how many
 relations exist to be collected; it is not a search over candidate logarithms.
