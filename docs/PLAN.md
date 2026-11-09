@@ -388,7 +388,7 @@ off its curve.
 
 ### C-DpSignedCollision
 
-Test + prose-enforced. *To be frozen at 3.* Consumed by 12. A distinguished-point collision
+Test + prose-enforced. **Frozen at 3 (6cf11c8).** Consumed by 12. A distinguished-point collision
 requires equal full x; opposite y-parity yields the negated relation and `negated: true`.
 
 ### C-PohligEvidence
@@ -464,13 +464,14 @@ commands, not combined). Run config: no `may-reshard`, no `halt-at-boundaries`.
 Notes: row 1 — `rho/benches/ecdlp.rs` needed no edit (compiles unchanged on `Result`). Commit
 7e48f9b carries a malformed `Co-authored-by: @build <build@opencode.local>` trailer (should be
 `Claude Sonnet 5.5 <noreply+claude-sonnet@anthropic.com>`); history is not rewritten by the chain —
-fix with `@git-editor` after the run. Later commits pass the exact identity string.
+fix with `@git-editor` after the run. Later commits pass the exact identity string. Ledger commit
+ba81676's body is also unwrapped (cosmetic; same `@git-editor` pass).
 
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
 | 1 | Define a verified rho discrete-log outcome and adopt it in Brent rho | done | 7e48f9b | C-DlogOutcome |
 | 2 | Bound the distinguished-point rho solvers and verify their results | done | 1dfe746 | C-DpBudget |
-| 3 | Recover the log from negated distinguished-point collisions | pending | | |
+| 3 | Recover the log from negated distinguished-point collisions | done | 6cf11c8 | C-DpSignedCollision |
 | 4 | Verify Pohlig–Hellman results and name the small-subgroup method | pending | | |
 | 5 | Verify binary-field rho and Koblitz results | pending | | |
 | 6 | Verify MOV results and type its failure classes | pending | | |
@@ -517,8 +518,23 @@ group needs ≈2.7·10⁹ steps (not practically runnable; pre-existing).
 Texture: a build subagent returned with its ~8-minute ignored shor cross-check still running in the
 background; the driver reran it itself (7 passed, 303 s) — expect orphaned long tests on later rows.
 
+### 3 — 2026-11-09
+Discovery/flex: The inferred wrong-answer path is confirmed, not hypothetical: plain `solve_dp` meets
+−P. Seed search (`tiny_a`, Q = 1234·G, one walker, budget 2^20, seeds 0..100) at HEAD before the
+fix: θ=0 → 42 `Inconsistent` / 58 `Ok`; θ=1 → 28 / 72; θ=2 → 18 / 82; no exhaustions. After the
+fix the same seeds give the same `Ok` counts plus exactly those runs as `Ok` with `negated: true`
+(first affected seed 0 in each case). Committed KAT uses θ=2, seed 0. `DpRecord` now holds a
+`DpPoint` (Infinity, or full 4-word x plus y-parity bit); infinity matches only infinity; the
+b1 + b2 ≡ 0 case is dropped as degenerate; `addmod64` widens to u128.
+Affected: C-DpSignedCollision (frozen as implemented); no frozen shape changed.
+Deferred: no — row 12 should describe distinguished-point collisions as keyed by full x with a sign,
+and may cite this seed-search record.
+Texture: `Inconsistent` looked rare before only because at larger θ P/−P pairs are rarer; at low θ
+almost every walker hit is a distinguished point.
+
 ## Discoveries & risks
 
+- **Row 3 (confirmed):** the P/−P defect is real (see digest); fixed in row 3.
 - **Row 1 (internal-continue):** CLI `--curve generic` order `9_223_372_037_218_517_353` is composite
   (7 · 17 · 77_507_328_043_853_087); Brent on it is now `InvalidInput(OrderNotPrime)`. Flagged for
   the user: project G onto the prime-order subgroup or drop `generic`; not an enrolled row.
