@@ -476,7 +476,7 @@ ba81676's body is also unwrapped (cosmetic; same `@git-editor` pass).
 | 2 | Bound the distinguished-point rho solvers and verify their results | done | 1dfe746 | C-DpBudget |
 | 3 | Recover the log from negated distinguished-point collisions | done | 6cf11c8 | C-DpSignedCollision |
 | 4 | Verify Pohlig–Hellman results and name the small-subgroup method | done | 71a72a1 | C-PohligEvidence |
-| 5 | Verify binary-field rho and Koblitz results | pending | | |
+| 5 | Verify binary-field rho and Koblitz results | done | 9293b1e | — |
 | 6 | Verify MOV results and type its failure classes | pending | | |
 | 7 | Separate SSA failure classes and handle zero logs and large primes | pending | | |
 | 8 | Reject off-curve and non-subfield points in the GHS transfer | pending | | |
@@ -553,6 +553,25 @@ Affected: C-PohligEvidence (frozen with the `SubgroupEnumeration` rename).
 Deferred: yes — row 12 must cite Pohlig and Hellman 1978 §IV only for the small-subgroup step, state
 that the large-prime step is rho (not the paper's time–memory step), and fix the nonexistent
 `rho/tests/pohlig_kat.rs` reference (Pohlig tests live in `rho/tests/ecdlp_kat.rs`).
+Texture: none.
+
+### 5 — 2026-11-09
+Discovery/flex: No contract flex; the folded-identity reading of "τ-power and sign" held (no
+`lambda_power`; `negated` always false for binary/Koblitz). Fixture limitation: on the toy Koblitz
+curve every τ-and-negation orbit shares one x-coordinate, so the canonical tie-break always keeps the
+k = 0 member and only λ₀ is ever consulted; the corrupted-eigenvalue KAT therefore corrupts λ₀, and
+τ-powers above 0 are not exercised end to end. Added public surface beyond the plan:
+`verify_binary_log`, `check_binary_order_input` (never emits `OrderNotPrime`),
+`solve_koblitz_with_eigenvalues`, `TAU_EIGENVALUE_MAX_ORDER` (2^20); `compute_tau_eigenvalues` now
+returns `Result<_, DlogError>` (`Unsupported` instead of panicking). Degenerate composite-order
+collisions (gcd(b2−b1, n) > 1) discard the attempt and consume a retry; with gcd = 1 and
+n·G = n·Q = ∞ a failed verification is a genuine fault, never composite-order bad luck. For a target
+outside ⟨G⟩ with n·Q = ∞, baseline binary Brent ends `BudgetExhausted`, the Koblitz fold can end
+`Inconsistent`; no membership check added (no non-cyclic binary fixture). Fixed `sub_mod_n` overflow
+above 2^63 and `inv_mod_n`'s truncating cast; removed duplicated scalar helpers from `koblitz.rs`.
+Affected: none (C-DlogOutcome consumed unchanged).
+Deferred: yes — row 12: do not claim τ-power coverage beyond power 0; document the Koblitz
+targets-outside-⟨G⟩ behaviour only as tested.
 Texture: none.
 
 ## Discoveries & risks
