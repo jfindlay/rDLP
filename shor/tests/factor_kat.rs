@@ -1,4 +1,4 @@
-//! Known-answer tests for Shor's factoring algorithm (C-Factor + C-OrderFind).
+//! Known-answer tests for Shor's factoring algorithm and its order-finding step.
 //!
 //! # What is tested
 //!
@@ -14,11 +14,16 @@
 //!    `r` via the convergents (deterministic classical KAT, no quantum circuit needed).
 //!
 //! 3. **End-to-end factoring** — `factor(15)→{3,5}`, `factor(21)→{3,7}`, `factor(35)→{5,7}`
-//!    with fixed seeds so the run is reproducible.
+//!    with fixed seeds so the run is reproducible. Each asserts the `OrderFinding` evidence
+//!    (base, seed, measured phase, order) and rechecks `a^r ≡ 1` and the gcd step from it.
 //!
 //! 4. **91 ceiling-stress KAT** — `factor(91)→{7,13}`. N=91 uses 14 qubits (exp_len=7,
 //!    work=7), well within the ~25-qubit simulator ceiling. This is the principle-4
 //!    ceiling-stress case: the algorithm is correct; the qubit budget fits.
+//!
+//! 5. **Classification** — primes and `n ≤ 1` are `NotComposite`, even `n` is `Even`, prime powers
+//!    are `PrimePower`, and a circuit beyond the qubit ceiling is `Unsupported`; none of these
+//!    runs a circuit.
 //!
 //! # Qubit budgets (ancilla-free permutation-synthesis implementation)
 //!
@@ -45,32 +50,56 @@
 //!   - Measured s=64 (= 1·256/4): phase 64/256 = 1/4, convergent 1/4, r=4 ✓
 //!   - Measured s=128 (= 2·256/4): phase 128/256 = 1/2, convergent 1/2, r=2 (not order)
 //!     → convergent 1/4 not reached; but 2^2=4≠1, so s=128 gives r=None
+//!   - Measured s=32 (a=7): phase 32/256 = 1/8, denominator 8 satisfies 7^8≡1 but is twice the
+//!     order; the recovered order is reduced to 4
 //!   - Measured s=192 (= 3·256/4): phase 192/256 = 3/4, convergent 3/4, r=4 ✓
 //!
 //! Reference: Shor (1994); Nielsen & Chuang §5.3.
 
 use shor::arith::{mod_pow, n_bits};
-use shor::shor::{convergents, exp_len_for, factor, find_order, gcd, order_from_phase};
+use shor::shor::{
+    convergents, exp_len_for, factor, find_order, gcd, order_from_phase, ShorEvidence,
+    ShorFactorError, MAX_QUBITS,
+};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-/// Assert that `factor(n, seed)` returns a valid factorization `{p, q}` with `p * q = n`.
+/// Least `r > 0` with `a^r ≡ 1 mod n`, by exhaustive scan (`gcd(a, n) = 1`).
+fn brute_force_order(a: u64, n: u64) -> u64 {
+    (1..n).find(|&r| mod_pow(a, r, n) == 1).expect("a is a unit mod n")
+}
+
+/// Assert that `factor(n, seed)` returns `{p, q}` with `p * q = n` and the `OrderFinding`
+/// evidence `(a, evidence seed, s, r)`, then recheck that evidence from its fields alone.
 ///
 /// The returned pair is normalized to `(min, max)` for comparison.
-fn assert_factor(n: u64, seed: u64, expected: (u64, u64), label: &str) {
-    let result = factor(n, seed);
+fn assert_factor(n: u64, seed: u64, expected: (u64, u64), order_run: (u64, u64, u64, u64)) {
+    let found = factor(n, seed)
+        .unwrap_or_else(|e| panic!("factor({n}, seed={seed}) failed: {e:?}; want {expected:?}"));
+    let got = if found.p <= found.q { (found.p, found.q) } else { (found.q, found.p) };
+    assert_eq!(got, expected, "factor({n}, seed={seed})");
+    assert_eq!(found.p * found.q, n, "factor({n}): {} * {} ≠ {n}", found.p, found.q);
+    assert!(found.p > 1 && found.q > 1, "factor({n}): trivial factor in {got:?}");
+
+    let ShorEvidence::OrderFinding { a, seed: run_seed, s, r } = found.evidence else {
+        panic!("factor({n}, seed={seed}): want OrderFinding evidence, got {:?}", found.evidence);
+    };
+    assert_eq!((a, run_seed, s, r), order_run, "factor({n}, seed={seed}) evidence");
+
+    // The recorded phase gives the recorded order, which is the true multiplicative order.
+    assert_eq!(order_from_phase(s, exp_len_for(n), a, n), Some(r), "order from recorded phase");
+    assert_eq!(mod_pow(a, r, n), 1, "{a}^{r} mod {n} ≠ 1");
+    assert_eq!(r, brute_force_order(a, n), "r is not the least exponent for a={a}, n={n}");
+
+    // The gcd step: r even, a^(r/2) ≢ -1, and p is one of gcd(a^(r/2) ∓ 1, n).
+    assert_eq!(r % 2, 0, "order {r} is odd");
+    let half = mod_pow(a, r / 2, n);
+    assert_ne!(half, n - 1, "a^(r/2) ≡ -1 mod {n}");
     assert!(
-        result.is_some(),
-        "{label}: factor({n}, seed={seed}) returned None, expected {expected:?}"
+        found.p == gcd(half - 1, n) || found.p == gcd(half + 1, n),
+        "p={} is neither gcd({half}-1, {n}) nor gcd({half}+1, {n})",
+        found.p
     );
-    let (p, q) = result.unwrap();
-    let got = if p <= q { (p, q) } else { (q, p) };
-    let exp = if expected.0 <= expected.1 { expected } else { (expected.1, expected.0) };
-    assert_eq!(
-        got, exp,
-        "{label}: factor({n}, seed={seed}) = {got:?}, expected {exp:?}"
-    );
-    assert_eq!(p * q, n, "{label}: factor result {p} * {q} ≠ {n}");
 }
 
 
@@ -253,30 +282,36 @@ fn cf_order_from_phase_zero_phase() {
     assert_eq!(r, None, "order_from_phase(0, ...) should be None (uninformative)");
 }
 
-/// order_from_phase: s=32, t=8, a=7, N=15 → r=4.
+/// order_from_phase: s=32, t=8, a=7, N=15 → r=4, not the convergent denominator 8.
 ///
-/// Phase 32/256 = 1/8. Convergents: 0/1, 1/8. Denominator 8 does not satisfy 7^8≡1 mod 15
-/// (since ord₇(15)=4, 7^8≡1 mod 15 too). Actually 7^4≡1 mod 15, so denominator 4 is a
-/// sub-convergent. Let's check: 32/256 = 1/8, convergents: 0/1, 1/8. Denominator 8:
-/// 7^8 = (7^4)^2 ≡ 1^2 = 1 mod 15. So r=8 would be returned... but ord₇(15)=4.
-/// The function returns the SMALLEST denominator d with a^d≡1 mod N, so it returns 4 if
-/// 4 is a convergent denominator. 1/8 has convergents 0/1, 1/8 — denominator 4 is NOT a
-/// convergent of 1/8. So this returns Some(8) (a multiple of the order, still valid).
-/// Actually the spec says "smallest denominator d of a convergent such that a^d ≡ 1 mod N".
-/// For s=32, t=8: convergents of 32/256=1/8 are 0/1, 1/8. Denominator 8: 7^8≡1 mod 15. ✓
+/// Phase 32/256 = 1/8. Convergents: 0/1, 1/8. The only denominator with 7^d ≡ 1 mod 15 is
+/// d = 8, a multiple of ord₇(15) = 4. It is reduced by dividing out the prime 2 while the
+/// identity holds: 7^4 ≡ 1, but 7^2 = 49 ≡ 4, so the order is 4.
 #[test]
 fn cf_order_from_phase_n15_a7_s32() {
-    // Phase 32/256 = 1/8. Convergents: 0/1, 1/8.
-    // 7^8 mod 15 = (7^4)^2 mod 15 = 1^2 = 1. So denominator 8 satisfies the check.
+    assert_eq!(mod_pow(7, 8, 15), 1, "denominator 8 satisfies 7^8 ≡ 1 mod 15");
     let r = order_from_phase(32, 8, 7, 15);
-    assert!(r.is_some(), "order_from_phase(32, 8, 7, 15) should be Some(_)");
-    let r_val = r.unwrap();
-    // r_val must satisfy 7^r_val ≡ 1 mod 15.
-    assert_eq!(
-        mod_pow(7, r_val, 15),
-        1,
-        "7^{r_val} mod 15 should be 1"
-    );
+    assert_eq!(r, Some(4), "order_from_phase(32, 8, 7, 15) should be Some(4), got {r:?}");
+}
+
+/// Whenever `order_from_phase` returns `Some(r)`, `r` is the multiplicative order: every phase
+/// numerator, every base coprime to N, for the four register widths the factoring targets use.
+#[test]
+fn cf_order_from_phase_is_always_the_least_order() {
+    let mut recovered = 0usize;
+    for n in [15u64, 21, 35, 91] {
+        let t = exp_len_for(n);
+        for a in (2..n).filter(|&a| gcd(a, n) == 1) {
+            let order = brute_force_order(a, n);
+            for s in 0..(1u64 << t) {
+                if let Some(r) = order_from_phase(s, t, a, n) {
+                    assert_eq!(r, order, "order_from_phase({s}, {t}, {a}, {n}) = {r}");
+                    recovered += 1;
+                }
+            }
+        }
+    }
+    assert!(recovered > 0, "no phase recovered any order");
 }
 
 /// order_from_phase: s=64, t=8, a=7, N=15 → r=4.
@@ -319,37 +354,35 @@ fn cf_order_from_phase_n21_a2_s27() {
 // ── KAT group 3: end-to-end factoring (quantum circuit + classical post-processing) ──
 //
 // These KATs run the full Shor factoring algorithm end-to-end with fixed seeds.
-// Seeds are chosen to land a successful (even-order, nontrivial-gcd) run.
+// Seeds are chosen to land a successful (even-order, nontrivial-gcd) run on the first circuit
+// run (base a=2, evidence seed = the given seed).
 
 /// factor(15, seed=0) → {3, 5}.
 ///
-/// N=15 = 3×5. Uses 8 qubits (exp_len=4, work=4). Seed 0.
-/// Published factorization: 15 = 3 × 5.
+/// N=15 = 3×5. Uses 8 qubits (exp_len=4, work=4). Seed 0 measures s=4 (phase 4/16 = 1/4) for
+/// a=2, recovering ord₂(15)=4. Then 2^2 = 4 ≢ -1 and gcd(3, 15) = 3. Factor: 15/3 = 5. ✓
 #[test]
 fn factor_15_seed0() {
-    assert_factor(15, 0, (3, 5), "factor(15, seed=0)");
+    assert_factor(15, 0, (3, 5), (2, 0, 4, 4));
 }
 
 /// factor(21, seed=0) → {3, 7}.
 ///
-/// N=21 = 3×7. Uses 10 qubits (exp_len=5, work=5). Seed 0.
-/// Published factorization: 21 = 3 × 7.
+/// N=21 = 3×7. Uses 10 qubits (exp_len=5, work=5). Seed 0 measures s=27 (≈ 5×32/6) for a=2,
+/// recovering ord₂(21)=6. Then 2^3 = 8 ≢ -1 and gcd(7, 21) = 7. Factor: 21/7 = 3. ✓
 #[test]
 fn factor_21_seed0() {
-    assert_factor(21, 0, (3, 7), "factor(21, seed=0)");
+    assert_factor(21, 0, (3, 7), (2, 0, 27, 6));
 }
 
-/// factor(35, seed=8) → {5, 7}.
+/// factor(35, seed=7) → {5, 7}.
 ///
-/// N=35 = 5×7. Uses 12 qubits (exp_len=6, work=6). Seed 8.
-/// Published factorization: 35 = 5 × 7.
-///
-/// Seed 8 is chosen because run_order_finding_circuit(2, layout_35, 8) measures s=2389
-/// (≈ 7×4096/12), which recovers ord₂(35)=12 via continued fractions. Then:
-/// 2^6 = 64 mod 35 = 29 ≠ 34, gcd(28, 35) = 7. Factor: 35/7 = 5. ✓
+/// N=35 = 5×7. Uses 12 qubits (exp_len=6, work=6). Seed 7 measures s=59 (phase 59/64 ≈ 11/12)
+/// for a=2, recovering ord₂(35)=12. Then 2^6 = 64 mod 35 = 29 ≠ 34 and gcd(28, 35) = 7.
+/// Factor: 35/7 = 5. ✓ (Seed 8 does not recover an order on its first run.)
 #[test]
-fn factor_35_seed8() {
-    assert_factor(35, 8, (5, 7), "factor(35, seed=8)");
+fn factor_35_seed7() {
+    assert_factor(35, 7, (5, 7), (2, 7, 59, 12));
 }
 
 // ── KAT group 4: 91 ceiling-stress KAT ───────────────────────────────────────
@@ -395,9 +428,11 @@ fn find_seed_for_91() {
 /// Seed 1 is chosen because run_order_finding_circuit(2, layout_91, 1) measures s=53
 /// (≈ 5×128/12), which recovers ord₂(91)=12 via continued fractions. Then:
 /// 2^6 = 64 mod 91 = 64 ≠ 90, gcd(63, 91) = 7. Factor: 91/7 = 13. ✓
+///
+/// Cost: a 14-qubit circuit simulation, a few seconds in debug.
 #[test]
 fn factor_91_seed1() {
-    assert_factor(91, 1, (7, 13), "factor(91, seed=1)");
+    assert_factor(91, 1, (7, 13), (2, 1, 53, 12));
 }
 
 /// Qubit budget for N=91 is within the ~25-qubit ceiling.
@@ -437,76 +472,103 @@ fn qubit_budgets_all_targets() {
         assert_eq!(layout.work_len, work_len, "N={n}: work_len mismatch");
         assert_eq!(layout.total_qubits(), total, "N={n}: total qubits mismatch");
         assert!(
-            layout.total_qubits() <= 25,
-            "N={n}: {total} qubits exceeds ~25-qubit ceiling"
+            layout.total_qubits() <= MAX_QUBITS,
+            "N={n}: {total} qubits exceeds the {MAX_QUBITS}-qubit ceiling"
         );
     }
 }
 
 // ── Additional robustness KATs ────────────────────────────────────────────────
 
-/// factor(N) returns a valid factorization for all toy targets.
-///
-/// Verifies that the returned factors multiply to N and are nontrivial (1 < p, q < N).
-/// Uses seeds chosen to succeed on the first circuit run (fast in debug mode).
-#[test]
-fn factor_returns_valid_factorization() {
-    // Seeds chosen for fast convergence: each succeeds on the first circuit run.
-    // N=15: seed=0 (fast, 8 qubits)
-    // N=21: seed=0 (fast, 10 qubits)
-    // N=35: seed=8 (s=2389 with exp_len=6, recovers ord₂(35)=12)
-    // N=91: seed=1 (s=53 with exp_len=7, recovers ord₂(91)=12)
-    for (n, seed) in [(15u64, 0u64), (21, 0), (35, 8), (91, 1)] {
-        let result = factor(n, seed);
-        assert!(result.is_some(), "factor({n}, seed={seed}) returned None");
-        let (p, q) = result.unwrap();
-        assert_eq!(p * q, n, "factor({n}): {p} * {q} ≠ {n}");
-        assert!(p > 1 && p < n, "factor({n}): p={p} is trivial");
-        assert!(q > 1 && q < n, "factor({n}): q={q} is trivial");
-    }
-}
-
-/// factor(N) is reproducible: same seed → same result.
+/// factor(N) is reproducible: same seed → same result, evidence included.
 #[test]
 fn factor_reproducible() {
-    // Use seeds that are fast (succeed on first circuit run).
-    for (n, seed) in [(15u64, 0u64), (21, 0), (35, 8)] {
+    for (n, seed) in [(15u64, 0u64), (21, 0), (35, 7)] {
         let r1 = factor(n, seed);
         let r2 = factor(n, seed);
         assert_eq!(r1, r2, "factor({n}, seed={seed}) is not reproducible");
     }
 }
 
-/// Classical short-circuit: factor(N) for even N returns (2, N/2).
+/// Even N is reported as `Even` with p = 2, and no circuit runs.
 #[test]
 fn factor_even_short_circuit() {
-    let result = factor(14, 0);
-    assert_eq!(result, Some((2, 7)), "factor(14) should return (2, 7) via even short-circuit");
-    let result = factor(22, 0);
-    assert_eq!(result, Some((2, 11)), "factor(22) should return (2, 11) via even short-circuit");
+    for (n, q) in [(14u64, 7u64), (22, 11), (4, 2), (4096, 2048)] {
+        let found = factor(n, 0).unwrap_or_else(|e| panic!("factor({n}) failed: {e:?}"));
+        assert_eq!((found.p, found.q), (2, q), "factor({n})");
+        assert_eq!(found.evidence, ShorEvidence::Even, "factor({n})");
+    }
+    // Even beyond the simulator ceiling is still classified without a circuit.
+    let found = factor(u64::MAX - 1, 0).expect("even n of any size");
+    assert_eq!((found.p, found.evidence), (2, ShorEvidence::Even));
 }
 
-/// find_order returns a valid order: a^r ≡ 1 mod N.
+/// Prime N, and N ≤ 1, are `NotComposite`; the primes below the ceiling are rejected before any
+/// circuit runs (a circuit for these would take seconds, so a pass here is fast by construction).
+#[test]
+fn factor_prime_is_not_composite() {
+    for n in [0u64, 1, 2, 3, 5, 13, 97, 4093] {
+        assert_eq!(factor(n, 0), Err(ShorFactorError::NotComposite), "factor({n})");
+    }
+}
+
+/// An odd prime power is `PrimePower` with its base and exponent, without a circuit.
+#[test]
+fn factor_prime_power_short_circuit() {
+    for (n, prime, exponent) in [(9u64, 3u64, 2u32), (27, 3, 3), (125, 5, 3), (3u64.pow(40), 3, 40)]
+    {
+        let found = factor(n, 0).unwrap_or_else(|e| panic!("factor({n}) failed: {e:?}"));
+        assert_eq!((found.p, found.q), (prime, n / prime), "factor({n})");
+        assert_eq!(found.evidence, ShorEvidence::PrimePower { prime, exponent }, "factor({n})");
+        assert_eq!(prime.pow(exponent), n);
+    }
+}
+
+/// A circuit beyond `MAX_QUBITS` is `Unsupported` and reports the qubits it would need.
 ///
-/// Runs find_order for several (a, N) pairs and verifies the returned order is correct.
-/// Seeds are chosen to give informative measurements on the first circuit run.
+/// 4097 = 17 × 241 needs 13 exponent + 13 work qubits = 26 > 25. Odd N that is not a prime power
+/// is rejected before it is tested for primality, so the large prime 1000003 is `Unsupported` too.
+#[test]
+fn factor_beyond_the_simulator_is_unsupported() {
+    assert_eq!(MAX_QUBITS, 25);
+    assert_eq!(factor(4097, 0), Err(ShorFactorError::Unsupported { qubits: 26 }));
+    assert_eq!(factor(1_000_003, 0), Err(ShorFactorError::Unsupported { qubits: 40 }));
+    assert_eq!(factor(u64::MAX, 0), Err(ShorFactorError::Unsupported { qubits: 128 }));
+}
+
+/// find_order returns the least order: a^r ≡ 1 mod N and no smaller exponent does.
+///
+/// Each seed is one whose circuit run recovers an order (measured phase `s` in the comment).
 #[test]
 fn find_order_returns_valid_order() {
-    // (a, N, seed) — seeds chosen to get informative measurements.
-    // seed=8 for N=35: gives s=2389 (≈ 7×64/12) with exp_len=6, recovering ord₂(35)=12.
-    let cases = [(2u64, 15u64, 0u64), (7, 15, 0), (2, 21, 0), (2, 35, 8)];
-    for (a, n, seed) in cases {
-        if let Some(r) = find_order(a, n, seed) {
-            assert!(r > 0, "find_order({a}, {n}): order must be > 0");
-            assert!(r < n, "find_order({a}, {n}): order {r} must be < N={n}");
-            assert_eq!(
-                mod_pow(a, r, n),
-                1,
-                "find_order({a}, {n}): {a}^{r} mod {n} ≠ 1"
-            );
-        }
-        // None is acceptable (uninformative measurement); the factor driver retries.
+    // (a, N, seed, s): s is the phase numerator measured by the circuit with that seed.
+    let cases = [
+        (2u64, 15u64, 0u64, 4u64),
+        (7, 15, 0, 4),
+        (2, 21, 0, 27),
+        (4, 35, 1, 11),
+        (2, 35, 7, 59),
+    ];
+    for (a, n, seed, s) in cases {
+        let r = find_order(a, n, seed)
+            .unwrap_or_else(|| panic!("find_order({a}, {n}, seed={seed}) found no order"));
+        assert_eq!(
+            Some(r),
+            order_from_phase(s, exp_len_for(n), a, n),
+            "find_order({a}, {n}, seed={seed}) disagrees with its measured phase s={s}"
+        );
+        assert_eq!(mod_pow(a, r, n), 1, "find_order({a}, {n}): {a}^{r} mod {n} ≠ 1");
+        assert_eq!(r, brute_force_order(a, n), "find_order({a}, {n}): {r} is not the least order");
     }
+}
+
+/// find_order is `None` for a measurement that carries no usable phase.
+///
+/// Seed 1 measures s=8 (phase 1/2) for a=2 mod 15: the only convergent denominator is 2, and
+/// 2^2 = 4 ≢ 1.
+#[test]
+fn find_order_none_on_uninformative_measurement() {
+    assert_eq!(find_order(2, 15, 1), None);
 }
 
 

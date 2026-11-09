@@ -36,7 +36,10 @@
 //!   `factor(N)` driver. Consumes the modular-exponentiation circuit and the QFT/measure surfaces.
 //!   Implements the complete Shor-factoring algorithm: exponent-register superposition →
 //!   controlled-mod-exp → iQFT → measure → continued-fraction recovery of the order `r` →
-//!   even-order factor extraction via `gcd(a^(r/2) ± 1, N)`.
+//!   even-order factor extraction via `gcd(a^(r/2) ± 1, N)`. `order_from_phase` returns the
+//!   least order, and `factor` returns a verified `p·q = N` with its provenance
+//!   (`ShorEvidence`: even, prime power, or the measured `(a, seed, s, r)`), or a typed
+//!   `ShorFactorError` (not composite, beyond the qubit ceiling, attempts exhausted).
 //!   Factors 15 → {3,5}, 21 → {3,7}, 35 → {5,7}, 91 → {7,13} (the canonical toy targets).
 //! - [`ecdlp`] — Two-register ECDLP period-finding, dual-lattice discrete-log extraction, and
 //!   `solve_ecdlp` driver. Consumes the controlled point-addition circuit ([`ecc`])
