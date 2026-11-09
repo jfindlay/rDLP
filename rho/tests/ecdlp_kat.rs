@@ -28,10 +28,15 @@
 use crypto_bigint::Uint;
 use rho::curve::{AffinePoint, Curve, JacobianPoint};
 use rho::curve::generic::generic_curve;
-use rho::curve::secp_k1_toy::{secp_k1_toy, GX, LAMBDA};
-use rho::curve::test_curves::{composite_toy, tiny_a, tiny_b, COMPOSITE_TOY_N, TINY_A_N, TINY_B_N};
+use rho::curve::secp_k1_toy::{secp_k1_toy, GX, LAMBDA, N as SECP_N};
+use rho::curve::test_curves::{
+    composite_toy, tiny_a, tiny_b, tiny_glv, COMPOSITE_TOY_N, TINY_A_N, TINY_B_N, TINY_GLV_N,
+};
 use rho::ecdlp::pohlig::solve_ecdlp_composite;
-use rho::ecdlp::{solve_brent, verify_log, DlogError, InputDefect, RhoEvidence};
+use rho::ecdlp::{
+    solve_brent, solve_dp, solve_dp_batch, solve_dp_glv, solve_dp_negmap, verify_log, DlogError,
+    DlogSolution, InputDefect, RhoEvidence,
+};
 use shared_field::{Fp, FpMonty4 as FpMonty};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -402,6 +407,135 @@ fn brent_rejects_off_curve_generator() {
         solve_brent(&curve, &bad, &q, TINY_A_N, 0, 30),
         Err(DlogError::InvalidInput(InputDefect::GeneratorNotOnCurve))
     );
+}
+
+// ── distinguished-point solver KATs ──────────────────────────────────────────
+//
+// The four distinguished-point solvers share Brent's outcome types, take a total walk-step
+// budget, and verify before returning. The walkers race, so these assert the collision identity
+// and not whole-evidence equality.
+
+/// Step budget for fixed-seed success runs on the 20-bit curves. A collision there takes on the
+/// order of 10³–10⁴ steps, so this leaves about three orders of magnitude of headroom.
+const DP_BUDGET: u64 = 1 << 24;
+
+/// Run every solver variant that can finish on a 20-bit curve and return its label and result.
+fn run_dp_variants(
+    curve: &rho::curve::Curve,
+    g: &AffinePoint<FpMonty>,
+    q: &AffinePoint<FpMonty>,
+    n: u64,
+    seed: u64,
+    budget: u64,
+) -> Vec<(&'static str, Result<DlogSolution<RhoEvidence>, DlogError>)> {
+    vec![
+        ("solve_dp/1", solve_dp(curve, g, q, n, 1, 4, seed, budget)),
+        ("solve_dp/2", solve_dp(curve, g, q, n, 2, 4, seed, budget)),
+        ("solve_dp_negmap/2", solve_dp_negmap(curve, g, q, n, 2, 4, seed, budget)),
+        ("solve_dp_batch/2x4", solve_dp_batch(curve, g, q, n, 2, 4, 4, seed, budget)),
+    ]
+}
+
+/// Fixed-seed runs on both 20-bit curves return collision evidence whose identity holds, the
+/// documented single-run attempt index and sign, and a `k` that verifies.
+#[test]
+fn dp_collision_evidence_is_rechecked() {
+    for (curve, n, tag) in [(tiny_a(), TINY_A_N, "tiny_a"), (tiny_b(), TINY_B_N, "tiny_b")] {
+        let g: AffinePoint<FpMonty> = curve.generator();
+        let q = curve.scalar_mul(&g, &Uint::<4>::from(1234u64));
+
+        for (variant, result) in run_dp_variants(&curve, &g, &q, n, 0xD15C_0001, DP_BUDGET) {
+            let label = format!("{tag} {variant}");
+            let solution = result.unwrap_or_else(|e| panic!("{label}: {e:?}"));
+            assert_collision_identity(&curve, &g, &q, &solution.evidence, &label);
+            assert!(verify_log(&curve, &g, &q, solution.k), "{label}: k fails verify_log");
+            let RhoEvidence::Collision { attempt, negated, steps, .. } = solution.evidence else {
+                unreachable!("assert_collision_identity accepted non-collision evidence");
+            };
+            assert_eq!((attempt, negated), (0, false), "{label}");
+            assert!(steps <= DP_BUDGET, "{label}: evidence steps exceed the budget");
+        }
+    }
+}
+
+/// A budget far below a collision's cost ends every variant as budget exhaustion, with the whole
+/// budget spent (the batch variant spends whole batches: 10 steps allow two batches of 4).
+#[test]
+fn dp_tiny_budget_is_budget_exhausted() {
+    let curve = tiny_a();
+    let g: AffinePoint<FpMonty> = curve.generator();
+    let q = curve.scalar_mul(&g, &Uint::<4>::from(77u64));
+
+    for (variant, result) in run_dp_variants(&curve, &g, &q, TINY_A_N, 1, 10) {
+        let steps = if variant.starts_with("solve_dp_batch") { 8 } else { 10 };
+        assert_eq!(
+            result,
+            Err(DlogError::BudgetExhausted { attempts: 1, steps }),
+            "{variant}"
+        );
+    }
+}
+
+/// The GLV solver on its own curve gets a real search: a tiny budget is exhausted, spent in whole
+/// batches. (A full solve on the 62-bit group is far beyond a test's cost.)
+#[test]
+fn dp_glv_tiny_budget_is_budget_exhausted() {
+    let curve = secp_k1_toy();
+    let g: AffinePoint<FpMonty> = curve.generator();
+    let q = curve.scalar_mul(&g, &Uint::<4>::from(12_345u64));
+
+    assert_eq!(
+        solve_dp_glv(&curve, &g, &q, SECP_N, 2, 4, 8, 0, 64),
+        Err(DlogError::BudgetExhausted { attempts: 1, steps: 64 })
+    );
+}
+
+/// The GLV solver recognises its curve by parameters: other curves, including the same equation
+/// over another prime, and the right curve with a different claimed order, are unsupported.
+#[test]
+fn dp_glv_is_unsupported_off_its_curve() {
+    for (curve, n) in [(tiny_a(), TINY_A_N), (tiny_glv(), TINY_GLV_N)] {
+        let g: AffinePoint<FpMonty> = curve.generator();
+        let q = curve.scalar_mul(&g, &Uint::<4>::from(7u64));
+        assert!(
+            matches!(
+                solve_dp_glv(&curve, &g, &q, n, 2, 4, 2, 0, DP_BUDGET),
+                Err(DlogError::Unsupported(_))
+            ),
+            "n = {n}"
+        );
+    }
+
+    let curve = secp_k1_toy();
+    let g: AffinePoint<FpMonty> = curve.generator();
+    let q = curve.scalar_mul(&g, &Uint::<4>::from(7u64));
+    assert!(matches!(
+        solve_dp_glv(&curve, &g, &q, SECP_N - 2, 2, 4, 2, 0, DP_BUDGET),
+        Err(DlogError::Unsupported(_))
+    ));
+}
+
+/// Trivial targets and malformed instances are decided before any walker starts, by every variant.
+#[test]
+fn dp_trivial_and_invalid_inputs_are_decided_without_a_walk() {
+    let curve = tiny_a();
+    let g: AffinePoint<FpMonty> = curve.generator();
+    let q = curve.scalar_mul(&g, &Uint::<4>::from(7u64));
+
+    for (target, k) in [(AffinePoint::Infinity, 0u64), (g.clone(), 1)] {
+        for (variant, result) in run_dp_variants(&curve, &g, &target, TINY_A_N, 0, 0) {
+            let solution = result.unwrap_or_else(|e| panic!("{variant}: {e:?}"));
+            assert_eq!((solution.k, solution.evidence), (k, RhoEvidence::Trivial), "{variant}");
+        }
+    }
+
+    for (variant, result) in run_dp_variants(&curve, &g, &q, TINY_A_N + 1, 0, DP_BUDGET) {
+        assert_eq!(
+            result,
+            Err(DlogError::InvalidInput(InputDefect::OrderNotPrime)),
+            "{variant}"
+        );
+    }
 }
 
 // ── tiny_a KATs ───────────────────────────────────────────────────────────────

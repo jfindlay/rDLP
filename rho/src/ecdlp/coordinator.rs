@@ -13,10 +13,34 @@
 //!
 //! A degenerate collision (`b₁ = b₂ mod n`) cannot yield `k`; the coordinator
 //! discards it and waits for the next collision.
+//!
+//! The coordinator reports the colliding scalars together with the candidate `k`
+//! they imply, as a [`DpCollision`]; it never certifies `k`.  The caller checks
+//! `k·G = Q` before trusting it.
 
 use std::collections::HashMap;
 
 use crate::ecdlp::dp::DpRecord;
+
+// ── Collision evidence ───────────────────────────────────────────────────────
+
+/// Two distinguished points that coincide, with the logarithm they imply.
+///
+/// Invariant: `a1·G + b1·Q = a2·G + b2·Q`, with `b1 ≠ b2 (mod n)`.  `k` is the
+/// candidate `(a1 − a2) / (b2 − b1) mod n`; it is unverified.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DpCollision {
+    /// Candidate logarithm implied by the collision (unverified).
+    pub k: u64,
+    /// Scalar of `G` in the stored (first) record.
+    pub a1: u64,
+    /// Scalar of `Q` in the stored (first) record.
+    pub b1: u64,
+    /// Scalar of `G` in the incoming (second) record.
+    pub a2: u64,
+    /// Scalar of `Q` in the incoming (second) record.
+    pub b2: u64,
+}
 
 // ── Coordinator ───────────────────────────────────────────────────────────────
 
@@ -37,10 +61,10 @@ impl Coordinator {
         Coordinator { table: HashMap::new(), n }
     }
 
-    /// Insert a distinguished point and attempt to recover `k` on collision.
+    /// Insert a distinguished point and report a usable collision with a stored one.
     ///
-    /// Returns `Some(k)` if the incoming record collides with a stored one and
-    /// `k` is recoverable (i.e., the `b` coefficients differ mod `n`).
+    /// Returns `Some(collision)` if the incoming record collides with a stored one and
+    /// the `b` coefficients differ mod `n`, so a candidate `k` exists.
     ///
     /// A *collision* is two records with the same `x_low` but different `(a, b)`
     /// pairs.  Records from the same walker (same `walk_id`) with the same `x_low`
@@ -50,7 +74,7 @@ impl Coordinator {
     /// # Arguments
     ///
     /// * `dp` — the incoming distinguished-point record.
-    pub fn insert(&mut self, dp: DpRecord) -> Option<u64> {
+    pub fn insert(&mut self, dp: DpRecord) -> Option<DpCollision> {
         use std::collections::hash_map::Entry;
 
         match self.table.entry(dp.x_low) {
@@ -77,7 +101,8 @@ impl Coordinator {
                 let b2 = dp.b;
 
                 // k = (a1 - a2) / (b2 - b1) mod n
-                recover_k(a1, b1, a2, b2, self.n)
+                let k = recover_k(a1, b1, a2, b2, self.n)?;
+                Some(DpCollision { k, a1, b1, a2, b2 })
             }
         }
     }
@@ -116,7 +141,8 @@ fn mulmod64(a: u64, b: u64, n: u64) -> u64 {
 
 #[inline]
 fn submod64(a: u64, b: u64, n: u64) -> u64 {
-    if a >= b { a - b } else { a + n - b }
+    // `n - (b - a)` rather than `a + n - b`: the sum `a + n` overflows u64 when n > 2^63.
+    if a >= b { a - b } else { n - (b - a) }
 }
 
 /// Modular inverse via Fermat's little theorem: `a^(n-2) mod n`.
@@ -174,12 +200,46 @@ mod tests {
         let dp2 = DpRecord { x_low: 0xABCD, a: a2, b: b2, walk_id: 1 };
 
         assert!(coord.insert(dp1).is_none(), "first insert should not collide");
-        let k = coord.insert(dp2).expect("second insert should collide");
-        assert_eq!(k, k_expected, "recovered k mismatch");
+        let collision = coord.insert(dp2).expect("second insert should collide");
+        assert_eq!(collision.k, k_expected, "recovered k mismatch");
+        // The evidence carries the colliding scalars in insertion order.
+        assert_eq!(
+            (collision.a1, collision.b1, collision.a2, collision.b2),
+            (a1, b1, a2, b2)
+        );
+    }
+
+    /// The recovery arithmetic does not overflow for a modulus above 2^63.
+    #[test]
+    fn collision_recovers_k_for_modulus_above_two_pow_63() {
+        // 2^64 − 59 is the largest prime below 2^64.
+        let n = u64::MAX - 58;
+        let mut coord = Coordinator::new(n);
+        let k_expected: u64 = n - 5;
+        let (a1, b1, b2) = (3u64, n - 2, 4u64);
+        // a2 = a1 − k·(b2 − b1) mod n, so that a1 + k·b1 = a2 + k·b2.
+        let db = submod64(b2, b1, n);
+        let a2 = submod64(a1, mulmod64(k_expected, db, n), n);
+
+        coord.insert(DpRecord { x_low: 0x1, a: a1, b: b1, walk_id: 0 });
+        let collision = coord
+            .insert(DpRecord { x_low: 0x1, a: a2, b: b2, walk_id: 1 })
+            .expect("collision");
+        assert_eq!(collision.k, k_expected);
+    }
+
+    /// `submod64` does not overflow when `a + n` exceeds `u64::MAX`.
+    #[test]
+    fn submod64_handles_moduli_above_two_pow_63() {
+        let n = u64::MAX - 58;
+        assert_eq!(submod64(n - 2, n - 1, n), n - 1);
+        assert_eq!(submod64(0, n - 1, n), 1);
+        assert_eq!(submod64(5, 3, n), 2);
+        assert_eq!(submod64(3, 3, n), 0);
     }
 
     #[test]
-    fn degenerate_collision_returns_none() {
+    fn degenerate_collision_is_not_reported() {
         // b1 = b2 mod N → no k can be recovered.
         let mut coord = Coordinator::new(N);
         let dp1 = DpRecord { x_low: 0x200, a: 5, b: 3, walk_id: 0 };

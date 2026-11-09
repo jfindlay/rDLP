@@ -23,12 +23,14 @@
 //!
 //! Pass `--walkers N` (N ≥ 1) to use the distinguished-point parallel solver
 //! ([`rho::ecdlp::solve_dp`]) instead of the single-threaded Brent solver.
-//! `--theta T` controls the DP threshold (default: 10).
+//! `--theta T` controls the DP threshold (default: 10).  `--max-steps S` caps the total walk
+//! steps across all walkers (default: derived from the group order, walkers and threshold).
 //!
 //! # GLV mode
 //!
 //! Pass `--glv` to enable the GLV endomorphism solver (`solve_dp_glv`).
-//! Requires `--walkers > 0` and `--curve secp-toy`.  The GLV endomorphism
+//! Requires `--walkers > 0` and `--curve secp-toy` (any other curve is reported as
+//! unsupported by the solver).  The GLV endomorphism
 //! collapses the 6-orbit `{W, φ(W), φ²(W), −W, −φ(W), −φ²(W)}` to a single
 //! canonical representative, giving a √3 speedup vs the negation-map-only walk.
 
@@ -98,6 +100,14 @@ struct Args {
     /// Supersedes `--negmap` and `--batch-size` when set.
     #[arg(long, default_value_t = false)]
     glv: bool,
+
+    /// Total walk steps the distinguished-point solvers may take across all walkers.
+    ///
+    /// Only used when `--walkers > 0`.  Default: `64·√n` plus a start-up allowance of
+    /// `64·walkers·batch·2^theta`.  Reaching it ends the run as budget exhaustion, which
+    /// proves nothing about the answer.
+    #[arg(long)]
+    max_steps: Option<u64>,
 }
 
 /// Parse a `"x,y"` string into two `u64` values.
@@ -173,66 +183,54 @@ fn main() {
     //   --batch-size>1 → solve_dp_batch (batched inversion)
     //   --negmap       → solve_dp_negmap (negation map)
     //   (default)      → solve_dp (distinguished-point search)
-    if args.walkers == 0 {
-        // The Brent solver verifies `k·G == Q` itself, so no re-check here.
-        match solve_brent(&curve, &g, &q, n, args.seed, args.retries) {
-            Ok(solution) => {
-                println!("k = {}", solution.k);
-                println!("verified: k·G = Q  ✓");
-            }
-            Err(e) => {
-                eprintln!("rho-dlog: {}", describe_error(&e));
-                std::process::exit(1);
-            }
-        }
-        return;
-    }
-
-    let result = if args.glv {
-        if args.curve != "secp-toy" {
-            eprintln!("rho-dlog: --glv requires --curve secp-toy");
-            std::process::exit(1);
-        }
+    // Every solver verifies `k·G == Q` itself, so there is no re-check here.
+    // The step budget for a given number of walks per thread.
+    let max_steps = |batch: usize| {
+        args.max_steps
+            .unwrap_or_else(|| default_max_steps(n, args.walkers, batch, args.theta))
+    };
+    let (walkers, theta, seed) = (args.walkers, args.theta, args.seed);
+    let result = if args.walkers == 0 {
+        solve_brent(&curve, &g, &q, n, seed, args.retries)
+    } else if args.glv {
+        // The solver reports `Unsupported` itself when the curve is not the GLV curve.
         let batch = if args.batch_size > 1 { args.batch_size } else { 16 };
-        solve_dp_glv(&curve, &g, &q, n, args.walkers, batch, args.theta, args.seed)
+        solve_dp_glv(&curve, &g, &q, n, walkers, batch, theta, seed, max_steps(batch))
     } else if args.batch_size > 1 {
-        solve_dp_batch(&curve, &g, &q, n, args.walkers, args.batch_size, args.theta, args.seed)
+        let batch = args.batch_size;
+        solve_dp_batch(&curve, &g, &q, n, walkers, batch, theta, seed, max_steps(batch))
     } else if args.negmap {
-        solve_dp_negmap(&curve, &g, &q, n, args.walkers, args.theta, args.seed)
+        solve_dp_negmap(&curve, &g, &q, n, walkers, theta, seed, max_steps(1))
     } else {
-        solve_dp(&curve, &g, &q, n, args.walkers, args.theta, args.seed)
+        solve_dp(&curve, &g, &q, n, walkers, theta, seed, max_steps(1))
     };
 
-    // The distinguished-point solvers return an unverified `Option`, so re-check here.
     match result {
-        Some(k) => {
-            println!("k = {k}");
-            // Verify by computing k·G and comparing to Q.
-            let check = curve.scalar_mul(&g, &Uint::<4>::from(k));
-            if check == q {
-                println!("verified: k·G = Q  ✓");
-            } else {
-                eprintln!("rho-dlog: WARNING: k·G ≠ Q (solver bug?)");
-                std::process::exit(1);
-            }
+        Ok(solution) => {
+            println!("k = {}", solution.k);
+            println!("verified: k·G = Q  ✓");
         }
-        None => {
-            let variant = if args.glv {
-                "glv"
-            } else if args.batch_size > 1 {
-                "batch"
-            } else if args.negmap {
-                "negmap"
-            } else {
-                "plain"
-            };
-            eprintln!("rho-dlog: failed to solve DLP (parallel DP {variant} solver gave up)");
+        Err(e) => {
+            eprintln!("rho-dlog: {}", describe_error(&e));
             std::process::exit(1);
         }
     }
 }
 
-/// One line describing a Brent solver failure, distinct for every error class.
+/// Default total walk-step budget of the distinguished-point solvers.
+///
+/// A collision takes about `1.25·√n` steps on average, and the chance of needing `c` times that
+/// falls off like `exp(−c²/2)`; `64·√n` is far past any realistic run. The second term covers
+/// the start-up cost: every walk (`walkers × batch` of them) needs about `2^theta` steps before
+/// it can emit its first distinguished point.
+fn default_max_steps(n: u64, walkers: usize, batch: usize, theta: u32) -> u64 {
+    let collision = n.isqrt().saturating_add(1).saturating_mul(64);
+    let walks = (walkers as u64).saturating_mul(batch as u64);
+    let startup = walks.saturating_mul(1u64 << theta.min(40)).saturating_mul(64);
+    collision.saturating_add(startup)
+}
+
+/// One line describing a solver failure, distinct for every error class.
 fn describe_error(e: &DlogError) -> String {
     match e {
         DlogError::InvalidInput(defect) => {
@@ -251,7 +249,7 @@ fn describe_error(e: &DlogError) -> String {
         }
         DlogError::Unsupported(what) => format!("unsupported: {what}"),
         DlogError::BudgetExhausted { attempts, steps } => format!(
-            "retry budget exhausted after {attempts} attempts and {steps} steps \
+            "budget exhausted after {attempts} attempts and {steps} walk steps \
              (no answer found; this does not show that none exists)"
         ),
         DlogError::Inconsistent { k } => {

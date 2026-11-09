@@ -37,6 +37,11 @@ const K_TARGET: u64 = 12_345_678_901;
 /// DP threshold: 1-in-256 points are distinguished.
 const THETA: u32 = 8;
 
+/// Total walk-step budget for the distinguished-point solvers. It is a safety cap, not a tuning
+/// knob: a collision in the full `secp_k1_toy` group takes about `1.25·√n ≈ 2.7·10⁹` steps, so
+/// `2^40 ≈ 1.1·10¹²` is a few hundred times that and never ends a healthy run.
+const MAX_STEPS: u64 = 1 << 40;
+
 /// RNG seed (fixed for reproducibility across runs).
 const SEED: u64 = 0x0123_4567_89AB_CDEF;
 
@@ -76,7 +81,7 @@ fn bench_solve_dp(c: &mut Criterion) {
             &num_walkers,
             |b, &w| {
                 b.iter(|| {
-                    solve_dp(&curve, &g, &q, SECP_N, w, THETA, SEED)
+                    solve_dp(&curve, &g, &q, SECP_N, w, THETA, SEED, MAX_STEPS)
                         .expect("solve_dp failed")
                 });
             },
@@ -100,7 +105,7 @@ fn bench_negmap_vs_dp(c: &mut Criterion) {
     // Plain distinguished-point search with 2 walkers (baseline).
     group.bench_function("solve_dp/walkers=2", |b| {
         b.iter(|| {
-            solve_dp(&curve, &g, &q, SECP_N, 2, THETA, SEED)
+            solve_dp(&curve, &g, &q, SECP_N, 2, THETA, SEED, MAX_STEPS)
                 .expect("solve_dp failed")
         });
     });
@@ -108,7 +113,7 @@ fn bench_negmap_vs_dp(c: &mut Criterion) {
     // DP + negation-map optimization with 2 walkers.
     group.bench_function("solve_dp_negmap/walkers=2", |b| {
         b.iter(|| {
-            solve_dp_negmap(&curve, &g, &q, SECP_N, 2, THETA, SEED)
+            solve_dp_negmap(&curve, &g, &q, SECP_N, 2, THETA, SEED, MAX_STEPS)
                 .expect("solve_dp_negmap failed")
         });
     });
@@ -133,7 +138,7 @@ fn bench_batch_vs_negmap(c: &mut Criterion) {
     // Negation-map baseline: negmap with 2 walkers.
     group.bench_function("solve_dp_negmap/walkers=2", |b| {
         b.iter(|| {
-            solve_dp_negmap(&curve, &g, &q, SECP_N, 2, THETA, SEED)
+            solve_dp_negmap(&curve, &g, &q, SECP_N, 2, THETA, SEED, MAX_STEPS)
                 .expect("solve_dp_negmap failed")
         });
     });
@@ -141,7 +146,7 @@ fn bench_batch_vs_negmap(c: &mut Criterion) {
     // Batched-inversion optimization with 2 walkers, batch_size=16.
     group.bench_function("solve_dp_batch/walkers=2/batch=16", |b| {
         b.iter(|| {
-            solve_dp_batch(&curve, &g, &q, SECP_N, 2, 16, THETA, SEED)
+            solve_dp_batch(&curve, &g, &q, SECP_N, 2, 16, THETA, SEED, MAX_STEPS)
                 .expect("solve_dp_batch failed")
         });
     });
@@ -167,7 +172,7 @@ fn bench_glv_vs_batch(c: &mut Criterion) {
     // Negation-map baseline with 2 walkers.
     group.bench_function("solve_dp_negmap/walkers=2", |b| {
         b.iter(|| {
-            solve_dp_negmap(&curve, &g, &q, SECP_N, 2, THETA, SEED)
+            solve_dp_negmap(&curve, &g, &q, SECP_N, 2, THETA, SEED, MAX_STEPS)
                 .expect("solve_dp_negmap failed")
         });
     });
@@ -175,7 +180,7 @@ fn bench_glv_vs_batch(c: &mut Criterion) {
     // Batched-inversion optimization with 2 walkers, batch_size=16.
     group.bench_function("solve_dp_batch/walkers=2/batch=16", |b| {
         b.iter(|| {
-            solve_dp_batch(&curve, &g, &q, SECP_N, 2, 16, THETA, SEED)
+            solve_dp_batch(&curve, &g, &q, SECP_N, 2, 16, THETA, SEED, MAX_STEPS)
                 .expect("solve_dp_batch failed")
         });
     });
@@ -183,7 +188,7 @@ fn bench_glv_vs_batch(c: &mut Criterion) {
     // GLV endomorphism optimization with 2 walkers, batch_size=16.
     group.bench_function("solve_dp_glv/walkers=2/batch=16", |b| {
         b.iter(|| {
-            solve_dp_glv(&curve, &g, &q, SECP_N, 2, 16, THETA, SEED)
+            solve_dp_glv(&curve, &g, &q, SECP_N, 2, 16, THETA, SEED, MAX_STEPS)
                 .expect("solve_dp_glv failed")
         });
     });

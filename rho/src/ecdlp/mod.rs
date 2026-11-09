@@ -25,7 +25,11 @@
 //! each running an r-adding walk and emitting a [`dp::DpRecord`] whenever the
 //! walk lands on a distinguished point (low `theta` bits of x-coordinate are
 //! zero).  A coordinator on the calling thread collects DPs via a channel and
-//! detects collisions that allow `k` to be recovered.
+//! detects collisions that allow `k` to be recovered. The four distinguished-point solvers share
+//! one total step budget (`max_steps`) that every walker claims from, so no input can make them
+//! run unboundedly; each validates the instance, verifies the `k` a collision implies, and
+//! returns the same [`DlogSolution`] / [`DlogError`] as [`solve_brent`]. A walker panic or a lost
+//! channel is reported as [`DlogError::InvariantFailure`].
 
 pub mod coordinator;
 pub mod dp;
@@ -39,8 +43,7 @@ pub use outcome::{
     check_prime_order_input, verify_log, DlogError, DlogSolution, InputDefect, RhoEvidence,
 };
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crossbeam_channel::{bounded, Receiver, Sender};
 use rand::SeedableRng;
@@ -49,7 +52,7 @@ use rand_chacha::ChaCha20Rng;
 use shared_field::Fp;
 
 use crate::curve::{AffinePoint, Curve, JacobianPoint};
-use coordinator::Coordinator;
+use coordinator::{Coordinator, DpCollision};
 use dp::{DpRecord, is_distinguished};
 use glv::glv_canonical;
 use negmap::{FruitlessCycleDetector, canonical_rep, negate_scalars};
@@ -280,18 +283,224 @@ pub fn solve_brent<F: Fp<4>>(
     Err(DlogError::BudgetExhausted { attempts: max_retries, steps })
 }
 
+// ── Distinguished-point search machinery ─────────────────────────────────────
+
+/// Total walk-step budget shared by every walker of one search.
+///
+/// Walkers claim steps before taking them, so the steps taken across all walkers never exceed
+/// `limit`, whatever the input.
+struct StepBudget {
+    limit: u64,
+    used: AtomicU64,
+}
+
+impl StepBudget {
+    fn new(limit: u64) -> Self {
+        Self { limit, used: AtomicU64::new(0) }
+    }
+
+    /// Claim `count` steps; `false` (claiming nothing) when they would pass the limit.
+    fn try_take(&self, count: u64) -> bool {
+        self.used
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+                used.checked_add(count).filter(|total| *total <= self.limit)
+            })
+            .is_ok()
+    }
+
+    /// Steps claimed so far.
+    fn used(&self) -> u64 {
+        self.used.load(Ordering::Relaxed)
+    }
+}
+
+/// Why a walker thread returned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WalkerExit {
+    /// The coordinator asked the walkers to stop.
+    Stopped,
+    /// The shared step budget has no room for another step.
+    BudgetSpent,
+    /// The coordinator's end of the channel vanished while it was still collecting.
+    ChannelClosed,
+}
+
+/// A walker's connection to the search: the stop flag, the step budget and the DP channel.
+struct WalkerLink<'a> {
+    budget: &'a StepBudget,
+    stop: &'a AtomicBool,
+    tx: &'a Sender<DpRecord>,
+}
+
+impl WalkerLink<'_> {
+    /// Claim `steps` before taking them; `Some(exit)` when the walker must return instead.
+    fn claim(&self, steps: u64) -> Option<WalkerExit> {
+        if self.stop.load(Ordering::Relaxed) {
+            return Some(WalkerExit::Stopped);
+        }
+        if !self.budget.try_take(steps) {
+            return Some(WalkerExit::BudgetSpent);
+        }
+        None
+    }
+
+    /// Send a distinguished point; `Some(exit)` when the coordinator is gone.
+    fn emit(&self, dp: DpRecord) -> Option<WalkerExit> {
+        self.tx.send(dp).err().map(|_| WalkerExit::ChannelClosed)
+    }
+}
+
+/// Stops the other walkers if its thread unwinds, so one panic does not leave them spending the
+/// whole budget before the failure is reported.
+struct StopOnPanic<'a>(&'a AtomicBool);
+
+impl Drop for StopOnPanic<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Run `num_walkers` walker threads against a coordinator on the calling thread.
+///
+/// `walker(walk_id, link)` is the body of one walker. The search ends at the first usable
+/// collision, or when every walker has returned because the `max_steps` budget is spent.
+///
+/// Returns the collision and the budget counter when it was accepted.
+///
+/// # Errors
+///
+/// * [`DlogError::BudgetExhausted`] — the walkers spent `max_steps` without a usable collision.
+/// * [`DlogError::InvariantFailure`] — a walker panicked or lost its channel.
+fn run_dp_search<W>(
+    n: u64,
+    num_walkers: usize,
+    max_steps: u64,
+    channel_capacity: usize,
+    walker: W,
+) -> Result<(DpCollision, u64), DlogError>
+where
+    W: Fn(usize, &WalkerLink<'_>) -> WalkerExit + Sync,
+{
+    let budget = StepBudget::new(max_steps);
+    let stop = AtomicBool::new(false);
+    let (tx, rx): (Sender<DpRecord>, Receiver<DpRecord>) = bounded(channel_capacity);
+
+    let (hit, invariant) = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..num_walkers)
+            .map(|walk_id| {
+                let tx = tx.clone();
+                let (budget, stop, walker) = (&budget, &stop, &walker);
+                scope.spawn(move || {
+                    let _stop_on_panic = StopOnPanic(stop);
+                    walker(walk_id, &WalkerLink { budget, stop, tx: &tx })
+                })
+            })
+            .collect();
+        // Drop the original sender so the channel closes when every walker has returned.
+        drop(tx);
+
+        let mut coord = Coordinator::new(n);
+        let mut hit = None;
+        for dp in &rx {
+            if let Some(collision) = coord.insert(dp) {
+                hit = Some((collision, budget.used()));
+                stop.store(true, Ordering::Relaxed);
+                break;
+            }
+        }
+        // Drain the channel so a walker mid-send is never left blocked.
+        for _ in &rx {}
+
+        let mut invariant = None;
+        for handle in handles {
+            match handle.join() {
+                Ok(WalkerExit::Stopped | WalkerExit::BudgetSpent) => {}
+                Ok(WalkerExit::ChannelClosed) => {
+                    invariant.get_or_insert("a walker lost its channel to the coordinator");
+                }
+                Err(_) => {
+                    invariant.get_or_insert("a walker thread panicked");
+                }
+            }
+        }
+        (hit, invariant)
+    });
+
+    if let Some(what) = invariant {
+        return Err(DlogError::InvariantFailure(what));
+    }
+    hit.ok_or(DlogError::BudgetExhausted { attempts: 1, steps: budget.used() })
+}
+
+/// Validate the instance and answer the trivial targets (`Q = ∞`, `Q = G`) without a walk.
+///
+/// `Ok(None)` means a walk is needed.
+fn dp_preflight<F: Fp<4>>(
+    curve: &Curve,
+    g: &AffinePoint<F>,
+    q: &AffinePoint<F>,
+    n: u64,
+) -> Result<Option<DlogSolution<RhoEvidence>>, DlogError> {
+    check_prime_order_input(curve, g, q, n)?;
+    if q.is_infinity() {
+        return verified(curve, g, q, 0, RhoEvidence::Trivial).map(Some);
+    }
+    if q == g {
+        return verified(curve, g, q, 1, RhoEvidence::Trivial).map(Some);
+    }
+    Ok(None)
+}
+
+/// Reject a thread shape that cannot run a search.
+fn check_walk_shape(num_walkers: usize, batch_size: Option<usize>) -> Result<(), DlogError> {
+    if num_walkers == 0 {
+        return Err(DlogError::Unsupported("at least one walker is required"));
+    }
+    if batch_size == Some(0) {
+        return Err(DlogError::Unsupported("the batch size must be at least one"));
+    }
+    Ok(())
+}
+
+/// Turn a search hit into a solution, verifying the candidate `k` it implies.
+///
+/// Distinguished-point solvers report `attempt: 0` and `negated: false`; `steps` is the shared
+/// counter when the collision was accepted.
+fn dp_solution<F: Fp<4>>(
+    curve: &Curve,
+    g: &AffinePoint<F>,
+    q: &AffinePoint<F>,
+    (collision, steps): (DpCollision, u64),
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
+    let DpCollision { k, a1, b1, a2, b2 } = collision;
+    let evidence =
+        RhoEvidence::Collision { attempt: 0, steps, a1, b1, a2, b2, negated: false };
+    verified(curve, g, q, k, evidence)
+}
+
 // ── Distinguished-point parallel solver ──────────────────────────────────────
 
 /// Solve `Q = k·G` via the van Oorschot–Wiener parallel rho algorithm.
 ///
-/// Spawns `num_walkers` threads, each running an independent r-adding walk.
-/// Walkers emit a [`DpRecord`] whenever the walk lands on a distinguished point
-/// (low `theta` bits of the x-coordinate are zero).  A coordinator on the
-/// calling thread collects DPs and detects collisions.
+/// Validates the instance with [`check_prime_order_input`] and answers `Q = ∞` and `Q = G` as
+/// [`RhoEvidence::Trivial`] without a walk. Otherwise spawns `num_walkers` threads, each running
+/// an independent r-adding walk. Walkers emit a [`DpRecord`] whenever the walk lands on a
+/// distinguished point (low `theta` bits of the x-coordinate are zero). A coordinator on the
+/// calling thread collects DPs and reports collisions; the solver verifies the `k` a collision
+/// implies with [`verify_log`] before returning it.
 ///
 /// Walker restart policy: if a walker takes more than `2^(theta + 10)` steps
 /// without hitting a DP, it restarts from a fresh random `(a₀, b₀)`.  This
 /// prevents walkers from being trapped in long fruitless cycles.
+///
+/// The walkers share one step budget, `max_steps`, claimed before each step: the call cannot run
+/// longer than that, whatever the input.
+///
+/// The recorded collision key is the x-coordinate alone, so two DPs `P` and `−P` match and imply
+/// a wrong `k`. This is rare (it needs two DPs at opposite points rather than a merged walk) and
+/// surfaces as [`DlogError::Inconsistent`].
 ///
 /// # Arguments
 ///
@@ -303,11 +512,16 @@ pub fn solve_brent<F: Fp<4>>(
 /// * `theta` — DP threshold: a point is distinguished when its x-coordinate
 ///   has at least `theta` low-order zero bits.  Expected steps between DPs: `2^theta`.
 /// * `seed` — RNG seed for reproducibility (each walker gets a derived seed).
+/// * `max_steps` — total walk steps allowed across all walkers.
 ///
-/// # Returns
+/// # Errors
 ///
-/// `Some(k)` such that `Q = k·G`, or `None` if the coordinator gives up
-/// (should not happen in practice for valid inputs).
+/// * [`DlogError::InvalidInput`] — the instance fails [`check_prime_order_input`].
+/// * [`DlogError::Unsupported`] — `num_walkers` is zero.
+/// * [`DlogError::BudgetExhausted`] — `max_steps` were spent without a usable collision
+///   (`attempts: 1`). This proves nothing about `Q`.
+/// * [`DlogError::Inconsistent`] — a collision gave a `k` with `k·G ≠ Q`; never retried.
+/// * [`DlogError::InvariantFailure`] — a walker panicked or lost its channel.
 pub fn solve_dp<F: Fp<4>>(
     curve: &Curve,
     g: &AffinePoint<F>,
@@ -316,79 +530,36 @@ pub fn solve_dp<F: Fp<4>>(
     num_walkers: usize,
     theta: u32,
     seed: u64,
-) -> Option<u64> {
-    assert!(num_walkers >= 1, "solve_dp: need at least one walker");
+    max_steps: u64,
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
+    if let Some(trivial) = dp_preflight(curve, g, q, n)? {
+        return Ok(trivial);
+    }
+    check_walk_shape(num_walkers, None)?;
 
-    // Build the addend table once; share it read-only across all walkers.
-    // Arc is needed because the table outlives the spawning scope.
+    // The addend table is built once and shared read-only across all walkers.
     let mut rng0 = ChaCha20Rng::seed_from_u64(seed);
-    let table = Arc::new(AddendTable::<F>::new(curve, g, q, n, &mut rng0));
+    let table = AddendTable::<F>::new(curve, g, q, n, &mut rng0);
 
-    // Stop flag: coordinator sets this to true when k is found.
-    let stop = Arc::new(AtomicBool::new(false));
-
-    // Bounded channel: walkers send DpRecords; coordinator receives them.
-    // Capacity = 4 * num_walkers to avoid walkers blocking on a full channel
-    // while the coordinator is processing a collision.
-    let (tx, rx): (Sender<DpRecord>, Receiver<DpRecord>) = bounded(4 * num_walkers);
-
-    // Spawn walker threads.
-    let mut handles = Vec::with_capacity(num_walkers);
-    for walk_id in 0..num_walkers {
-        let curve_c  = curve.clone();
-        let g_c      = g.clone();
-        let q_c      = q.clone();
-        let table_c  = Arc::clone(&table);
-        let stop_c   = Arc::clone(&stop);
-        let tx_c     = tx.clone();
+    // Capacity = 4 * num_walkers so walkers rarely block on a full channel while the
+    // coordinator is processing a collision.
+    let hit = run_dp_search(n, num_walkers, max_steps, 4 * num_walkers, |walk_id, link| {
         // Each walker gets a distinct seed so they explore different trajectories.
         let walker_seed = seed.wrapping_add(walk_id as u64 + 1);
-
-        let handle = std::thread::spawn(move || {
-            run_walker(
-                &curve_c, &g_c, &q_c, n, &table_c, theta,
-                walk_id, walker_seed, &stop_c, &tx_c,
-            );
-        });
-        handles.push(handle);
-    }
-    // Drop the original sender so the channel closes when all walkers exit.
-    drop(tx);
-
-    // Coordinator loop: receive DPs and detect collisions.
-    let mut coord = Coordinator::new(n);
-    let mut result = None;
-
-    for dp in &rx {
-        if let Some(k) = coord.insert(dp) {
-            result = Some(k);
-            // Signal all walkers to stop.
-            stop.store(true, Ordering::Relaxed);
-            break;
-        }
-    }
-
-    // Drain the channel so walkers are not blocked trying to send.
-    // (They will exit once they see the stop flag, but may be mid-send.)
-    for _ in &rx {}
-
-    // Join all walker threads.
-    for h in handles {
-        let _ = h.join();
-    }
-
-    result
+        run_walker(curve, g, q, n, &table, theta, walk_id, walker_seed, link)
+    })?;
+    dp_solution(curve, g, q, hit)
 }
 
 // ── Walker thread body ────────────────────────────────────────────────────────
 
 /// Body of a single walker thread.
 ///
-/// Runs an r-adding walk indefinitely, emitting a [`DpRecord`] each time the
-/// walk lands on a distinguished point.  Restarts from a fresh random state
+/// Runs an r-adding walk, claiming each step from the shared budget and emitting a [`DpRecord`]
+/// each time the walk lands on a distinguished point.  Restarts from a fresh random state
 /// after `2^(theta + 10)` steps without a DP (dead-walk escape).
 ///
-/// Exits when `stop` is set or the `tx` channel is closed (coordinator found k).
+/// Returns when the coordinator stops the search, the budget is spent, or the DP channel closes.
 fn run_walker<F: Fp<4>>(
     curve: &Curve,
     g: &AffinePoint<F>,
@@ -398,9 +569,8 @@ fn run_walker<F: Fp<4>>(
     theta: u32,
     walk_id: usize,
     seed: u64,
-    stop: &AtomicBool,
-    tx: &Sender<DpRecord>,
-) {
+    link: &WalkerLink<'_>,
+) -> WalkerExit {
     // Dead-walk threshold: restart after this many steps without a DP.
     // 2^(theta + 10) gives ~1024 expected DPs per walk before restart.
     let max_steps_without_dp: u64 = 1u64 << (theta.min(53) + 10);
@@ -410,8 +580,8 @@ fn run_walker<F: Fp<4>>(
     let mut steps_since_dp: u64 = 0;
 
     loop {
-        if stop.load(Ordering::Relaxed) {
-            return;
+        if let Some(exit) = link.claim(1) {
+            return exit;
         }
 
         walk.step(curve, table, n);
@@ -426,9 +596,8 @@ fn run_walker<F: Fp<4>>(
 
         if is_distinguished(x_low, theta) {
             let dp = DpRecord { x_low, a: walk.a, b: walk.b, walk_id };
-            // Send the DP; if the channel is closed the coordinator has finished.
-            if tx.send(dp).is_err() {
-                return;
+            if let Some(exit) = link.emit(dp) {
+                return exit;
             }
             steps_since_dp = 0;
         }
@@ -453,14 +622,15 @@ fn run_walker<F: Fp<4>>(
 /// The negation map halves the effective group size, reducing the expected
 /// number of steps to collision by a factor of ~√2.
 ///
-/// # Minimum walkers
+/// # Walker count and the budget
 ///
-/// Use at least 2 walkers.  With a single walker the coordinator can only find
+/// Prefer at least 2 walkers.  With a single walker the coordinator can only find
 /// a collision when the walk's rho trajectory has a non-empty "tail" (the walk
 /// visits a DP before entering the cycle).  When the walk starts on the cycle
-/// (probability ~1/2), no valid collision is ever found.  Two walkers explore
-/// independent trajectories and can collide cross-walker even when each
-/// individual walk is purely cyclic.
+/// (probability ~1/2), no collision is found until the dead-walk restart, and a
+/// run that never gets a tail ends as [`DlogError::BudgetExhausted`] when `max_steps` is
+/// spent. Two walkers explore independent trajectories and can collide cross-walker even
+/// when each individual walk is purely cyclic.
 ///
 /// # Arguments
 ///
@@ -468,14 +638,16 @@ fn run_walker<F: Fp<4>>(
 /// * `g` — base point G.
 /// * `q` — target point Q (`Q = k·G` for the unknown `k`).
 /// * `n` — prime group order (64-bit).
-/// * `num_walkers` — number of parallel walker threads (≥ 2 recommended).
+/// * `num_walkers` — number of parallel walker threads (≥ 1; ≥ 2 recommended).
 /// * `theta` — DP threshold: a point is distinguished when its x-coordinate
 ///   has at least `theta` low-order zero bits.
 /// * `seed` — RNG seed for reproducibility.
+/// * `max_steps` — total walk steps allowed across all walkers.
 ///
-/// # Returns
+/// # Errors
 ///
-/// `Some(k)` such that `Q = k·G`, or `None` if the coordinator gives up.
+/// As [`solve_dp`]. Negation-map walks compare canonical points, so every collision is between
+/// identical points and a wrong `k` can only come from a walk bug.
 pub fn solve_dp_negmap<F: Fp<4>>(
     curve: &Curve,
     g: &AffinePoint<F>,
@@ -484,53 +656,21 @@ pub fn solve_dp_negmap<F: Fp<4>>(
     num_walkers: usize,
     theta: u32,
     seed: u64,
-) -> Option<u64> {
-    assert!(num_walkers >= 1, "solve_dp_negmap: need at least one walker");
+    max_steps: u64,
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
+    if let Some(trivial) = dp_preflight(curve, g, q, n)? {
+        return Ok(trivial);
+    }
+    check_walk_shape(num_walkers, None)?;
 
     let mut rng0 = ChaCha20Rng::seed_from_u64(seed);
-    let table = Arc::new(AddendTable::<F>::new(curve, g, q, n, &mut rng0));
+    let table = AddendTable::<F>::new(curve, g, q, n, &mut rng0);
 
-    let stop = Arc::new(AtomicBool::new(false));
-    let (tx, rx): (Sender<DpRecord>, Receiver<DpRecord>) = bounded(4 * num_walkers);
-
-    let mut handles = Vec::with_capacity(num_walkers);
-    for walk_id in 0..num_walkers {
-        let curve_c  = curve.clone();
-        let g_c      = g.clone();
-        let q_c      = q.clone();
-        let table_c  = Arc::clone(&table);
-        let stop_c   = Arc::clone(&stop);
-        let tx_c     = tx.clone();
+    let hit = run_dp_search(n, num_walkers, max_steps, 4 * num_walkers, |walk_id, link| {
         let walker_seed = seed.wrapping_add(walk_id as u64 + 1);
-
-        let handle = std::thread::spawn(move || {
-            run_walker_negmap(
-                &curve_c, &g_c, &q_c, n, &table_c, theta,
-                walk_id, walker_seed, &stop_c, &tx_c,
-            );
-        });
-        handles.push(handle);
-    }
-    drop(tx);
-
-    let mut coord = Coordinator::new(n);
-    let mut result = None;
-
-    for dp in &rx {
-        if let Some(k) = coord.insert(dp) {
-            result = Some(k);
-            stop.store(true, Ordering::Relaxed);
-            break;
-        }
-    }
-
-    for _ in &rx {}
-
-    for h in handles {
-        let _ = h.join();
-    }
-
-    result
+        run_walker_negmap(curve, g, q, n, &table, theta, walk_id, walker_seed, link)
+    })?;
+    dp_solution(curve, g, q, hit)
 }
 
 // ── Negation-map walker thread body ──────────────────────────────────────────
@@ -550,6 +690,8 @@ pub fn solve_dp_negmap<F: Fp<4>>(
 ///
 /// Distinguished-point emission uses the canonical x-coordinate so that
 /// collisions are between canonical representatives.
+///
+/// Steps are claimed from the shared budget one at a time, as in [`run_walker`].
 fn run_walker_negmap<F: Fp<4>>(
     curve: &Curve,
     g: &AffinePoint<F>,
@@ -559,9 +701,8 @@ fn run_walker_negmap<F: Fp<4>>(
     theta: u32,
     walk_id: usize,
     seed: u64,
-    stop: &AtomicBool,
-    tx: &Sender<DpRecord>,
-) {
+    link: &WalkerLink<'_>,
+) -> WalkerExit {
     let max_steps_without_dp: u64 = 1u64 << (theta.min(53) + 10);
 
     let mut rng = ChaCha20Rng::seed_from_u64(seed);
@@ -582,8 +723,8 @@ fn run_walker_negmap<F: Fp<4>>(
     }
 
     loop {
-        if stop.load(Ordering::Relaxed) {
-            return;
+        if let Some(exit) = link.claim(1) {
+            return exit;
         }
 
         walk.step(curve, table, n);
@@ -636,8 +777,8 @@ fn run_walker_negmap<F: Fp<4>>(
         // Skip DP emission immediately after a BKNS escape.
         if !escaped && is_distinguished(x_low, theta) {
             let dp = DpRecord { x_low, a: walk.a, b: walk.b, walk_id };
-            if tx.send(dp).is_err() {
-                return;
+            if let Some(exit) = link.emit(dp) {
+                return exit;
             }
             steps_since_dp = 0;
         }
@@ -676,6 +817,10 @@ fn run_walker_negmap<F: Fp<4>>(
 /// `batch_size` inversions are replaced by 1 inversion + 3(batch_size−1)
 /// multiplications per `step_all` call.
 ///
+/// A `step_all` call is `batch_size` walk steps and is claimed from the budget as a unit, so
+/// the final `max_steps mod batch_size` steps of the budget go unused and a budget below
+/// `batch_size` allows no walk at all.
+///
 /// # Arguments
 ///
 /// * `curve` — the curve definition.
@@ -686,10 +831,11 @@ fn run_walker_negmap<F: Fp<4>>(
 /// * `batch_size` — walks per thread (B ≥ 1; typical: 8–32).
 /// * `theta` — DP threshold.
 /// * `seed` — RNG seed for reproducibility.
+/// * `max_steps` — total walk steps allowed across all walkers and batch members.
 ///
-/// # Returns
+/// # Errors
 ///
-/// `Some(k)` such that `Q = k·G`, or `None` if the coordinator gives up.
+/// As [`solve_dp`]; [`DlogError::Unsupported`] also covers `batch_size = 0`.
 pub fn solve_dp_batch<F: Fp<4>>(
     curve: &Curve,
     g: &AffinePoint<F>,
@@ -699,54 +845,24 @@ pub fn solve_dp_batch<F: Fp<4>>(
     batch_size: usize,
     theta: u32,
     seed: u64,
-) -> Option<u64> {
-    assert!(num_walkers >= 1, "solve_dp_batch: need at least one walker");
-    assert!(batch_size >= 1, "solve_dp_batch: batch_size must be >= 1");
+    max_steps: u64,
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
+    if let Some(trivial) = dp_preflight(curve, g, q, n)? {
+        return Ok(trivial);
+    }
+    check_walk_shape(num_walkers, Some(batch_size))?;
 
     let mut rng0 = ChaCha20Rng::seed_from_u64(seed);
-    let table = Arc::new(AddendTable::<F>::new(curve, g, q, n, &mut rng0));
+    let table = AddendTable::<F>::new(curve, g, q, n, &mut rng0);
 
-    let stop = Arc::new(AtomicBool::new(false));
-    let (tx, rx): (Sender<DpRecord>, Receiver<DpRecord>) = bounded(4 * num_walkers * batch_size);
-
-    let mut handles = Vec::with_capacity(num_walkers);
-    for walk_id_base in 0..num_walkers {
-        let curve_c  = curve.clone();
-        let g_c      = g.clone();
-        let q_c      = q.clone();
-        let table_c  = Arc::clone(&table);
-        let stop_c   = Arc::clone(&stop);
-        let tx_c     = tx.clone();
+    let capacity = 4 * num_walkers * batch_size;
+    let hit = run_dp_search(n, num_walkers, max_steps, capacity, |walk_id_base, link| {
         let walker_seed = seed.wrapping_add(walk_id_base as u64 + 1);
-
-        let handle = std::thread::spawn(move || {
-            run_walker_batch(
-                &curve_c, &g_c, &q_c, n, &table_c, theta,
-                walk_id_base, batch_size, walker_seed, &stop_c, &tx_c,
-            );
-        });
-        handles.push(handle);
-    }
-    drop(tx);
-
-    let mut coord = Coordinator::new(n);
-    let mut result = None;
-
-    for dp in &rx {
-        if let Some(k) = coord.insert(dp) {
-            result = Some(k);
-            stop.store(true, Ordering::Relaxed);
-            break;
-        }
-    }
-
-    for _ in &rx {}
-
-    for h in handles {
-        let _ = h.join();
-    }
-
-    result
+        run_walker_batch(
+            curve, g, q, n, &table, theta, walk_id_base, batch_size, walker_seed, link,
+        )
+    })?;
+    dp_solution(curve, g, q, hit)
 }
 
 // ── Batched walker thread body ────────────────────────────────────────────────
@@ -759,6 +875,8 @@ pub fn solve_dp_batch<F: Fp<4>>(
 ///
 /// Walk IDs are `walk_id_base * batch_size + i` for walk index `i`, ensuring
 /// globally unique IDs across threads.
+///
+/// Each `step_all` claims `batch_size` steps from the shared budget.
 fn run_walker_batch<F: Fp<4>>(
     curve: &Curve,
     g: &AffinePoint<F>,
@@ -769,9 +887,8 @@ fn run_walker_batch<F: Fp<4>>(
     walk_id_base: usize,
     batch_size: usize,
     seed: u64,
-    stop: &AtomicBool,
-    tx: &Sender<DpRecord>,
-) {
+    link: &WalkerLink<'_>,
+) -> WalkerExit {
     let max_steps_without_dp: u64 = 1u64 << (theta.min(53) + 10);
 
     let mut rng = ChaCha20Rng::seed_from_u64(seed);
@@ -800,8 +917,8 @@ fn run_walker_batch<F: Fp<4>>(
     }
 
     loop {
-        if stop.load(Ordering::Relaxed) {
-            return;
+        if let Some(exit) = link.claim(batch_size as u64) {
+            return exit;
         }
 
         // Advance all B walks by one step (batched inversion).
@@ -856,8 +973,8 @@ fn run_walker_batch<F: Fp<4>>(
             if !escaped && is_distinguished(x_low, theta) {
                 let walk_id = walk_id_base * batch_size + i;
                 let dp = DpRecord { x_low, a: bw.walks[i].a, b: bw.walks[i].b, walk_id };
-                if tx.send(dp).is_err() {
-                    return;
+                if let Some(exit) = link.emit(dp) {
+                    return exit;
                 }
                 steps_since_dp[i] = 0;
             }
@@ -881,12 +998,26 @@ fn run_walker_batch<F: Fp<4>>(
 
 // ── GLV parallel solver ───────────────────────────────────────────────────────
 
+/// Whether `curve` and `n` are the `secp_k1_toy` parameters that [`BETA`](secp_k1_toy::BETA) and
+/// [`LAMBDA`](secp_k1_toy::LAMBDA) belong to.
+///
+/// Compares the field prime, the coefficients `a`, `b` and the group order, not any name. The
+/// generator is free: φ acts as `λ` on every point of the prime-order group.
+fn is_secp_k1_toy_group(curve: &Curve, n: u64) -> bool {
+    use crate::curve::secp_k1_toy as toy;
+    curve.p == crypto_bigint::Uint::<4>::from(toy::P)
+        && curve.a == crypto_bigint::Uint::<4>::ZERO
+        && curve.b == crypto_bigint::Uint::<4>::from(7u64)
+        && n == toy::N
+}
+
 /// Solve `Q = k·G` via the van Oorschot–Wiener parallel rho algorithm with
 /// the GLV endomorphism optimization.
 ///
-/// **Restriction**: this solver is designed for the `secp_k1_toy` curve.  It
-/// uses the secp_k1_toy GLV constants (`BETA`, `LAMBDA`) internally.  Calling
-/// it on a different curve will produce incorrect results.
+/// **Restriction**: this solver uses the `secp_k1_toy` GLV constants (`BETA`, `LAMBDA`)
+/// internally, so it applies only to that curve. The curve is recognised by its parameters
+/// (`p`, `a`, `b` and the group order `n`); on any other curve the call returns
+/// [`DlogError::Unsupported`] before anything else is checked.
 ///
 /// Each walker applies [`glv_canonical`] after every step, collapsing the
 /// 6-orbit `{W, φ(W), φ²(W), −W, −φ(W), −φ²(W)}` to a single canonical
@@ -894,7 +1025,8 @@ fn run_walker_batch<F: Fp<4>>(
 /// giving a √6 speedup vs the plain walk and √3 vs the negation-map-only walk.
 ///
 /// The batched-inversion infrastructure is reused: each thread
-/// owns a [`BatchedWalker`] with `batch_size` walk states.
+/// owns a [`BatchedWalker`] with `batch_size` walk states, and a `step_all` claims `batch_size`
+/// steps from the budget as a unit, as in [`solve_dp_batch`].
 ///
 /// # Arguments
 ///
@@ -906,10 +1038,12 @@ fn run_walker_batch<F: Fp<4>>(
 /// * `batch_size` — walks per thread (B ≥ 1; typical: 8–32).
 /// * `theta` — DP threshold.
 /// * `seed` — RNG seed for reproducibility.
+/// * `max_steps` — total walk steps allowed across all walkers and batch members.
 ///
-/// # Returns
+/// # Errors
 ///
-/// `Some(k)` such that `Q = k·G`, or `None` if the coordinator gives up.
+/// As [`solve_dp_batch`], plus [`DlogError::Unsupported`] when `curve` and `n` are not the
+/// `secp_k1_toy` group.
 pub fn solve_dp_glv<F: Fp<4>>(
     curve: &Curve,
     g: &AffinePoint<F>,
@@ -919,9 +1053,17 @@ pub fn solve_dp_glv<F: Fp<4>>(
     batch_size: usize,
     theta: u32,
     seed: u64,
-) -> Option<u64> {
+    max_steps: u64,
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
     use crate::curve::secp_k1_toy::{BETA, LAMBDA};
-    solve_dp_glv_impl(curve, g, q, n, num_walkers, batch_size, theta, seed, BETA, LAMBDA)
+    if !is_secp_k1_toy_group(curve, n) {
+        return Err(DlogError::Unsupported(
+            "the GLV constants belong to the secp_k1_toy curve and its group order",
+        ));
+    }
+    solve_dp_glv_impl(
+        curve, g, q, n, num_walkers, batch_size, theta, seed, max_steps, BETA, LAMBDA,
+    )
 }
 
 /// Internal GLV solver that accepts explicit GLV constants.
@@ -937,57 +1079,27 @@ fn solve_dp_glv_impl<F: Fp<4>>(
     batch_size: usize,
     theta: u32,
     seed: u64,
+    max_steps: u64,
     beta: u64,
     lambda: u64,
-) -> Option<u64> {
-    assert!(num_walkers >= 1, "solve_dp_glv: need at least one walker");
-    assert!(batch_size >= 1, "solve_dp_glv: batch_size must be >= 1");
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
+    if let Some(trivial) = dp_preflight(curve, g, q, n)? {
+        return Ok(trivial);
+    }
+    check_walk_shape(num_walkers, Some(batch_size))?;
 
     let mut rng0 = ChaCha20Rng::seed_from_u64(seed);
-    let table = Arc::new(AddendTable::<F>::new(curve, g, q, n, &mut rng0));
+    let table = AddendTable::<F>::new(curve, g, q, n, &mut rng0);
 
-    let stop = Arc::new(AtomicBool::new(false));
-    let (tx, rx): (Sender<DpRecord>, Receiver<DpRecord>) = bounded(4 * num_walkers * batch_size);
-
-    let mut handles = Vec::with_capacity(num_walkers);
-    for walk_id_base in 0..num_walkers {
-        let curve_c     = curve.clone();
-        let g_c         = g.clone();
-        let q_c         = q.clone();
-        let table_c     = Arc::clone(&table);
-        let stop_c      = Arc::clone(&stop);
-        let tx_c        = tx.clone();
+    let capacity = 4 * num_walkers * batch_size;
+    let hit = run_dp_search(n, num_walkers, max_steps, capacity, |walk_id_base, link| {
         let walker_seed = seed.wrapping_add(walk_id_base as u64 + 1);
-
-        let handle = std::thread::spawn(move || {
-            run_walker_glv(
-                &curve_c, &g_c, &q_c, n, &table_c, theta,
-                walk_id_base, batch_size, walker_seed, &stop_c, &tx_c,
-                beta, lambda,
-            );
-        });
-        handles.push(handle);
-    }
-    drop(tx);
-
-    let mut coord = Coordinator::new(n);
-    let mut result = None;
-
-    for dp in &rx {
-        if let Some(k) = coord.insert(dp) {
-            result = Some(k);
-            stop.store(true, Ordering::Relaxed);
-            break;
-        }
-    }
-
-    for _ in &rx {}
-
-    for h in handles {
-        let _ = h.join();
-    }
-
-    result
+        run_walker_glv(
+            curve, g, q, n, &table, theta, walk_id_base, batch_size, walker_seed, link, beta,
+            lambda,
+        )
+    })?;
+    dp_solution(curve, g, q, hit)
 }
 
 // ── GLV walker thread body ────────────────────────────────────────────────────
@@ -1005,6 +1117,8 @@ fn solve_dp_glv_impl<F: Fp<4>>(
 /// The BKNS doubling escape handles this case identically to the negmap walker.
 ///
 /// Walk IDs are `walk_id_base * batch_size + i` for walk index `i`.
+///
+/// Each `step_all` claims `batch_size` steps from the shared budget.
 #[allow(clippy::too_many_arguments)]
 fn run_walker_glv<F: Fp<4>>(
     curve: &Curve,
@@ -1016,11 +1130,10 @@ fn run_walker_glv<F: Fp<4>>(
     walk_id_base: usize,
     batch_size: usize,
     seed: u64,
-    stop: &AtomicBool,
-    tx: &Sender<DpRecord>,
+    link: &WalkerLink<'_>,
     beta: u64,
     lambda: u64,
-) {
+) -> WalkerExit {
     let max_steps_without_dp: u64 = 1u64 << (theta.min(53) + 10);
     let p_mod = &curve.p;
 
@@ -1049,8 +1162,8 @@ fn run_walker_glv<F: Fp<4>>(
     }
 
     loop {
-        if stop.load(Ordering::Relaxed) {
-            return;
+        if let Some(exit) = link.claim(batch_size as u64) {
+            return exit;
         }
 
         // Advance all B walks by one step (batched inversion).
@@ -1101,8 +1214,8 @@ fn run_walker_glv<F: Fp<4>>(
             if !escaped && is_distinguished(x_low, theta) {
                 let walk_id = walk_id_base * batch_size + i;
                 let dp = DpRecord { x_low, a: bw.walks[i].a, b: bw.walks[i].b, walk_id };
-                if tx.send(dp).is_err() {
-                    return;
+                if let Some(exit) = link.emit(dp) {
+                    return exit;
                 }
                 steps_since_dp[i] = 0;
             }
@@ -1242,22 +1355,71 @@ mod tests {
 
     // ── solve_dp tests (distinguished-point search) ──────────────────────────
 
+    /// Step budget for fixed-seed success runs on the 20-bit curves. A collision there takes on
+    /// the order of 10³–10⁴ steps, so this leaves about three orders of magnitude of headroom
+    /// and a failure to find one is a bug, not bad luck.
+    const SUCCESS_BUDGET: u64 = 1 << 24;
+
+    /// `a·G + b·Q` for scalars reduced mod n.
+    fn combine(
+        curve: &Curve,
+        g: &AffinePoint<FpMonty>,
+        q: &AffinePoint<FpMonty>,
+        a: u64,
+        b: u64,
+    ) -> AffinePoint<FpMonty> {
+        let ag = curve.scalar_mul(g, &Uint::<4>::from(a));
+        let bq = curve.scalar_mul(q, &Uint::<4>::from(b));
+        curve
+            .add_mixed(&JacobianPoint::from_affine(&ag, &curve.p), &bq)
+            .to_affine(&curve.p)
+    }
+
+    /// Recheck, from the evidence alone, that a distinguished-point solution is a collision
+    /// `a1·G + b1·Q = a2·G + b2·Q` and that its `k` verifies. Returns the evidence step count.
+    fn assert_dp_evidence(
+        curve: &Curve,
+        g: &AffinePoint<FpMonty>,
+        q: &AffinePoint<FpMonty>,
+        solution: &DlogSolution<RhoEvidence>,
+        label: &str,
+    ) -> u64 {
+        let RhoEvidence::Collision { attempt, steps, a1, b1, a2, b2, negated } = solution.evidence
+        else {
+            panic!("{label}: expected collision evidence, got {:?}", solution.evidence);
+        };
+        assert_eq!((attempt, negated), (0, false), "{label}: DP solvers report attempt 0, plain");
+        assert!(steps > 0, "{label}: a collision takes at least one step");
+        assert_eq!(
+            combine(curve, g, q, a1, b1),
+            combine(curve, g, q, a2, b2),
+            "{label}: collision identity does not hold"
+        );
+        assert!(verify_log(curve, g, q, solution.k), "{label}: k={} fails verify_log", solution.k);
+        steps
+    }
+
+    /// `(curve, G, Q = k·G)` on tiny_a.
+    fn tiny_a_instance(k: u64) -> (Curve, AffinePoint<FpMonty>, AffinePoint<FpMonty>) {
+        let curve = tiny_a();
+        let g: AffinePoint<FpMonty> = curve.generator();
+        let q = curve.scalar_mul(&g, &Uint::<4>::from(k));
+        (curve, g, q)
+    }
+
     /// Solve a known 20-bit DLP on tiny_a with a single walker.
     ///
     /// Uses theta = 4 (1-in-16 DPs) so the coordinator sees enough DPs quickly
     /// on the small curve without excessive memory.
     #[test]
     fn solve_dp_tiny() {
-        let k_target: u64 = 77;
-        let curve = tiny_a();
-        let g: AffinePoint<FpMonty> = curve.generator();
-        let q = curve.scalar_mul(&g, &Uint::<4>::from(k_target));
+        let (curve, g, q) = tiny_a_instance(77);
 
-        let k = solve_dp(&curve, &g, &q, TINY_A_N, 1, 4, 0xDEAD_BEEF)
+        let solution = solve_dp(&curve, &g, &q, TINY_A_N, 1, 4, 0xDEAD_BEEF, SUCCESS_BUDGET)
             .expect("solve_dp failed on tiny_a");
 
-        let check = curve.scalar_mul(&g, &Uint::<4>::from(k));
-        assert_eq!(check, q, "solve_dp_tiny: k·G ≠ Q (k={k}, expected k={k_target})");
+        let steps = assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_tiny");
+        assert!(steps <= SUCCESS_BUDGET);
     }
 
     /// Solve a 20-bit DLP on tiny_a with 2 walkers.
@@ -1267,16 +1429,149 @@ mod tests {
     /// the parallel coordination path without the cost of a larger curve.
     #[test]
     fn solve_dp_parallel() {
-        let k_target: u64 = 500_000;
-        let curve = tiny_a();
-        let g: AffinePoint<FpMonty> = curve.generator();
-        let q = curve.scalar_mul(&g, &Uint::<4>::from(k_target));
+        let (curve, g, q) = tiny_a_instance(500_000);
 
-        let k = solve_dp(&curve, &g, &q, TINY_A_N, 2, 4, 0xCAFE_BABE)
+        let solution = solve_dp(&curve, &g, &q, TINY_A_N, 2, 4, 0xCAFE_BABE, SUCCESS_BUDGET)
             .expect("solve_dp failed on tiny_a with 2 walkers");
 
-        let check = curve.scalar_mul(&g, &Uint::<4>::from(k));
-        assert_eq!(check, q, "solve_dp_parallel: k·G ≠ Q (k={k}, expected k={k_target})");
+        assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_parallel");
+    }
+
+    /// The trivial targets are answered before any walk, even with no walkers and no budget.
+    #[test]
+    fn dp_solvers_answer_trivial_targets_without_a_walk() {
+        let (curve, g, _) = tiny_a_instance(1);
+        let inf = AffinePoint::<FpMonty>::Infinity;
+
+        for (target, k) in [(&inf, 0u64), (&g, 1u64)] {
+            let solutions = [
+                solve_dp(&curve, &g, target, TINY_A_N, 0, 4, 0, 0),
+                solve_dp_negmap(&curve, &g, target, TINY_A_N, 0, 4, 0, 0),
+                solve_dp_batch(&curve, &g, target, TINY_A_N, 0, 0, 4, 0, 0),
+            ];
+            for solution in solutions {
+                let solution = solution.expect("trivial target must solve");
+                assert_eq!((solution.k, solution.evidence), (k, RhoEvidence::Trivial));
+            }
+        }
+    }
+
+    /// A malformed instance is rejected with its defect before any walker starts.
+    #[test]
+    fn dp_solvers_reject_invalid_input_before_walking() {
+        let (curve, g, q) = tiny_a_instance(7);
+        let composite = TINY_A_N + 1;
+        let invalid = Err(DlogError::InvalidInput(InputDefect::OrderNotPrime));
+
+        assert_eq!(solve_dp(&curve, &g, &q, composite, 1, 4, 0, SUCCESS_BUDGET), invalid);
+        assert_eq!(solve_dp_negmap(&curve, &g, &q, composite, 2, 4, 0, SUCCESS_BUDGET), invalid);
+        assert_eq!(
+            solve_dp_batch(&curve, &g, &q, composite, 2, 4, 4, 0, SUCCESS_BUDGET),
+            invalid
+        );
+    }
+
+    /// A thread shape that cannot run a search is unsupported, not a panic or a hang.
+    #[test]
+    fn dp_solvers_reject_empty_thread_shapes() {
+        let (curve, g, q) = tiny_a_instance(7);
+
+        assert!(matches!(
+            solve_dp(&curve, &g, &q, TINY_A_N, 0, 4, 0, SUCCESS_BUDGET),
+            Err(DlogError::Unsupported(_))
+        ));
+        assert!(matches!(
+            solve_dp_negmap(&curve, &g, &q, TINY_A_N, 0, 4, 0, SUCCESS_BUDGET),
+            Err(DlogError::Unsupported(_))
+        ));
+        assert!(matches!(
+            solve_dp_batch(&curve, &g, &q, TINY_A_N, 2, 0, 4, 0, SUCCESS_BUDGET),
+            Err(DlogError::Unsupported(_))
+        ));
+    }
+
+    /// A budget far below a collision's cost is spent exactly and reported as exhaustion, by
+    /// every variant. One-step claims use the whole budget; batch claims use whole batches.
+    #[test]
+    fn dp_solvers_report_budget_exhaustion() {
+        let (curve, g, q) = tiny_a_instance(77);
+        let spent = |steps| Err(DlogError::BudgetExhausted { attempts: 1, steps });
+
+        assert_eq!(solve_dp(&curve, &g, &q, TINY_A_N, 2, 4, 1, 10), spent(10));
+        assert_eq!(solve_dp_negmap(&curve, &g, &q, TINY_A_N, 2, 4, 1, 10), spent(10));
+        // Two claims of 4 fit in 10; a third does not.
+        assert_eq!(solve_dp_batch(&curve, &g, &q, TINY_A_N, 2, 4, 4, 1, 10), spent(8));
+        // A budget of zero allows no step at all.
+        assert_eq!(solve_dp(&curve, &g, &q, TINY_A_N, 2, 4, 1, 0), spent(0));
+    }
+
+    /// A single negation-map walker may never see a collision; the budget, not a hang, ends it.
+    #[test]
+    fn single_negmap_walker_ends_by_budget_when_it_finds_nothing() {
+        let (curve, g, q) = tiny_a_instance(77);
+        // Theta above the walk length gives no DPs, so no collision can ever form.
+        let r = solve_dp_negmap(&curve, &g, &q, TINY_A_N, 1, 40, 3, 5_000);
+        assert_eq!(r, Err(DlogError::BudgetExhausted { attempts: 1, steps: 5_000 }));
+    }
+
+    // ── search machinery ─────────────────────────────────────────────────────
+
+    /// The budget grants whole claims up to its limit and refuses the rest.
+    #[test]
+    fn step_budget_grants_claims_up_to_the_limit() {
+        let budget = StepBudget::new(10);
+        assert!(budget.try_take(4));
+        assert!(budget.try_take(4));
+        assert!(!budget.try_take(4), "a claim past the limit must be refused whole");
+        assert_eq!(budget.used(), 8);
+        assert!(budget.try_take(2));
+        assert!(!budget.try_take(1));
+        assert!(!budget.try_take(u64::MAX), "an overflowing claim must be refused");
+        assert_eq!(budget.used(), 10);
+    }
+
+    /// A panicking walker is an invariant failure, and the others are stopped rather than left to
+    /// spend the budget.
+    #[test]
+    fn walker_panic_is_an_invariant_failure() {
+        let r = run_dp_search(1_048_051, 2, u64::MAX, 8, |walk_id, link| {
+            if walk_id == 0 {
+                panic!("walker failed on purpose");
+            }
+            loop {
+                if let Some(exit) = link.claim(1) {
+                    return exit;
+                }
+            }
+        });
+        assert_eq!(r, Err(DlogError::InvariantFailure("a walker thread panicked")));
+    }
+
+    /// A walker that loses its channel while the coordinator is collecting is an invariant failure.
+    #[test]
+    fn lost_channel_is_an_invariant_failure() {
+        let r = run_dp_search(1_048_051, 2, 1_000, 8, |_, _| WalkerExit::ChannelClosed);
+        assert_eq!(
+            r,
+            Err(DlogError::InvariantFailure("a walker lost its channel to the coordinator"))
+        );
+    }
+
+    /// A real walker whose coordinator is gone returns `ChannelClosed` on its first DP.
+    #[test]
+    fn walker_reports_a_closed_channel() {
+        let (curve, g, q) = tiny_a_instance(77);
+        let mut rng = ChaCha20Rng::seed_from_u64(9);
+        let table = AddendTable::<FpMonty>::new(&curve, &g, &q, TINY_A_N, &mut rng);
+        let budget = StepBudget::new(1_000);
+        let stop = AtomicBool::new(false);
+        let (tx, rx) = bounded::<DpRecord>(1);
+        drop(rx);
+        let link = WalkerLink { budget: &budget, stop: &stop, tx: &tx };
+
+        // Theta 0 makes every point distinguished, so the first step emits.
+        let exit = run_walker(&curve, &g, &q, TINY_A_N, &table, 0, 0, 5, &link);
+        assert_eq!(exit, WalkerExit::ChannelClosed);
     }
 
     // ── negation-map tests ────────────────────────────────────────────────────
@@ -1425,16 +1720,12 @@ mod tests {
     /// a single walker's rho trajectory has no tail DPs.
     #[test]
     fn solve_dp_negmap_tiny() {
-        let k_target: u64 = 77;
-        let curve = tiny_a();
-        let g: AffinePoint<FpMonty> = curve.generator();
-        let q = curve.scalar_mul(&g, &Uint::<4>::from(k_target));
+        let (curve, g, q) = tiny_a_instance(77);
 
-        let k = solve_dp_negmap(&curve, &g, &q, TINY_A_N, 2, 4, 0xDEAD_BEEF)
+        let solution = solve_dp_negmap(&curve, &g, &q, TINY_A_N, 2, 4, 0xDEAD_BEEF, SUCCESS_BUDGET)
             .expect("solve_dp_negmap failed on tiny_a");
 
-        let check = curve.scalar_mul(&g, &Uint::<4>::from(k));
-        assert_eq!(check, q, "solve_dp_negmap_tiny: k·G ≠ Q (k={k})");
+        assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_negmap_tiny");
     }
 
     /// solve_dp_batch solves a known 20-bit DLP on tiny_a.
@@ -1442,99 +1733,120 @@ mod tests {
     /// Uses 2 threads with batch_size=4 and theta=4.
     #[test]
     fn solve_dp_batch_tiny() {
-        let k_target: u64 = 77;
-        let curve = tiny_a();
-        let g: AffinePoint<FpMonty> = curve.generator();
-        let q = curve.scalar_mul(&g, &Uint::<4>::from(k_target));
+        let (curve, g, q) = tiny_a_instance(77);
 
-        let k = solve_dp_batch(&curve, &g, &q, TINY_A_N, 2, 4, 4, 0xBA7C_5EED)
-            .expect("solve_dp_batch failed on tiny_a");
+        let solution =
+            solve_dp_batch(&curve, &g, &q, TINY_A_N, 2, 4, 4, 0xBA7C_5EED, SUCCESS_BUDGET)
+                .expect("solve_dp_batch failed on tiny_a");
 
-        let check = curve.scalar_mul(&g, &Uint::<4>::from(k));
-        assert_eq!(check, q, "solve_dp_batch_tiny: k·G ≠ Q (k={k})");
+        assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_batch_tiny");
     }
 
     // ── GLV endomorphism tests ────────────────────────────────────────────────
 
-    /// solve_dp_glv solves a known DLP on the tiny GLV test curve.
+    /// solve_dp_glv_impl solves a known DLP on the tiny GLV test curve.
     ///
-    /// Uses the tiny GLV curve (n=1093) with 2 threads, batch_size=4, theta=4.
-    /// Verifies that the returned k satisfies k·G = Q.
+    /// Uses the tiny GLV curve (n=1093) with 2 threads, batch_size=4, theta=2.
+    /// Verifies that the evidence is a collision and that the returned k satisfies k·G = Q.
     ///
     /// The tiny GLV curve has the same structure as secp_k1_toy (y² = x³ + 7,
     /// a=0) but over a much smaller prime field, making the test fast.
     #[test]
     fn solve_dp_glv_tiny() {
-        let k_target: u64 = 77;
         let curve = tiny_glv();
         let g: AffinePoint<FpMonty> = curve.generator();
-        let q = curve.scalar_mul(&g, &Uint::<4>::from(k_target));
+        let q = curve.scalar_mul(&g, &Uint::<4>::from(77u64));
 
-        let k = solve_dp_glv_impl(
-            &curve, &g, &q, TINY_GLV_N, 2, 4, 2, 0xBA7C_5EED,
+        let solution = solve_dp_glv_impl(
+            &curve, &g, &q, TINY_GLV_N, 2, 4, 2, 0xBA7C_5EED, SUCCESS_BUDGET,
             TINY_GLV_BETA, TINY_GLV_LAMBDA,
         ).expect("solve_dp_glv failed on tiny_glv");
 
-        let check = curve.scalar_mul(&g, &Uint::<4>::from(k));
-        assert_eq!(check, q, "solve_dp_glv_tiny: k·G ≠ Q (k={k})");
+        assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_glv_tiny");
+    }
+
+    /// The GLV solver spends exactly the whole batches its budget allows and reports exhaustion.
+    #[test]
+    fn solve_dp_glv_impl_reports_budget_exhaustion() {
+        let curve = tiny_glv();
+        let g: AffinePoint<FpMonty> = curve.generator();
+        let q = curve.scalar_mul(&g, &Uint::<4>::from(77u64));
+
+        let r = solve_dp_glv_impl(
+            &curve, &g, &q, TINY_GLV_N, 2, 4, 2, 0xBA7C_5EED, 10, TINY_GLV_BETA, TINY_GLV_LAMBDA,
+        );
+        assert_eq!(r, Err(DlogError::BudgetExhausted { attempts: 1, steps: 8 }));
+    }
+
+    /// `solve_dp_glv` is `Unsupported` off the `secp_k1_toy` group, checked by parameters: a curve
+    /// with the same equation over another prime, and the right curve with another claimed order.
+    #[test]
+    fn solve_dp_glv_rejects_other_curves() {
+        use crate::curve::secp_k1_toy::{secp_k1_toy, N as SECP_N};
+
+        let curve = tiny_glv();
+        let g: AffinePoint<FpMonty> = curve.generator();
+        let q = curve.scalar_mul(&g, &Uint::<4>::from(77u64));
+        assert!(matches!(
+            solve_dp_glv(&curve, &g, &q, TINY_GLV_N, 2, 4, 2, 0, SUCCESS_BUDGET),
+            Err(DlogError::Unsupported(_))
+        ));
+
+        let toy = secp_k1_toy();
+        let tg: AffinePoint<FpMonty> = toy.generator();
+        let tq = toy.scalar_mul(&tg, &Uint::<4>::from(5u64));
+        assert!(matches!(
+            solve_dp_glv(&toy, &tg, &tq, SECP_N - 2, 2, 4, 2, 0, SUCCESS_BUDGET),
+            Err(DlogError::Unsupported(_))
+        ));
+        assert!(is_secp_k1_toy_group(&toy, SECP_N));
     }
 
     /// GLV takes fewer total walk steps than negmap on the tiny GLV curve.
     ///
-    /// Runs both solvers 3 times on the same DLP instance and verifies
-    /// that GLV required fewer total steps on average, demonstrating the √3
-    /// speedup vs the negation-map-only walk.
+    /// Runs both solvers on the same DLP instance over many seeds and compares the step counts
+    /// they report in their collision evidence, demonstrating the √3 speedup vs the
+    /// negation-map-only walk.
     ///
-    /// Uses the tiny GLV curve (n=1093) so the test completes quickly.
-    /// Wall time is used as a proxy for step count.
+    /// Uses the tiny GLV curve (n=1093) so the test completes quickly. The walkers race, so a
+    /// single run's count varies; the sum over many seeds is compared with a generous margin.
     #[test]
     fn glv_fewer_steps_than_negmap() {
-        use std::time::Instant;
-
         let k_target: u64 = 500;
         let curve = tiny_glv();
         let g: AffinePoint<FpMonty> = curve.generator();
         let q = curve.scalar_mul(&g, &Uint::<4>::from(k_target));
 
         let theta = 2u32;
-        let runs = 3usize;
+        let runs = 20u64;
 
-        let mut negmap_total = std::time::Duration::ZERO;
-        let mut glv_total    = std::time::Duration::ZERO;
+        let mut negmap_steps = 0u64;
+        let mut glv_steps = 0u64;
 
         for i in 0..runs {
-            let seed = 0xDEAD_C0DE_u64.wrapping_add(i as u64 * 0x1234_5678);
+            let seed = 0xDEAD_C0DE_u64.wrapping_add(i * 0x1234_5678);
 
-            let t0 = Instant::now();
-            let k_nm = solve_dp_negmap(&curve, &g, &q, TINY_GLV_N, 2, theta, seed)
+            let nm = solve_dp_negmap(&curve, &g, &q, TINY_GLV_N, 2, theta, seed, SUCCESS_BUDGET)
                 .expect("solve_dp_negmap failed in glv_fewer_steps_than_negmap");
-            negmap_total += t0.elapsed();
-            let check = curve.scalar_mul(&g, &Uint::<4>::from(k_nm));
-            assert_eq!(check, q, "negmap returned wrong k in run {i}");
+            negmap_steps += assert_dp_evidence(&curve, &g, &q, &nm, "negmap");
 
-            let t1 = Instant::now();
-            let k_glv = solve_dp_glv_impl(
-                &curve, &g, &q, TINY_GLV_N, 2, 4, theta, seed,
+            let glv = solve_dp_glv_impl(
+                &curve, &g, &q, TINY_GLV_N, 2, 4, theta, seed, SUCCESS_BUDGET,
                 TINY_GLV_BETA, TINY_GLV_LAMBDA,
             ).expect("solve_dp_glv failed in glv_fewer_steps_than_negmap");
-            glv_total += t1.elapsed();
-            let check2 = curve.scalar_mul(&g, &Uint::<4>::from(k_glv));
-            assert_eq!(check2, q, "glv returned wrong k in run {i}");
+            glv_steps += assert_dp_evidence(&curve, &g, &q, &glv, "glv");
         }
 
-        // GLV should be faster on average.  Allow a generous 3× margin to
-        // avoid flakiness on loaded CI machines (the tiny curve has very few
-        // points, so statistical variance is high).
         assert!(
-            glv_total <= negmap_total * 3,
-            "GLV ({glv_total:?}) was not faster than negmap ({negmap_total:?}) — \
-             expected GLV ≤ 3× negmap time"
+            glv_steps <= negmap_steps * 2,
+            "GLV took {glv_steps} steps over {runs} runs against negmap's {negmap_steps}; \
+             expected GLV ≤ 2× negmap"
         );
     }
 
     /// Stress test: solve_dp_negmap never returns a wrong k on a 20-bit DLP.
     ///
-    /// Runs `solve_dp_negmap` 8 times across different seeds and k-targets,
+    /// Runs `solve_dp_negmap` across different seeds and k-targets,
     /// verifying every result.  The primary goal is correctness: the negation
     /// map must never produce a k that fails the `k·G = Q` check.
     ///
@@ -1565,22 +1877,14 @@ mod tests {
             // (the walk starts on the cycle, so all DPs have the same scalars
             // on each visit).  Two walkers explore different trajectories and
             // can find cross-walker collisions.
-            let k_negmap = solve_dp_negmap(&curve, &g, &q, TINY_A_N, 2, 4, seed)
-                .expect("solve_dp_negmap failed in stress test");
-            let check_negmap = curve.scalar_mul(&g, &Uint::<4>::from(k_negmap));
-            assert_eq!(
-                check_negmap, q,
-                "solve_dp_negmap: k·G ≠ Q for k_target={k_target} seed={seed:#x}"
-            );
+            let negmap = solve_dp_negmap(&curve, &g, &q, TINY_A_N, 2, 4, seed, SUCCESS_BUDGET)
+                .unwrap_or_else(|e| panic!("solve_dp_negmap k={k_target} seed={seed:#x}: {e:?}"));
+            assert_dp_evidence(&curve, &g, &q, &negmap, "negmap stress");
 
             // Also verify solve_dp for the same instance.
-            let k_plain = solve_dp(&curve, &g, &q, TINY_A_N, 1, 4, seed)
-                .expect("solve_dp failed in stress test");
-            let check_plain = curve.scalar_mul(&g, &Uint::<4>::from(k_plain));
-            assert_eq!(
-                check_plain, q,
-                "solve_dp: k·G ≠ Q for k_target={k_target} seed={seed:#x}"
-            );
+            let plain = solve_dp(&curve, &g, &q, TINY_A_N, 1, 4, seed, SUCCESS_BUDGET)
+                .unwrap_or_else(|e| panic!("solve_dp k={k_target} seed={seed:#x}: {e:?}"));
+            assert_dp_evidence(&curve, &g, &q, &plain, "plain stress");
         }
     }
 }
