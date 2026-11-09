@@ -461,12 +461,18 @@ above the proven Miller–Rabin bound (ψ₁₃ ≈ 2^81.5 once base 41 is added
 
 ### C-ShorFactorOutcome
 
-Compiler + test-enforced. *To be frozen at 11.* Consumed by 12.
+Compiler + test-enforced. **Frozen at 11 (c20ef50).** Consumed by 12. As built: `CommonFactor` is
+NOT in the enum (the driver draws only bases coprime to n, so the variant could never occur;
+producing it would turn the base scan into trial division — rule 5); `ShorFactorization` is
+`#[non_exhaustive]`; public constants `MAX_QUBITS = 25` (admits n ≤ 4096), `MAX_BASES = 20`,
+`SEEDS_PER_BASE = 8`; `Unsupported { qubits }` = `n_bits(n) + n_bits(n + 1)`; n ≤ 2 → `NotComposite`;
+check order: n ≤ 2, even, prime power, qubit ceiling, trial-division primality, order-finding loop (so
+a large odd prime beyond the ceiling is `Unsupported`, not `NotComposite`).
 
 ```rust
 pub fn factor(n: u64, seed: u64) -> Result<ShorFactorization, ShorFactorError>;
 pub struct ShorFactorization { pub p: u64, pub q: u64, pub evidence: ShorEvidence } // p·q == n
-pub enum ShorEvidence { Even, PrimePower { prime: u64, exponent: u32 }, CommonFactor { a: u64 },
+pub enum ShorEvidence { Even, PrimePower { prime: u64, exponent: u32 },
                         OrderFinding { a: u64, seed: u64, s: u64, r: u64 } }
 pub enum ShorFactorError { NotComposite, Unsupported { qubits: usize },
                            AttemptsExhausted { attempts: usize } }
@@ -498,7 +504,7 @@ ba81676's body is also unwrapped (cosmetic; same `@git-editor` pass).
 | 8 | Reject off-curve and non-subfield points in the GHS transfer | done | dbc33d2 | C-GhsTransferGuard |
 | 9 | Type rho factoring outcomes and bound each attempt | done | a404982 | C-RhoFactorOutcome |
 | 10 | Type ECM factoring outcomes | done | 54c393a | C-EcmOutcome |
-| 11 | Report Shor factoring provenance and return the minimal order | pending | | |
+| 11 | Report Shor factoring provenance and return the minimal order | done | c20ef50 | C-ShorFactorOutcome |
 | 12 | Correct the solver-outcome exposition ◆ | pending | | |
 | 13 | Anneal cleanup (skippable) | pending | | |
 
@@ -726,6 +732,27 @@ B1. (b) Row 12 obligations from row 9's entry stand; `shared/numth/docs/PEDAGOGY
 `ecm_factor`'s signature (`-> Option<Uint<4>>`), line numbers and the 12/13-witness claims.
 (c) Option (a)/(b) user flags in row 9's entry remain open (note: C-EcmOutcome froze without an
 invariant-failure variant, mirroring C-RhoFactorOutcome).
+Texture: none.
+
+### 11 — 2026-11-09
+Discovery/flex: Contract narrowed (read from the builder's own report; the row entry's "if the driver
+takes that path" allowed it): `ShorEvidence::CommonFactor` dropped — never produced, since bases are
+drawn coprime to n. Previously unenforced "~25 qubits" ceiling is now `MAX_QUBITS = 25`. Attempt
+budget: 20 bases × 8 runs, seeds `seed + 1000·base_index + run_index`; `AttemptsExhausted.attempts` =
+circuit runs actually made (fewer than 160 for small n; n = 15 has 7 coprime bases); a private
+`factor_with_budget` lets a unit test exhaust a tiny budget with no circuit. `order_from_phase`: first
+convergent denominator d ≤ N with a^d ≡ 1, then `reduce_to_order` divides out each prime f | d while
+a^(d/f) ≡ 1 holds (requires N < 2³² so `mod_pow` products fit u64). Fixtures: (15, 0) → a=2, s=4,
+r=4; (21, 0) → 2, 27, 6; (35, 7) → 2, 59, 12 (renamed `factor_35_seed7`; the old `factor_35_seed8`
+passed only via a retry at seed 13); (91, 1) → 2, 53, 12. `find_order_returns_valid_order` is
+non-vacuous (five cases); `find_order(2, 15, 1)` is `None`; `factor_returns_valid_factorization`
+removed (fixtures cover it). Register width stays n_bits(N); rustdoc states the 2^t ≥ N² bound and
+that sufficiency is empirical. Gate: `factor_kat` 33 passed in ≈ 12 s; the ignored cross-check
+(`find_seed_for_91`) run by the driver: 1 passed, 18.6 s. shor still has no direct `shared-numth`
+edge (a transitive one pre-exists; no manifest changed).
+Affected: C-ShorFactorOutcome (frozen as built, `CommonFactor` removed).
+Deferred: yes — row 12: shor PEDAGOGY's factoring chapter and `docs/MATHEMATICS.md:3906` (still names
+`shor/src/shor.rs`); describe the check order, the ceiling constant, and `n ≤ 2 → NotComposite`.
 Texture: none.
 
 ## Discoveries & risks
