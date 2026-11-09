@@ -20,10 +20,9 @@ and the Tonelli–Shanks square root); Miller–Rabin primality testing; B-smoot
 `SmoothWitness` structure; Lenstra's Elliptic Curve Method (ECM) for factoring; and Montgomery's
 batched field inversion.
 
-This chapter was written as a backfill (session S0.W). Phase α shipped its crates with thorough
-code-level docstrings but no integrative chapter, while every other phase received one (G.W, D.W,
-and so on). The substrate's mathematical content — ECM in particular — is substantial enough to
-deserve the same treatment; this chapter supplies it.
+These crates carry thorough code-level docstrings, but those do not give an integrative account.
+The substrate's mathematical content — ECM in particular — is substantial enough to deserve one;
+this chapter supplies it.
 
 ---
 
@@ -41,12 +40,12 @@ kinds of computation:
 3. **Cross-cutting arithmetic helpers** that do not belong to either — chiefly Montgomery's batched
    inversion, which amortises the cost of many field inversions. This is `shared-bigint`.
 
-Each crate is consumed by multiple tracks. `shared-numth`'s smoothness predicate is Contract C1,
-designed at S0.2 with three consumers in mind: NFS sieving (G.C), NFS-DL relation collection (D.A),
-and ECDLP index calculus (E.K). ECM is a standalone factoring primitive; no solver in the workspace
-calls it (Pohlig–Hellman's `factor_order` uses trial division instead). The `Fp` trait's square
-root is used by pairing-friendly field constructions (E.B) and anywhere a curve point must be
-recovered from its x-coordinate.
+Each crate is consumed by multiple solvers. `shared-numth`'s smoothness predicate was designed
+with three consumers in mind: NFS sieving, NFS discrete-log relation collection, and ECDLP index
+calculus. ECM is a standalone factoring primitive; no solver in the workspace calls it
+(Pohlig–Hellman's `factor_order` uses trial division instead). The `Fp` trait's square root is used
+by pairing-friendly field constructions and anywhere a curve point must be recovered from its
+x-coordinate.
 
 ### The crate names
 
@@ -230,15 +229,15 @@ product) outside the base — the data the large-prime variations need.
 `cofactor == 1`), `product` (line 63, reconstructs `cofactor · ∏ pᵉ`), and `verify` (line 77, the
 round-trip check used in tests).
 
-### The witness as Contract C1
+### The witness as a shared interface
 
-The `SmoothWitness` shape is deliberately general: it is Contract C1, designed at S0.2 to serve
-three consumers — integer smoothness with a prime factor base (G.C sieving, D.A relation collection)
+The `SmoothWitness` shape is deliberately general: it was designed to serve three consumers —
+integer smoothness with a prime factor base (NFS sieving, NFS discrete-log relation collection)
 and, structurally similar though semantically different, smoothness of curve points via Semaev
-polynomials (E.K index calculus). All three inspect `cofactor` to decide full versus partial
-smoothness; the `factors` list becomes the exponent vector for the linear-algebra phase. This is the
-"substrate sessions over-specify" rule in action: the witness was shaped for E.K even though E.K
-lands much later.
+polynomials (ECDLP index calculus). All three inspect `cofactor` to decide full versus partial
+smoothness; the `factors` list becomes the exponent vector for the linear-algebra stage. The
+witness was shaped for the index-calculus consumer even though that consumer is built much later
+than the substrate.
 
 ### Trial division and the factor base
 
@@ -355,16 +354,16 @@ curves tried, so the test does not show that stage 1 alone fails.
 
 **Code reference:** `shared/numth/src/ecm.rs` — `ecm_factor`, `EcmError`, `EcmResult`.
 
-**Scale disconnect (principle 4, under-exposed).** The ECM module carries three explicit TODOs:
+**Scale disconnect (under-exposed).** The ECM module carries three explicit TODOs:
 the Brent–Suyama parameterization (an improved σ formula that raises the smoothness-hit rate), an
 FFT-based stage-2 continuation, and stage-2 step-size optimisation. All three are *scale-only*
-optimisations in the ROADMAP's sense: their mathematical content is real, but their payoff only
-appears when ECM is run at the scale where it factors large cofactors at speed. At the toy scale of
-the KATs (semiprimes up to a few hundred thousand, B1 in the tens-to-hundreds) the simple Suyama
-parameterization and linear stage-2 walk are entirely sufficient, and the optimised versions would
-demonstrate no measurable difference. They are therefore documented and deferred, with the
-disconnect noted: the omission is engineering-at-scale, not missing mathematics. ECM's *algorithmic*
-content — the curve-group idea, the two-stage structure, the Montgomery ladder — is complete.
+optimisations: their mathematical content is real, but their payoff only appears when ECM is run
+at the scale where it factors large cofactors at speed. At the toy scale of the KATs (semiprimes up
+to a few hundred thousand, B1 in the tens-to-hundreds) the simple Suyama parameterization and
+linear stage-2 walk are entirely sufficient, and the optimised versions would demonstrate no
+measurable difference. They are therefore documented and deferred, with the disconnect noted: the
+omission is engineering-at-scale, not missing mathematics. ECM's *algorithmic* content — the
+curve-group idea, the two-stage structure, the Montgomery ladder — is complete.
 
 ---
 
@@ -394,7 +393,7 @@ It is generic over any `Fp<L>` implementation, lives in `shared-bigint` because 
 neither the field-arithmetic nor the number-theory crate cleanly, and is the only public item that
 crate currently re-exports. The empty-slice case is a no-op; a zero element has no inverse and is a
 precondition violation. The `rho` chapter discusses how this same trick makes affine-coordinate
-walks competitive with Jacobian ones (Phase 7 there).
+walks competitive with Jacobian ones.
 
 **Code reference:** `shared/bigint/src/batch_inv.rs:25`.
 
@@ -449,17 +448,17 @@ QR tests are in `shared/field/tests/sqrt_legendre_kat.rs`; the `numth` tests are
 
 | Component | Consumed by |
 |-----------|-------------|
-| `Fp<L>` arithmetic | everything with field arithmetic — `rho`, G.A (number fields build on `Fp`), all of δ |
-| `Fp::legendre`, `Fp::sqrt` | E.B (pairing-friendly primes need p ≡ 1 mod 4 square roots), curve point recovery |
-| `is_prime`, `miller_rabin` | `factor_base_up_to`, Pohlig–Hellman group-order analysis (E.A), polynomial-selection screening (G.B) |
-| `trial_smooth`, `SmoothWitness` (Contract C1) | G.C (NFS sieving), D.A (NFS-DL relations), E.K (index calculus) |
+| `Fp<L>` arithmetic | everything with field arithmetic — `rho`, number fields (which build on `Fp`), the NFS discrete-log solvers |
+| `Fp::legendre`, `Fp::sqrt` | pairing-friendly prime construction (needs p ≡ 1 mod 4 square roots), curve point recovery |
+| `is_prime`, `miller_rabin` | `factor_base_up_to`, Pohlig–Hellman group-order analysis, polynomial-selection screening |
+| `trial_smooth`, `SmoothWitness` | NFS sieving, NFS discrete-log relation collection, ECDLP index calculus |
 | `ecm_factor` | no caller in the workspace other than its own tests (Pohlig–Hellman's `factor_order` uses trial division) |
 | `MILLER_RABIN_PROOF_BOUND` | the bound `ecm_factor` compares a prime verdict against; rho factoring uses the twelve-base bound ψ₁₂ for the same purpose |
 | `batch_invert` | `rho` affine walks; future sieve/linear-algebra inner loops |
 
-The C1 smoothness witness is the substrate's most load-bearing cross-track contract; the number-field
-chapter (§10) and the ROADMAP (Contract C1) track its evolution. Its current `Uint<4>` /
-`(u64, u32)` shape was confirmed sufficient for toy-scale norms at G.A.1a.
+The smoothness witness is the substrate's most load-bearing interface across solvers; the
+number-field chapter (§10) tracks its evolution. Its current `Uint<4>` / `(u64, u32)` shape was
+confirmed sufficient for toy-scale norms in the number-field arithmetic.
 
 ---
 

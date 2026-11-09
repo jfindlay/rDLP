@@ -2,7 +2,8 @@
 //!
 //! This module implements the SSA reduction, which solves the ECDLP in polynomial time on
 //! anomalous curves (curves with trace of Frobenius = 1, i.e. `#E(F_p) = p`). It consumes
-//! the frozen p-adic substrate from `shared-padic` (C-Padic, C-Hensel, C-PadicLog).
+//! the p-adic substrate from `shared-padic` (p-adic arithmetic, Hensel lifting, and the
+//! p-adic logarithm).
 //!
 //! # Structure
 //!
@@ -17,7 +18,7 @@
 //! of Frobenius is 1. The base point `G = (3, 2)` has `y ≠ 0`, ensuring the Hensel y-solve
 //! has a simple root (`f'(y₀) = 2·y₀ = 4 ≢ 0 mod 7`).
 //!
-//! # Principle-4 boundary
+//! # Scale limits
 //!
 //! The fixture is hand-picked (not discovered via Schoof–SEA). The O(p) point-count verify
 //! is a fixture check, not a general point-counting algorithm. Toy precision only. Primes or
@@ -123,7 +124,7 @@ pub const ANOMALOUS_TOY_P: u64 = 7;
 /// `#E(F_7) = 7 = p` points (trace of Frobenius = 1). The base point `G = (3, 2)` has
 /// `y ≠ 0`, so the Hensel y-solve has a simple root.
 ///
-/// # Principle-4 annotation
+/// # Fixture limits
 ///
 /// This fixture is hand-picked, not discovered via Schoof–SEA. The O(p) `verify_anomalous`
 /// helper confirms the order; it is a fixture check, not a general point-counting algorithm.
@@ -231,7 +232,7 @@ fn pow_mod(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
 ///
 /// Panics in debug mode if the upper limbs are non-zero (p ≥ 2^64).
 ///
-/// # Principle-4 annotation
+/// # Scale limits
 ///
 /// SCALE: toy-scale only — crypto-scale p would need full Uint<4>→BigInt conversion.
 pub(crate) fn uint4_to_u64(u: &Uint<4>) -> u64 {
@@ -239,14 +240,14 @@ pub(crate) fn uint4_to_u64(u: &Uint<4>) -> u64 {
     debug_assert!(
         words[1] == 0 && words[2] == 0 && words[3] == 0,
         "uint4_to_u64: Uint<4> has non-zero upper limbs — p >= 2^64 not supported at toy scale \
-         (principle-4 boundary)"
+         (single-limb limit)"
     );
     words[0]
 }
 
 /// Convert a `Uint<4>` field element to a `BigInt`.
 ///
-/// # Principle-4 annotation
+/// # Scale limits
 ///
 /// SCALE: toy-scale only — crypto-scale p would need the full limb vector.
 pub(crate) fn uint4_to_bigint(u: &Uint<4>) -> BigInt {

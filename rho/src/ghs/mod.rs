@@ -39,7 +39,7 @@
 //! Odd `m/l` keeps the descent in the imaginary/ramified hyperelliptic model
 //! that the frozen [`crate::hyperelliptic::HyperellipticCurve`] handles.
 //!
-//! # Principle-4 boundary
+//! # Scale limits
 //!
 //! The fixture is toy-scale (m=6, l=2). The algorithms are crypto-scale-correct;
 //! only the parameters are small for auditability.
@@ -153,7 +153,7 @@ pub const GHS_POLY2: u64 = 0x7; // x^2 + x + 1
 /// subfield l=2 (m/l=3, odd) makes this curve amenable to the GHS descent in
 /// the imaginary hyperelliptic model.
 ///
-/// # Principle-4 annotation
+/// # Placeholder fields
 ///
 /// The group order `n` and base point `(gx, gy)` are placeholders — the descent
 /// algebra does not require them. The transfer map ([`transfer_point`]) will supply

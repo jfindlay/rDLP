@@ -46,7 +46,7 @@
 //! so at most one of the two candidates can verify (they coincide only for `k_raw = 0`, which
 //! never verifies for `Q ≠ ∞`). `resolve_candidate` records which one did.
 //!
-//! # Principle-4 boundary
+//! # Scale limits
 //!
 //! Toy scale only: p = 7, k = 8. The verification is O(1): at most 2 scalar multiplications.
 
@@ -91,7 +91,7 @@ use crate::ssa::{SsaError, curve_params_u64, uint4_to_bigint, verify_anomalous};
 ///   candidate (`k_raw`, `k_raw / 2`) satisfies `k·G = Q`; see the module documentation for the
 ///   candidates.
 ///
-/// # Principle-4 annotation
+/// # Scale limits
 ///
 /// SCALE: toy-scale only. The multiply-by-p loop is O(p) BigInt work. The fixed precision
 /// k=8 is correct only for small toy primes. Crypto-scale p would require a different approach.
@@ -183,7 +183,7 @@ pub fn ssa_solve<F: Fp<4>>(
 /// The projective addition formula handles the degenerate p-th step where the affine
 /// denominator is not a unit mod p^k.
 ///
-/// # Principle-4 annotation
+/// # Scale limits
 ///
 /// SCALE: toy-scale only. p additions is O(p) — correct only for small toy primes.
 fn multiply_by_p_proj(
@@ -231,7 +231,7 @@ fn multiply_by_p_proj(
 ///
 /// Returns the result as `(X3, Y3, Z3)` in standard projective coordinates.
 ///
-/// # Principle-4 annotation
+/// # Scale limits
 ///
 /// SCALE: toy-scale only. BigInt arithmetic mod p^k is correct but not efficient.
 fn proj_add_std(
@@ -333,7 +333,7 @@ fn proj_double_std(
 /// Both `psi_g` and `psi_q` are in `p^v·Z_p` for some `v ≥ 1`. Extracts the unit parts
 /// (divides by `p^v`), then computes `(psi_q / p^v) · (psi_g / p^v)⁻¹ mod p`.
 ///
-/// # Principle-4 annotation
+/// # Scale limits
 ///
 /// SCALE: toy-scale only. The extraction of the unit part assumes small p.
 fn fp_divide_logs(psi_g: &Zp, psi_q: &Zp, p_u64: u64, p: &BigInt) -> Result<u64, SsaError> {

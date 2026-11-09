@@ -22,7 +22,7 @@ Bumping the toolchain is a deliberate, verified step, not a one-line edit:
 
 1. Edit the `channel` value in `rust-toolchain.toml` to the new exact release.
 2. Re-run every command in the "Check commands" section below against the new toolchain and record
-   the results in `docs/NOTES.md`, the same way the current baseline was measured. A different
+   the results, measured the same way as the current baseline. A different
    release can shift `clippy`/`rustfmt` diagnostics or dependency-audit results, so the existing
    readiness baselines only apply to the toolchain they were measured against — repeat the
    measurement rather than assuming the old numbers still hold.

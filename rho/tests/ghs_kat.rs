@@ -110,7 +110,7 @@
 //! - Binary curve `E/GF(2^6)`: `y²+xy = x³+x²+1` (`a=1`, `b=1`).
 //!
 //! The algorithms are crypto-scale-correct; only the parameters are toy
-//! (principle-4 boundary).
+//! (m=6, l=2, genus 1).
 
 use crypto_bigint::Uint;
 use rho::binary_curve::{BinaryAffinePoint, BinaryCurve};
@@ -697,7 +697,7 @@ fn relative_norm_lands_in_subfield() {
 /// is needed for the GHS attack to be effective), but the construction is
 /// mathematically correct.
 ///
-/// # Principle-4 annotation
+/// # Scale limits
 ///
 /// Toy parameters (m=6, l=2) give genus 1.  Crypto-scale GHS uses n ≥ 5
 /// (genus ≥ 2).  The formula `g = (n−1)/2` is crypto-scale-correct.

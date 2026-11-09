@@ -6,8 +6,8 @@
 //! # Algorithm outline
 //!
 //! 1. **Order-finding circuit** ([`find_order`]): prepare the exponent register in uniform
-//!    superposition, apply the C-ModExp circuit (`|x⟩|1⟩ → |x⟩|aˣ mod N⟩`), apply iQFT to
-//!    the exponent register, measure to get a phase numerator `s ≈ k·2^t/r`.
+//!    superposition, apply the modular-exponentiation circuit (`|x⟩|1⟩ → |x⟩|aˣ mod N⟩`), apply
+//!    iQFT to the exponent register, measure to get a phase numerator `s ≈ k·2^t/r`.
 //!
 //! 2. **Continued-fraction period extraction** ([`order_from_phase`]): expand `s/2^t` as a
 //!    continued fraction, take convergents with denominator `≤ N`, and recover the order `r`
@@ -19,7 +19,7 @@
 //!    `r`; if `r` is even and `a^(r/2) ≢ -1 mod N`, return `gcd(a^(r/2) ± 1, N)` as a
 //!    [`ShorFactorization`] with its [`ShorEvidence`]; else retry within a fixed budget.
 //!
-//! # Register layout (C-ModExp — consumed)
+//! # Register layout (modular-exponentiation circuit)
 //!
 //! The order-finding circuit uses the standard `ModExpLayout::standard(N, exp_len)` layout:
 //! - Qubits `[0, exp_len)` — exponent register (t bits, put in superposition)

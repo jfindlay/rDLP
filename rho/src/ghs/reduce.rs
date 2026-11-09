@@ -105,7 +105,7 @@ pub struct GhsDescentResult {
 /// - [`GhsError::NotInSubfield`] if the conorm image of `g` or `h` has a coordinate
 ///   outside `GF(2^l)` (see [`transfer_point`]).
 ///
-/// # Principle-4 annotation
+/// # Scale limits
 ///
 /// The toy fixture (m=6, l=2, n=3, genus=1) gives degree-1 divisors.  The reduction
 /// is crypto-scale-correct; only the parameters are toy for auditability.

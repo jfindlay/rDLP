@@ -29,13 +29,13 @@
 //! where `find_irreducible_degree2` picks a different irreducible than the pairing's modulus
 //! would compute a DL in a different F_{p²} and return a wrong discrete log with no error.
 //!
-//! # Principle-4 boundary
+//! # Scale limits
 //!
 //! The `Uint<4> → BigInt` conversion assumes p < 2^64 (single limb). This is a toy-scale
-//! boundary: at crypto scale (p ~ 2^256), the full limb vector would be needed.
+//! limit: at crypto scale (p ~ 2^256), the full limb vector would be needed.
 //!
 //! The recovered log is `k mod ℓ` (the subgroup log). A full composite-order lift via
-//! Pohlig–Hellman is a principle-4 annotation, not wired here.
+//! Pohlig–Hellman is possible but not wired here.
 
 use crypto_bigint::Uint;
 use num_bigint::BigInt;
@@ -77,8 +77,8 @@ pub fn fpext_to_bigint<F: Fp<4>>(
     let uint_vec: Vec<Uint<4>> = elem.to_uint_vec();
 
     // Step 2: convert each Uint<4> to BigInt.
-    // Toy-only (principle-4 boundary): assumes p < 2^64 (single limb). A crypto-scale p
-    // needs the full limb vector.
+    // Toy-scale limit: assumes p < 2^64 (single limb). A crypto-scale p needs the full
+    // limb vector.
     let coeffs: Vec<BigInt> = uint_vec
         .iter()
         .map(|u| {
@@ -86,7 +86,7 @@ pub fn fpext_to_bigint<F: Fp<4>>(
             debug_assert!(
                 words[1] == 0 && words[2] == 0 && words[3] == 0,
                 "fpext_to_bigint: Uint<4> has non-zero upper limbs — p >= 2^64 is not supported \
-                 at toy scale (principle-4 boundary)"
+                 (single-limb toy-scale limit)"
             );
             BigInt::from(words[0])
         })
@@ -268,7 +268,7 @@ fn check_mov_input<F: Fp<4>>(
 ///
 /// The returned value is `k mod ℓ` — the discrete log in the order-ℓ subgroup, so the check
 /// `k·G == Q` is exact in `E[ℓ]` with `k` reduced modulo ℓ. A full composite-order lift via
-/// Pohlig–Hellman is a principle-4 annotation, not wired here.
+/// Pohlig–Hellman is possible but not wired here.
 ///
 /// # Arguments
 ///

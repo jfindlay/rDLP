@@ -37,7 +37,7 @@
 //! # Recovered log
 //!
 //! The returned value is `k mod ℓ` — the discrete log in the order-ℓ subgroup. A full
-//! composite-order lift via Pohlig–Hellman is a principle-4 annotation, not wired here.
+//! composite-order lift via Pohlig–Hellman is possible but not wired here.
 //!
 //! # No-regression gate
 //!

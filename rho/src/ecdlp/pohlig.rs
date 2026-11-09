@@ -38,8 +38,8 @@
 //! Toy-order-scoped (u64 group orders). `factor_order` uses trial division via
 //! `shared_numth::trial_smooth` over a `√n` factor base, with an `is_prime`
 //! short-circuit on the cofactor. For orders beyond u64 (not needed here),
-//! `shared_numth::ecm_factor` is available as a fallback — noted as a
-//! principle-4 annotation, not wired.
+//! `shared_numth::ecm_factor` is available as a fallback, but it is not wired
+//! here.
 
 use crypto_bigint::Uint;
 
@@ -102,7 +102,7 @@ pub struct PohligEvidence {
 /// with an `is_prime` short-circuit on the remaining cofactor.
 ///
 /// Toy-order-scoped (u64). For orders that require ECM, `shared_numth::ecm_factor`
-/// is available as a fallback (principle-4 annotation — not wired here).
+/// is available as a fallback, but it is not wired here.
 ///
 /// # Panics
 ///

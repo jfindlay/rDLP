@@ -18,8 +18,8 @@
 //!    (base, seed, measured phase, order) and rechecks `a^r ≡ 1` and the gcd step from it.
 //!
 //! 4. **91 ceiling-stress KAT** — `factor(91)→{7,13}`. N=91 uses 14 qubits (exp_len=7,
-//!    work=7), well within the ~25-qubit simulator ceiling. This is the principle-4
-//!    ceiling-stress case: the algorithm is correct; the qubit budget fits.
+//!    work=7), well within the ~25-qubit simulator ceiling. This is the qubit-ceiling stress
+//!    case: the algorithm is correct; the qubit budget fits.
 //!
 //! 5. **Classification** — primes and `n ≤ 1` are `NotComposite`, even `n` is `Even`, prime powers
 //!    are `PrimePower`, and a circuit beyond the qubit ceiling is `Unsupported`; none of these
@@ -388,7 +388,7 @@ fn factor_35_seed7() {
 // ── KAT group 4: 91 ceiling-stress KAT ───────────────────────────────────────
 //
 // N=91 = 7×13. Uses 14 qubits (exp_len=7, work=7), well within the ~25-qubit ceiling.
-// This is the principle-4 ceiling-stress case: the algorithm is correct and the qubit
+// This is the qubit-ceiling stress case: the algorithm is correct and the qubit
 // budget fits. The ancilla-free permutation-synthesis implementation keeps the budget at
 // exp_len+n=14.
 
@@ -437,7 +437,7 @@ fn factor_91_seed1() {
 
 /// Qubit budget for N=91 is within the ~25-qubit ceiling.
 ///
-/// This test documents the principle-4 resource-scale annotation: N=91 requires 14 qubits
+/// This test documents the simulator's qubit-resource limit: N=91 requires 14 qubits
 /// (exp_len=7, work=7), which fits within the ~25-qubit simulator ceiling. The algorithm is
 /// correct at this scale; larger N would require more qubits than the simulator supports.
 ///

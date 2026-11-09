@@ -126,7 +126,7 @@ use shared_gf2m::Poly;
 /// cantor::add(curve_c, transfer(P), transfer(Q), poly_l) == transfer(curve_e.add(P, Q))
 /// ```
 ///
-/// # Principle-4 annotation
+/// # Scale limits
 ///
 /// The toy fixture (m=6, l=2, n=3, genus=1) gives degree-1 divisors.  The
 /// algorithm is correct for any GHS descent; crypto-scale GHS uses genus ≥ 2.

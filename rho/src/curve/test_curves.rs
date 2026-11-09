@@ -33,7 +33,7 @@
 //!
 //! A short-Weierstrass curve over GF(47) whose generator has **full composite**
 //! order `n = 60 = 2² · 3 · 5`.  The repeated prime `2²` exercises the `e > 1`
-//! lift in Pohlig–Hellman (E.A.2).  The three distinct prime factors exercise
+//! lift in Pohlig–Hellman.  The three distinct prime factors exercise
 //! the CRT combine.
 //!
 //! Parameters computed offline by brute-force point-counting and verified by:
@@ -151,8 +151,8 @@ pub const TINY_GLV_LAMBDA: u64 = 151;
 /// `y² = x³ + x + 33 mod 47`.  Composite group order `n = 60 = 2² · 3 · 5`.
 /// The generator `G = (10, 3)` has full order `n` (not a subgroup generator).
 ///
-/// Used by Pohlig–Hellman (E.A) to exercise the prime-power lift (`e = 2` for
-/// the factor `2²`) and the CRT combine across three distinct primes.
+/// Used to exercise the Pohlig–Hellman prime-power lift (`e = 2` for the
+/// factor `2²`) and the CRT combine across three distinct primes.
 pub fn composite_toy() -> Curve {
     Curve {
         p:  Uint::<4>::from(47u64),
