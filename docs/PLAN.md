@@ -42,7 +42,7 @@ factoring's register width (documented, not changed), new algorithms, new crate 
 | 7 | Separate SSA failure classes and handle zero logs and large primes | B | T1 | C-OutcomeShape | `rho/src/ssa/{mod.rs,reduce.rs}`, `rho/tests/ssa_kat.rs`, `rho/benches/attacks.rs` |
 | 8 | Reject off-curve and non-subfield points in the GHS transfer | B | T1 | C-OutcomeShape | `rho/src/ghs/{transfer.rs,mod.rs,reduce.rs}`, `rho/tests/ghs_kat.rs`, `rho/benches/attacks.rs` |
 | 9 | Type rho factoring outcomes and bound each attempt | B | T1 | C-OutcomeShape | `rho/src/factor/{rho.rs,mod.rs,cli.rs}`, `rho/tests/factor_kat.rs`, `rho/benches/factor.rs` |
-| 10 | Type ECM factoring outcomes | B | T1 | C-OutcomeShape | `shared/numth/src/{ecm.rs,lib.rs}` |
+| 10 | Type ECM factoring outcomes | B | T1 | C-OutcomeShape | `shared/numth/src/{ecm.rs,lib.rs,prime.rs}` (prime.rs added after row 9's discovery; see digest) |
 | 11 | Report Shor factoring provenance and return the minimal order | B | T1 | C-OutcomeShape | `shor/src/shor/mod.rs`, `shor/src/lib.rs`, `shor/tests/factor_kat.rs` |
 | 12 ◆ | Correct the solver-outcome exposition | I | T1 (◆ fork T0) | all | `docs/MATHEMATICS.md`, `docs/PEDAGOGY.md`, `docs/BENCHMARKS.md`, `README.md`, `shor/docs/PEDAGOGY.md`, `docs/development.md` |
 | 13 | Anneal cleanup (skippable) | I | — | none | durable files touched by rows 1–12 |
@@ -436,7 +436,11 @@ Compiler + test-enforced. **Frozen at 8 (dbc33d2).** Consumed by 12.
 
 ### C-RhoFactorOutcome
 
-Compiler + test-enforced. *To be frozen at 9.* Consumed by 12.
+Compiler + test-enforced. **Frozen at 9 (a404982).** Consumed by 12. As built: `Factorization` is
+`#[non_exhaustive]`; `FactorEvidence`/`FactorError` also derive `Copy`; public constants
+`MAX_SUPPORTED` (2^80) and `PRIME_PROOF_BOUND` (the 12-base Miller–Rabin proof bound, ≈ 2^78.1); an odd
+n in [`PRIME_PROOF_BOUND`, 2^80) that tests prime is `Unsupported` (cannot be certified). No
+invariant-failure variant (see digest).
 
 ```rust
 pub fn factor(n: u128, max_c: u64, batch_size: usize) -> Result<Factorization, FactorError>;
@@ -448,7 +452,9 @@ pub enum FactorError { InvalidInput, Prime, Unsupported, BudgetExhausted { const
 ### C-EcmOutcome
 
 Compiler + test-enforced. *To be frozen at 10.* Consumed by 12.
-`ecm_factor -> Result<Uint<4>, EcmError>` with `InvalidInput`, `Prime`, `CurvesExhausted { curves }`.
+`ecm_factor -> Result<Uint<4>, EcmError>` with `InvalidInput`, `Prime`, `CurvesExhausted { curves }`,
+and (added after row 9's discovery, by juncture verdict) `Unsupported`: an odd probable prime at or
+above the proven Miller–Rabin bound (ψ₁₃ ≈ 2^81.5 once base 41 is added) cannot be certified.
 
 ### C-ShorFactorOutcome
 
@@ -487,7 +493,7 @@ ba81676's body is also unwrapped (cosmetic; same `@git-editor` pass).
 | 6 | Verify MOV results and type its failure classes | done | 3a35174 | C-MovOutcome |
 | 7 | Separate SSA failure classes and handle zero logs and large primes | done | 9154962 | C-SsaOutcome |
 | 8 | Reject off-curve and non-subfield points in the GHS transfer | done | dbc33d2 | C-GhsTransferGuard |
-| 9 | Type rho factoring outcomes and bound each attempt | pending | | |
+| 9 | Type rho factoring outcomes and bound each attempt | done | a404982 | C-RhoFactorOutcome |
 | 10 | Type ECM factoring outcomes | pending | | |
 | 11 | Report Shor factoring provenance and return the minimal order | pending | | |
 | 12 | Correct the solver-outcome exposition ◆ | pending | | |
@@ -647,8 +653,54 @@ claim the GHS transfer's field identification is general. Follow-up for the user
 switch the reinterpretation to `restrict` and rewrite the two expected constants.
 Texture: none.
 
+### 9 — 2026-11-09
+Discovery/flex: `shared_numth::is_prime` (shared/numth/src/prime.rs) uses 12 Miller–Rabin bases
+(2..37) but its last two table rows (bounds ψ₁₂ = 318,665,857,834,031,151,167,461 ≈ 2^78.08 and
+ψ₁₃ = 3,317,044,064,679,887,385,961,981 ≈ 2^81.5) both use the same twelve bases, and its docs say
+"13-witness set" and "≈ 2^81.6". Confirmed by the juncture fork (code + arithmetic: ψ₁₂ =
+399,165,290,221 × 798,330,580,441 passes bases 2..37 and fails 41, so `is_prime(ψ₁₂)` is a false
+"prime"; the Sorenson–Webster constants are from memory, not re-read). All frozen-contract callers
+(rows 1/4/6 `u64`, `smooth.rs`) are unaffected — 12 bases are deterministic over all u64. Row 9
+handled it locally: `PRIME_PROOF_BOUND` in rho/src/factor/rho.rs; odd n below it that tests prime →
+`Prime`; odd n in [bound, 2^80) that tests prime → `Unsupported` (KAT: 2^79 − 67). Row 9 also:
+`factor(2)` = `Prime`; even n > 2 → d = 2 `Even` with no walk; domain check (n ≥ 2^80 `Unsupported`)
+precedes everything else; `batch_size == 0` (formerly an infinite loop) is treated as 1; per-attempt
+step bound `1024 + 64·⌈n^{1/4}⌉` (one step = one evaluation of f; `floyd` charges 3 per iteration; a
+`brent_batched` re-walk after gcd = n is uncharged, so an attempt may exceed the bound by ≤
+`batch_size`); `max_c` = number of constants c = 1..=max_c tried (c ≡ 0 or n − 2 mod n skipped, not
+counted); `BudgetExhausted { constants }` = walks that actually ran and failed; tiny prime powers
+may need several constants (`factor(25)` needs c = 5), so a small `max_c` can exhaust on a
+composite. Prime powers need no special case (no `Square` evidence).
+Affected: C-RhoFactorOutcome (frozen as built); C-EcmOutcome (widened: `Unsupported` added — see
+juncture verdict `internal-continue`).
+Deferred: yes — ROW 10 DISPATCH MUST: (1) fix `shared/numth/src/prime.rs`: add base 41 to the last
+`DETERMINISTIC_WITNESSES` row; correct the module/`miller_rabin`/`is_prime` docs (12 bases proven below
+ψ₁₂ ≈ 2^78.1; 13 below ψ₁₃ ≈ 2^81.5; above that "probable prime" with no proven bound — remove the
+"negligible" wording; log₂ψ₁₃ is ≈ 81.5, not 81.6); optionally export the bound via `lib.rs`; tests:
+`!is_prime(ψ₁₂)` (fails before the fix) and `is_prime(2^79 − 67)`. (2) ECM: `Prime` only when n = 2
+or n odd, below ψ₁₃ and `is_prime`; even n > 2 → checked divisor 2; odd probable prime ≥ ψ₁₃ →
+`Unsupported`; KATs: 2^89 − 1 → `Unsupported`, `ecm_factor(ψ₁₂)` never `Prime`; check the divisor
+(1 < d < n, n % d == 0) with `Uint` arithmetic independent of the gcd that produced it (`ecm.rs`
+calls `is_prime` only in tests; production `ecm_factor` has no primality test and returns `Some(2)`
+for n = 2). (3) mirror row 9: a failed divisor check is a failed attempt (no invariant variant).
+ROW 12 MUST: correct MATHEMATICS "From probabilistic to deterministic" (~line 1095; 12 bases →
+ψ₁₂ ≈ 2^78.1, +41 → ψ₁₃ ≈ 2^81.5; cite Sorenson–Webster and the regression KAT) and "Why this
+matters" (~line 1103; the claim that ECM tests primality of the found factor is false); fix
+`shared/numth/docs/PEDAGOGY.md` §3 (lines 169–175; same 13/12 and 2^81.6 errors; sweep covers it);
+state that a probable prime between ψ₁₂ and 2^80 is `Unsupported` in rho factoring (2^79 − 67 KAT).
+Optional doc-only follow-up: reword `PRIME_PROOF_BOUND`'s rustdoc in rho/src/factor/rho.rs (it says
+`is_prime` uses "exactly those bases … up to its own documented bound") once prime.rs is fixed.
+Flagged for the USER (not halts): (a) after base 41 is added rho could raise its bound to ψ₁₃ and
+certify all primes < 2^80 (2^79 − 67 would flip `Unsupported` → `Prime`; optional behaviour change);
+(b) C-RhoFactorOutcome and C-EcmOutcome have no invariant-failure variant although C-OutcomeShape
+says invariant failures are a separate variant — adding `Inconsistent` to both is a user-level
+contract choice, cheapest before row 10 freezes.
+Texture: none.
+
 ## Discoveries & risks
 
+- **Row 9 (internal-continue, verified by juncture fork):** `shared_numth::is_prime` returns a false
+  "prime" for ψ₁₂ and between ψ₁₂ and ψ₁₃ (docs wrong; fix scheduled in row 10; see digest).
 - **Row 8 (risk, surfaced):** GHS transfer's GF(2^l) reinterpretation is a fixture coincidence, not
   a general homomorphism; correct fix (`restrict`) rewrites two known-answer constants. Not enrolled;
   surface to the user.
