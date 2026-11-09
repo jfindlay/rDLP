@@ -74,10 +74,16 @@ pub enum GhsError {
     /// (even `m/l` yields the real/split model, which the frozen
     /// [`crate::hyperelliptic::HyperellipticCurve`] does not handle).
     NonDescendable,
-    /// The point is the point at infinity.
+    /// The point does not satisfy the Weierstrass equation of `E`.
     ///
-    /// The GHS transfer map requires a finite affine point on `E`.
-    PointAtInfinity,
+    /// The transfer map is a homomorphism only on `E(GF(2^m))`.
+    NotOnCurve,
+    /// A coordinate of the conorm image is not in the subfield `GF(2^l)`.
+    ///
+    /// The image of a point of `E` is fixed by the `l`-th Frobenius power only when
+    /// `E` is defined over `GF(2^l)`; otherwise the image cannot be read as a point
+    /// of `C(GF(2^l))`.
+    NotInSubfield,
 }
 
 impl std::fmt::Display for GhsError {
@@ -89,8 +95,11 @@ impl std::fmt::Display for GhsError {
             GhsError::NonDescendable => {
                 write!(f, "curve does not admit a GHS descent (e.g. even m/l for imaginary model)")
             }
-            GhsError::PointAtInfinity => {
-                write!(f, "point is the point at infinity; GHS transfer requires a finite point")
+            GhsError::NotOnCurve => {
+                write!(f, "point does not satisfy the curve equation of E")
+            }
+            GhsError::NotInSubfield => {
+                write!(f, "conorm image has a coordinate outside the subfield GF(2^l)")
             }
         }
     }
@@ -205,6 +214,7 @@ mod tests {
         // Smoke-test Display impls (no panic).
         let _ = format!("{}", GhsError::SubfieldDivisibility);
         let _ = format!("{}", GhsError::NonDescendable);
-        let _ = format!("{}", GhsError::PointAtInfinity);
+        let _ = format!("{}", GhsError::NotOnCurve);
+        let _ = format!("{}", GhsError::NotInSubfield);
     }
 }

@@ -101,6 +101,9 @@ pub struct GhsDescentResult {
 ///
 /// - [`GhsError::NonDescendable`] if the curve does not admit a GHS descent (e.g.,
 ///   even `m/l` for the imaginary model).
+/// - [`GhsError::NotOnCurve`] if `g` or `h` is not on `E`.
+/// - [`GhsError::NotInSubfield`] if the conorm image of `g` or `h` has a coordinate
+///   outside `GF(2^l)` (see [`transfer_point`]).
 ///
 /// # Principle-4 annotation
 ///

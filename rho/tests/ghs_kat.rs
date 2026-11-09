@@ -37,6 +37,10 @@
 //! - `transfer_point(G, ...)` succeeds and gives a non-zero divisor.
 //! - Known-answer: `D_G = [X, 1]` (u = X, v = 1).
 //!
+//! ### Input guards
+//! - An off-curve point gives `GhsError::NotOnCurve` (also through `ghs_descend`).
+//! - A conorm image with a coordinate outside `GF(2^l)` gives `GhsError::NotInSubfield`.
+//!
 //! ### Homomorphism property (decisive correctness guard)
 //! - `compose(D_G, D_P) == D_{G+P}` — the transfer is a group homomorphism.
 //! - Known-answer: `D_G = [X, 1]`, `D_P = [X+1, 3]`, `D_{G+P} = [X+1, 2]`.
@@ -109,7 +113,7 @@
 //! (principle-4 boundary).
 
 use crypto_bigint::Uint;
-use rho::binary_curve::BinaryAffinePoint;
+use rho::binary_curve::{BinaryAffinePoint, BinaryCurve};
 use rho::ghs::{
     GhsError, GhsParams, check_ghs_params, ghs_toy_curve, GHS_POLY2, GHS_POLY6,
     ArtinSchreierData, WeilRestriction, weil_restrict_poly,
@@ -587,7 +591,8 @@ fn ghs_error_display_non_empty() {
     let errors = [
         GhsError::SubfieldDivisibility,
         GhsError::NonDescendable,
-        GhsError::PointAtInfinity,
+        GhsError::NotOnCurve,
+        GhsError::NotInSubfield,
     ];
     for e in &errors {
         let s = format!("{e}");
@@ -1285,6 +1290,85 @@ fn transfer_g_plus_p_known_answer() {
         d.v.coeff(0),
         beta,
         "D_{{G+P}}: v constant term must be β = 2 in GF(2^2)"
+    );
+}
+
+// ── Transfer input guards ─────────────────────────────────────────────────────
+
+/// A point that does not satisfy the curve equation is rejected with `NotOnCurve`.
+///
+/// `(0x01, 0x3c)` is `P = (0x01, 0x3a)` with the y-coordinate perturbed: at `x = 1`
+/// the curve has only `y ∈ {0x3a, 0x3b}`.  `(0, 0)` fails too (`0 ≠ b = 1`).
+#[test]
+fn transfer_rejects_off_curve_point() {
+    let p6 = poly6();
+    let params = toy_params();
+    let curve_c = extract_ghs_curve(params.clone()).expect("extraction must succeed");
+    let curve_e = ghs_toy_curve();
+
+    for (x, y) in [(0x01u64, 0x3cu64), (0x00, 0x00)] {
+        let p = BinaryAffinePoint::new(
+            F2mNaive::<1>::from_u64(x, &p6),
+            F2mNaive::<1>::from_u64(y, &p6),
+        );
+        assert!(!curve_e.is_on_curve(&p), "fixture ({x:#x}, {y:#x}) must be off E");
+        assert_eq!(
+            transfer_point(&p, &curve_c, &params),
+            Err(GhsError::NotOnCurve),
+            "off-curve ({x:#x}, {y:#x}) must be rejected"
+        );
+    }
+}
+
+/// `ghs_descend` surfaces `NotOnCurve` for an off-curve base point or target.
+#[test]
+fn ghs_descend_rejects_off_curve_point() {
+    let p6 = poly6();
+    let params = toy_params();
+    let g = ghs_toy_curve().generator::<F2mNaive<1>>();
+    let off = BinaryAffinePoint::new(
+        F2mNaive::<1>::from_u64(0x01, &p6),
+        F2mNaive::<1>::from_u64(0x3c, &p6),
+    );
+
+    assert!(matches!(
+        ghs_descend(&params, &off, &g),
+        Err(GhsError::NotOnCurve)
+    ));
+    assert!(matches!(
+        ghs_descend(&params, &g, &off),
+        Err(GhsError::NotOnCurve)
+    ));
+}
+
+/// A conorm image with a coordinate outside `GF(2^2)` is rejected with `NotInSubfield`.
+///
+/// Fixture: the same equation with `a = 0x02 = α` (a generator of `GF(2^6)`, not in
+/// `GF(2^2) = {0, 1, 0x3a, 0x3b}`).  `E` is then not defined over `GF(2^2)`, so the
+/// relative Frobenius does not map `E` to itself and the conorm sum is not fixed by
+/// it.  `(0x01, 0x26)` lies on this curve (`y² + xy = x³ + αx² + 1` at `x = 1`).  The
+/// descended curve is the toy `C`, passed unchanged, so only the subfield guard can fire.
+#[test]
+fn transfer_rejects_conorm_outside_subfield() {
+    let p6 = poly6();
+    let toy = ghs_toy_curve();
+    let curve_c = extract_ghs_curve(toy_params()).expect("extraction must succeed");
+
+    let bad_curve = BinaryCurve { a: Uint::<1>::from(2u64), ..toy };
+    let bad_params = GhsParams::new(6, 2, bad_curve.clone(), poly2()).expect("valid degrees");
+    let p = BinaryAffinePoint::new(
+        F2mNaive::<1>::from_u64(0x01, &p6),
+        F2mNaive::<1>::from_u64(0x26, &p6),
+    );
+    assert!(bad_curve.is_on_curve(&p), "fixture point must be on the a = α curve");
+    assert!(
+        !is_in_subfield(&F2mNaive::<1>::from_u64(0x02, &p6), 2, &p6),
+        "a = α must lie outside GF(2^2)"
+    );
+
+    assert_eq!(
+        transfer_point(&p, &curve_c, &bad_params),
+        Err(GhsError::NotInSubfield)
     );
 }
 

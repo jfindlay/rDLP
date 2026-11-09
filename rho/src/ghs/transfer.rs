@@ -63,7 +63,7 @@
 //! **Provides:** [`transfer_point`], [`verify_homomorphism`].
 
 use crypto_bigint::Uint;
-use shared_gf2m::{F2m, F2mNaive};
+use shared_gf2m::{F2m, F2mNaive, is_in_subfield};
 
 use crate::binary_curve::{BinaryAffinePoint, BinaryCurve};
 use crate::ghs::{GhsError, GhsParams};
@@ -108,9 +108,16 @@ use shared_gf2m::Poly;
 ///
 /// # Errors
 ///
-/// The function is infallible for the toy fixture; the `Result` return type is
-/// kept for API extensibility (future implementations may signal non-descendable
-/// points).
+/// - [`GhsError::NotOnCurve`] if `p` does not satisfy the Weierstrass equation of
+///   `params.curve`.  The conorm is a homomorphism only on points of `E`; an
+///   off-curve point would be fed to the group law, whose output is meaningless.
+/// - [`GhsError::NotInSubfield`] if a coordinate of the conorm image `R` is not
+///   fixed by the `l`-th Frobenius power (`c^(2^l) ≠ c`).  For a point on a curve
+///   defined over `GF(2^l)` the image is always fixed, so this signals that
+///   `params.curve` has coefficients outside `GF(2^l)` and does not descend.
+///
+/// The point at infinity is not an error: it is the identity of `E`, and a
+/// homomorphism sends the identity to the identity, so `∞ ↦ [1, 0]`.
 ///
 /// # Homomorphism property
 ///
@@ -133,8 +140,12 @@ pub fn transfer_point(
         return Ok(curve_c.zero_divisor::<F2mNaive<1>>());
     }
 
+    // The conorm is only defined on points of E.
+    if !params.curve.is_on_curve(p) {
+        return Err(GhsError::NotOnCurve);
+    }
+
     let poly_m = params.poly_m();
-    let poly_l = &params.poly_l;
     let n = params.extension_degree(); // m/l
 
     // Compute the conorm: R = P + φ_l(P) + φ_l²(P) + … + φ_l^{n-1}(P).
@@ -153,11 +164,11 @@ pub fn transfer_point(
         BinaryAffinePoint::Finite { x, y } => (x.clone(), y.clone()),
     };
 
-    // Reinterpret x_R and y_R as GF(2^l) elements.
-    // Since R ∈ C(GF(2^l)), its coordinates are in GF(2^l) ⊂ GF(2^m).
-    // The bit-vector representation is the same for subfield elements.
-    let x_r_l = F2mNaive::<1>::from_uint(x_r.to_uint(), poly_l);
-    let y_r_l = F2mNaive::<1>::from_uint(y_r.to_uint(), poly_l);
+    // Re-express x_R and y_R as GF(2^l) elements, rejecting a coordinate that is
+    // not fixed by the l-th Frobenius power instead of truncating it into a
+    // wrong subfield element.
+    let x_r_l = restrict_to_subfield(&x_r, params)?;
+    let y_r_l = restrict_to_subfield(&y_r, params)?;
 
     // Construct the degree-1 Mumford divisor [u(X), v(X)] where:
     //   u(X) = X + x_R  (monic degree-1; in char 2, X − x_R = X + x_R)
@@ -166,6 +177,22 @@ pub fn transfer_point(
     let v = Poly::from_coeffs(vec![y_r_l]);
 
     Ok(MumfordDivisor::new(u, v))
+}
+
+/// Re-express a `GF(2^m)` element of the subfield `GF(2^l)` in the `GF(2^l)`
+/// representation (reduction polynomial `params.poly_l`).
+///
+/// Returns [`GhsError::NotInSubfield`] unless `c^(2^l) = c` (Galois-invariant under
+/// the relative Frobenius).  The bit pattern of `c` is then reduced modulo
+/// `poly_l`; on the toy fixture this is a field isomorphism of `GF(4)`.
+fn restrict_to_subfield(
+    c: &F2mNaive<1>,
+    params: &GhsParams,
+) -> Result<F2mNaive<1>, GhsError> {
+    if !is_in_subfield(c, params.l, params.poly_m()) {
+        return Err(GhsError::NotInSubfield);
+    }
+    Ok(F2mNaive::<1>::from_uint(c.to_uint(), &params.poly_l))
 }
 
 // ─── conorm_sum ───────────────────────────────────────────────────────────────
