@@ -1,4 +1,4 @@
-//! Miller–Rabin primality testing, deterministic for ``n < 3,317,044,064,679,887,385,961,981``.
+//! Miller–Rabin primality testing, proven for ``n < 3,317,044,064,679,887,385,961,981``.
 //!
 //! The core primitive is [`miller_rabin`], which runs the Miller–Rabin strong
 //! pseudoprime test for a caller-supplied list of witness bases.  The public
@@ -9,12 +9,14 @@
 //!
 //! # Determinism
 //!
-//! For ``n < 3,317,044,064,679,887,385,961,981`` (approximately ``2^{81.6}``),
-//! the 13-witness set ``{2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37}`` is
-//! sufficient for a deterministic answer.  For larger ``n`` (which fits in
-//! ``Uint<4>`` but exceeds this bound), the same set is used as a probabilistic
-//! test with 12 rounds; the probability of a false positive is negligible for
-//! any practical application.
+//! The first twelve prime bases ``{2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37}`` are proven
+//! below ``318,665,857,834,031,151,167,461`` (ψ₁₂, ≈ ``2^{78.1}``): that number is the least
+//! composite passing all twelve.  Adding base 41 extends the proof to
+//! ``3,317,044,064,679,887,385,961,981`` ([`MILLER_RABIN_PROOF_BOUND`], ψ₁₃, ≈ ``2^{81.5}``).
+//! Above ψ₁₃ (which still fits in ``Uint<4>``) the same thirteen bases give only a
+//! *probable-prime* verdict with no proven error bound; a fixed set of bases has composite
+//! strong pseudoprimes, and ``is_prime`` can return ``true`` for one.  A ``false`` verdict is
+//! always a proof of compositeness.
 //!
 //! # Modular arithmetic
 //!
@@ -31,18 +33,30 @@ use shared_field::{Fp, FpNaive};
 // taken from:
 //   - Pomerance, Selfridge, Wagstaff (1980)
 //   - Jaeschke (1993)
-//   - Sorenson & Webster (2015) — the 3,215,031,751 and 3,474,749,660,383 entries
+//   - Sorenson & Webster (2015) — the 3,474,749,660,383, 318,665,857,834,031,151,167,461
+//     and 3,317,044,064,679,887,385,961,981 entries (constants recalled, not re-read; the
+//     factorization of the twelve-base bound is checked in the tests)
 //   - Wikipedia "Miller–Rabin primality test" (deterministic variants table)
 //
-// All bounds are < 2^64, so they fit in u128 without loss.  The final entry
-// covers n < 3,317,044,064,679,887,385,961,981 ≈ 2^81.6, which requires a
-// u128 comparison.
+// The last two bounds exceed u64::MAX, so bounds are stored as u128.  The thirteenth
+// base (41) is what makes the final row a proof: the twelve-base bound is itself a
+// strong pseudoprime to bases 2..37.
+
+/// Exclusive bound below which the first twelve prime bases (2 through 37) prove primality.
+///
+/// ψ₁₂ ≈ 2^78.08 is the least composite that is a strong pseudoprime to all twelve bases.
+const TWELVE_BASE_PROOF_BOUND: u128 = 318_665_857_834_031_151_167_461;
+
+/// Exclusive bound below which a [`is_prime`] "prime" verdict is a proof.
+///
+/// ψ₁₃ ≈ 2^81.46 is the least composite that is a strong pseudoprime to the first thirteen
+/// prime bases (2 through 41).  From this value up, a "prime" verdict is only "probable
+/// prime", with no proven error bound.  A "composite" verdict is always a proof.
+pub const MILLER_RABIN_PROOF_BOUND: u128 = 3_317_044_064_679_887_385_961_981;
 
 /// Witness sets for deterministic Miller–Rabin, ordered by increasing bound.
 ///
-/// Each entry is ``(exclusive_upper_bound, witnesses)``.  The bound is stored
-/// as a ``u128`` because the largest deterministic bound
-/// (3,317,044,064,679,887,385,961,981) exceeds ``u64::MAX``.
+/// Each entry is ``(exclusive_upper_bound, witnesses)``.
 static DETERMINISTIC_WITNESSES: &[(u128, &[u64])] = &[
     (2_047, &[2]),
     (1_373_653, &[2, 3]),
@@ -50,23 +64,22 @@ static DETERMINISTIC_WITNESSES: &[(u128, &[u64])] = &[
     (3_474_749_660_383, &[2, 3, 5, 7, 11, 13]),
     (341_550_071_728_321, &[2, 3, 5, 7, 11, 13, 17]),
     (3_825_123_056_546_413_051, &[2, 3, 5, 7, 11, 13, 17, 19, 23]),
-    // 318,665,857,834,031,151,167,461 ≈ 2^77.9
-    (318_665_857_834_031_151_167_461, &[2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37]),
-    // 3,317,044,064,679,887,385,961,981 ≈ 2^81.6 — largest published deterministic bound
-    (3_317_044_064_679_887_385_961_981, &[2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37]),
+    (TWELVE_BASE_PROOF_BOUND, &[2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37]),
+    (MILLER_RABIN_PROOF_BOUND, &[2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41]),
 ];
 
-/// Full 12-witness set used for ``n`` beyond the deterministic bounds.
-static FULL_WITNESSES: &[u64] = &[2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
+/// The thirteen-base set, used for ``n`` at or above every proof bound.
+static FULL_WITNESSES: &[u64] = &[2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41];
 
 // ── Core algorithm ─────────────────────────────────────────────────────────────
 
 /// Test whether ``n`` is probably prime using Miller–Rabin with the given witness bases.
 ///
 /// Returns ``true`` if all witnesses say "probably prime", ``false`` if any
-/// witness says "composite".  For deterministic results up to
-/// 3,317,044,064,679,887,385,961,981, use the standard deterministic witness
-/// sets (see [`is_prime`]).
+/// witness says "composite".  ``false`` is always a proof of compositeness;
+/// ``true`` proves primality only when the witnesses form a published
+/// deterministic set for ``n``'s magnitude (see [`is_prime`] and
+/// [`MILLER_RABIN_PROOF_BOUND`]).
 ///
 /// # Preconditions
 ///
@@ -131,13 +144,15 @@ pub fn miller_rabin(n: &Uint<4>, witnesses: &[u64]) -> bool {
     true // All witnesses passed: probably prime.
 }
 
-/// Deterministic primality test for ``n`` using the published minimal witness sets.
+/// Primality test for ``n`` using the published minimal witness sets.
 ///
 /// Uses the deterministic witness set that is sufficient for all
-/// ``n < 3,215,031,751`` (4 witnesses) scaling up to the full set for
-/// ``n < 3,317,044,064,679,887,385,961,981`` (12 witnesses).  For
-/// ``n >= 3,317,044,064,679,887,385,961,981`` this falls back to a
-/// probabilistic test with 12 rounds.
+/// ``n < 3,215,031,751`` (4 witnesses), scaling up to twelve bases below
+/// ``318,665,857,834,031,151,167,461`` and thirteen (bases 2 through 41) below
+/// [`MILLER_RABIN_PROOF_BOUND`] (``3,317,044,064,679,887,385,961,981`` ≈ ``2^{81.5}``).
+/// Below that bound both verdicts are proofs.  At or above it the thirteen bases give a
+/// "probable prime" verdict with no proven error bound: ``false`` is still a proof of
+/// compositeness, but ``true`` is not a proof of primality.
 ///
 /// # Special cases
 ///
@@ -180,7 +195,7 @@ pub fn is_prime(n: &Uint<4>) -> bool {
 ///
 /// Compares ``n`` against the published deterministic bounds.  Returns the
 /// smallest witness set whose bound exceeds ``n``.  Falls back to the full
-/// 12-witness set for ``n`` beyond all published bounds.
+/// 13-witness set for ``n`` beyond all published bounds.
 fn select_witnesses(n: &Uint<4>) -> &'static [u64] {
     // Extract n as a u128 for comparison against the bounds table.
     // Uint<4> is 256 bits; words() returns [lo64, ..., hi64] in little-endian order.
@@ -324,6 +339,43 @@ mod tests {
             !miller_rabin(&u(2047), &[2, 3]),
             "miller_rabin with bases {{2,3}} should reject 2047"
         );
+    }
+
+    // ── KAT: the twelve-base proof bound ──────────────────────────────────────
+
+    /// ψ₁₂ is the least strong pseudoprime to the first twelve prime bases; it equals
+    /// 399_165_290_221 · 798_330_580_441 and is caught only by base 41.
+    #[test]
+    fn psi_12_is_the_product_it_claims() {
+        let p = 399_165_290_221u128;
+        let q = 798_330_580_441u128;
+        assert_eq!(p * q, TWELVE_BASE_PROOF_BOUND);
+        assert!(is_prime(&Uint::<4>::from(p)));
+        assert!(is_prime(&Uint::<4>::from(q)));
+    }
+
+    /// The first twelve bases accept ψ₁₂, so a twelve-base verdict is not a proof there.
+    #[test]
+    fn twelve_bases_accept_psi_12_but_base_41_rejects_it() {
+        let psi = Uint::<4>::from(TWELVE_BASE_PROOF_BOUND);
+        let twelve: &[u64] = &[2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
+        assert!(miller_rabin(&psi, twelve));
+        assert!(!miller_rabin(&psi, &[41]));
+    }
+
+    /// ``is_prime`` rejects ψ₁₂ because the thirteenth base is applied from there up.
+    #[test]
+    fn psi_12_rejected() {
+        assert!(!is_prime(&Uint::<4>::from(TWELVE_BASE_PROOF_BOUND)));
+    }
+
+    /// A prime between the twelve-base and thirteen-base bounds is still accepted.
+    #[test]
+    fn prime_above_twelve_base_bound_accepted() {
+        // 2^79 − 67 is prime.
+        let n = (1u128 << 79) - 67;
+        assert!(n > TWELVE_BASE_PROOF_BOUND && n < MILLER_RABIN_PROOF_BOUND);
+        assert!(is_prime(&Uint::<4>::from(n)));
     }
 
     // ── Property: no false negatives in 2..1000 ───────────────────────────────

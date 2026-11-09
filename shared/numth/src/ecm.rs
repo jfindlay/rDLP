@@ -43,6 +43,7 @@
 
 use crypto_bigint::{NonZero, Odd, Uint};
 
+use crate::prime::{is_prime, MILLER_RABIN_PROOF_BOUND};
 use crate::smooth::factor_base_up_to;
 
 // ── Modular arithmetic helpers ────────────────────────────────────────────────
@@ -597,28 +598,75 @@ fn ecm_one_curve_inner(
     EcmResult::Inconclusive
 }
 
-/// Attempt to factor ``n`` by running ECM with multiple random curves.
+/// Why [`ecm_factor`] did not return a divisor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EcmError {
+    /// ``n ≤ 1`` has no non-trivial factorization to ask for.
+    InvalidInput,
+    /// ``n`` is prime, certified by a primality test that is proven on ``n``: ``n = 2``, or odd
+    /// and below [`MILLER_RABIN_PROOF_BOUND`].
+    Prime,
+    /// ``n`` is odd, at least [`MILLER_RABIN_PROOF_BOUND`], and "probably prime", which cannot
+    /// be certified.
+    Unsupported,
+    /// Every curve tried found no divisor, or found one that failed the divisor check.  This is
+    /// a resource outcome and proves nothing about ``n``.
+    CurvesExhausted {
+        /// Number of curves that were run and failed.
+        curves: u32,
+    },
+}
+
+/// Return ``d`` only when it is a proper divisor of ``n``, checked independently of how it was
+/// found: ``1 < d < n`` and ``n mod d == 0``.
+fn verified_divisor(n: &Uint<4>, d: &Uint<4>) -> Option<Uint<4>> {
+    let nonzero = NonZero::new(*d).into_option()?;
+    (*d > Uint::<4>::ONE && *d < *n && n.rem(&nonzero) == Uint::<4>::ZERO).then_some(*d)
+}
+
+/// Attempt to factor ``n`` by running ECM with multiple curves.
 ///
-/// Tries up to ``max_curves`` curves with ``sigma`` values starting from
-/// ``sigma_start = 6`` (the standard starting value).  Returns ``Some(p)`` if
-/// a proper factor ``p`` is found (``1 < p < n`` and ``p | n``), or ``None``
-/// if all curves were inconclusive.
+/// Classifies ``n`` first, in this order: ``n ≤ 1`` is invalid; ``2`` is prime; an even
+/// ``n > 2`` yields the divisor ``2`` with no curve run; an odd ``n`` is tested for primality,
+/// where a "prime" verdict is [`EcmError::Prime`] below [`MILLER_RABIN_PROOF_BOUND`] (the
+/// test is proven there) and [`EcmError::Unsupported`] at or above it.  An odd composite is then
+/// attacked with up to ``max_curves`` curves, ``sigma`` starting from 6 (``sigma`` 0 through 5
+/// are degenerate in the Suyama parameterization).  A divisor is returned only after it passes
+/// ``1 < d < n`` and ``n mod d == 0`` in ``Uint`` arithmetic; a candidate that fails the check
+/// counts as a failed curve.
 ///
 /// The stage-2 prime list is precomputed once and reused across all curves.
 ///
-/// :param n: The integer to factor.  Must be odd and composite.
+/// :param n: The integer to factor.
 /// :param b1: Stage-1 smoothness bound.
-/// :param b2: Stage-2 smoothness bound.
+/// :param b2: Stage-2 smoothness bound.  Set equal to ``b1`` to skip stage 2.
 /// :param max_curves: Maximum number of curves to try.
-/// :returns: ``Some(factor)`` or ``None``.
-pub fn ecm_factor(n: &Uint<4>, b1: u64, b2: u64, max_curves: u32) -> Option<Uint<4>> {
-    // Trivial cases.
+/// :returns: A proper divisor of ``n``.
+///
+/// # Errors
+///
+/// * [`EcmError::InvalidInput`] — ``n ≤ 1``.
+/// * [`EcmError::Prime`] — ``n`` is prime and the primality verdict is proven.
+/// * [`EcmError::Unsupported`] — ``n`` is odd, at least [`MILLER_RABIN_PROOF_BOUND`], and
+///   "probably prime".
+/// * [`EcmError::CurvesExhausted`] — every curve failed; ``curves`` counts the curves that ran
+///   (``0`` when ``max_curves = 0``).  This proves nothing about ``n``.
+pub fn ecm_factor(n: &Uint<4>, b1: u64, b2: u64, max_curves: u32) -> Result<Uint<4>, EcmError> {
+    let two = Uint::<4>::from(2u64);
     if *n <= Uint::<4>::ONE {
-        return None;
+        return Err(EcmError::InvalidInput);
     }
-    // Check if n is even (factor 2).
+    if *n == two {
+        return Err(EcmError::Prime);
+    }
+    // An even n > 2 is divisible by 2 (bit 0 is clear), which is proper because n > 2.
     if !bool::from(n.bit(0)) {
-        return Some(Uint::<4>::from(2u64));
+        return Ok(two);
+    }
+    if is_prime(n) {
+        // "Composite" verdicts are always proofs; "prime" verdicts only below the bound.
+        let proven = *n < Uint::<4>::from(MILLER_RABIN_PROOF_BOUND);
+        return Err(if proven { EcmError::Prime } else { EcmError::Unsupported });
     }
 
     // Precompute stage-2 primes once for all curves.
@@ -628,16 +676,17 @@ pub fn ecm_factor(n: &Uint<4>, b1: u64, b2: u64, max_curves: u32) -> Option<Uint
         Vec::new()
     };
 
-    // Try successive sigma values starting from 6.
-    // sigma = 0, 1, 2, 3, 4, 5 are degenerate in the Suyama parameterization.
+    let mut curves = 0u32;
     for i in 0..max_curves {
-        let sigma = 6u64 + i as u64;
-        match ecm_one_curve_inner(n, sigma, b1, &stage2_primes) {
-            EcmResult::Factor(p) => return Some(p),
-            EcmResult::Inconclusive => {}
+        let sigma = 6u64 + u64::from(i);
+        if let EcmResult::Factor(g) = ecm_one_curve_inner(n, sigma, b1, &stage2_primes) {
+            if let Some(d) = verified_divisor(n, &g) {
+                return Ok(d);
+            }
         }
+        curves += 1;
     }
-    None
+    Err(EcmError::CurvesExhausted { curves })
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -645,10 +694,19 @@ pub fn ecm_factor(n: &Uint<4>, b1: u64, b2: u64, max_curves: u32) -> Option<Uint
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prime::is_prime;
 
     fn u(v: u64) -> Uint<4> {
         Uint::<4>::from(v)
+    }
+
+    /// Run ``ecm_factor`` on ``n`` and require a proper prime divisor of it.
+    fn prime_divisor_of(n: &Uint<4>, b1: u64, b2: u64, max_curves: u32) -> Uint<4> {
+        let d = ecm_factor(n, b1, b2, max_curves)
+            .unwrap_or_else(|e| panic!("ecm_factor failed on {n:?}: {e:?}"));
+        assert!(d > u(1) && d < *n, "factor must be proper");
+        assert_eq!(n.rem(&NonZero::new(d).unwrap()), u(0), "factor must divide N");
+        assert!(is_prime(&d), "factor must be prime");
+        d
     }
 
     // ── Unit tests: modular arithmetic helpers ────────────────────────────────
@@ -705,27 +763,13 @@ mod tests {
     /// stage 1 should find a factor.
     #[test]
     fn ecm_factors_143() {
-        let n = u(143);
-        let result = ecm_factor(&n, 11, 11, 20);
-        assert!(result.is_some(), "ecm_factor should find a factor of 143");
-        let p = result.unwrap();
-        assert!(p > u(1) && p < n, "factor must be proper");
-        let nz = NonZero::new(p).unwrap();
-        assert_eq!(n.rem(&nz), u(0), "factor must divide N");
-        assert!(is_prime(&p), "factor must be prime");
+        prime_divisor_of(&u(143), 11, 11, 20);
     }
 
     /// ECM factors N = 28891 = 167 * 173 with B1 = 200.
     #[test]
     fn ecm_factors_28891() {
-        let n = u(28891); // 167 * 173
-        let result = ecm_factor(&n, 200, 200, 50);
-        assert!(result.is_some(), "ecm_factor should find a factor of 28891");
-        let p = result.unwrap();
-        assert!(p > u(1) && p < n, "factor must be proper");
-        let nz = NonZero::new(p).unwrap();
-        assert_eq!(n.rem(&nz), u(0), "factor must divide N");
-        assert!(is_prime(&p), "factor must be prime");
+        prime_divisor_of(&u(28891), 200, 200, 50); // 167 * 173
     }
 
     /// ECM factors a semiprime with two 3-digit prime factors.
@@ -735,14 +779,7 @@ mod tests {
     #[test]
     fn ecm_factors_medium_semiprime() {
         // 101 and 103 are both prime.
-        let n = u(101u64 * 103u64);
-        let result = ecm_factor(&n, 100, 200, 100);
-        assert!(result.is_some(), "ecm_factor should find a factor of 101 * 103");
-        let p = result.unwrap();
-        assert!(p > u(1) && p < n, "factor must be proper");
-        let nz = NonZero::new(p).unwrap();
-        assert_eq!(n.rem(&nz), u(0), "factor must divide N");
-        assert!(is_prime(&p), "factor must be prime");
+        prime_divisor_of(&u(101u64 * 103u64), 100, 200, 100);
     }
 
     /// ECM factors a semiprime with two 3-digit prime factors.
@@ -752,14 +789,7 @@ mod tests {
     #[test]
     fn ecm_factors_near_2_32() {
         // 211 and 223 are both prime.
-        let n = u(211u64 * 223u64);
-        let result = ecm_factor(&n, 200, 400, 100);
-        assert!(result.is_some(), "ecm_factor should find a factor of 211 * 223");
-        let p = result.unwrap();
-        assert!(p > u(1) && p < n, "factor must be proper");
-        let nz = NonZero::new(p).unwrap();
-        assert_eq!(n.rem(&nz), u(0), "factor must divide N");
-        assert!(is_prime(&p), "factor must be prime");
+        prime_divisor_of(&u(211u64 * 223u64), 200, 400, 100);
     }
 
     // ── KAT: stage 1 + stage 2 ───────────────────────────────────────────────
@@ -781,20 +811,8 @@ mod tests {
         // N = 1009 * 3541 = 3,572,869.
         let n = u(1009u64 * 3541u64);
         // B1 = 20: stage 1 only catches curves where |E(F_p)| is 20-smooth.
-        // B2 = 200: stage 2 catches primes up to 200.
-        let stage1_plus_2 = ecm_factor(&n, 20, 200, 50);
-
-        // Stage 1+2 must succeed.
-        assert!(
-            stage1_plus_2.is_some(),
-            "stage 1+2 should find a factor of {} = 1009 * 3541",
-            1009u64 * 3541u64
-        );
-        let p = stage1_plus_2.unwrap();
-        assert!(p > u(1) && p < n, "factor must be proper");
-        let nz = NonZero::new(p).unwrap();
-        assert_eq!(n.rem(&nz), u(0), "factor must divide N");
-        assert!(is_prime(&p), "factor must be prime");
+        // B2 = 200: stage 2 catches primes up to 200.  Stage 1+2 must succeed.
+        prime_divisor_of(&n, 20, 200, 50);
     }
 
     /// Verify that stage 2 with a tight B1 and wider B2 finds factors.
@@ -807,13 +825,7 @@ mod tests {
         let n = u(101u64 * 103u64);
         // B1 = 10: very tight — stage 1 only catches 10-smooth group orders.
         // B2 = 200: stage 2 catches primes up to 200.
-        let result = ecm_factor(&n, 10, 200, 50);
-        assert!(result.is_some(), "stage 1+2 should find a factor of 101 * 103");
-        let p = result.unwrap();
-        assert!(p > u(1) && p < n, "factor must be proper");
-        let nz = NonZero::new(p).unwrap();
-        assert_eq!(n.rem(&nz), u(0), "factor must divide N");
-        assert!(is_prime(&p), "factor must be prime");
+        prime_divisor_of(&n, 10, 200, 50);
     }
 
     // ── Property tests ────────────────────────────────────────────────────────
@@ -834,38 +846,88 @@ mod tests {
             (251, 257),
         ];
         for &(p, q) in semiprimes {
-            let n = u(p * q);
-            let result = ecm_factor(&n, 300, 300, 50);
-            assert!(
-                result.is_some(),
-                "ecm_factor should find a factor of {p} * {q} = {}",
-                p * q
-            );
-            let factor = result.unwrap();
-            assert!(
-                factor > u(1) && factor < n,
-                "factor {factor:?} must be proper for N = {p} * {q}"
-            );
-            let nz = NonZero::new(factor).unwrap();
-            assert_eq!(
-                n.rem(&nz),
-                u(0),
-                "factor must divide N = {p} * {q}"
-            );
-            assert!(is_prime(&factor), "factor must be prime for N = {p} * {q}");
+            let d = prime_divisor_of(&u(p * q), 300, 300, 50);
+            assert!(d == u(p) || d == u(q), "divisor of {p} * {q} must be a prime factor");
         }
     }
 
-    /// ``ecm_factor`` returns ``None`` for prime inputs (no proper factor exists).
+    // ── Classification of inputs ──────────────────────────────────────────────
+
+    /// ``n ≤ 1`` has no factorization to ask for.
     #[test]
-    fn ecm_inconclusive_for_prime() {
-        // For a prime N, no proper factor exists.  ECM should return None.
-        let n = u(1_000_003u64); // prime
-        let result = ecm_factor(&n, 100, 100, 10);
-        // ECM may return None (inconclusive) or accidentally find a "factor" that
-        // equals 1 or N — but our interface guarantees 1 < p < N, so it returns None.
-        // (In practice, for prime N, the Z-coordinate is never 0 mod N, so ECM
-        // always returns Inconclusive.)
-        assert!(result.is_none(), "ecm_factor should return None for prime N");
+    fn zero_and_one_are_invalid_input() {
+        for v in [0u64, 1] {
+            assert_eq!(ecm_factor(&u(v), 100, 100, 10), Err(EcmError::InvalidInput));
+        }
+    }
+
+    /// ``n = 2`` is prime; it is not a trivial-divisor success.
+    #[test]
+    fn two_is_prime() {
+        assert_eq!(ecm_factor(&u(2), 100, 100, 10), Err(EcmError::Prime));
+    }
+
+    /// An even ``n > 2`` yields the divisor 2 even when no curve may run.
+    #[test]
+    fn even_n_yields_divisor_two() {
+        for v in [4u64, 10, 1 << 40] {
+            assert_eq!(ecm_factor(&u(v), 100, 100, 0), Ok(u(2)));
+        }
+    }
+
+    /// Odd primes below the proven bound are certified ``Prime`` and no curve is spent.
+    #[test]
+    fn odd_primes_are_prime() {
+        for v in [3u64, 5, 1_000_003, 2_305_843_009_213_693_951] {
+            assert_eq!(ecm_factor(&u(v), 100, 100, 10), Err(EcmError::Prime), "n = {v}");
+        }
+    }
+
+    /// 2^89 − 1 is a Mersenne prime above the proven bound: it tests prime but that verdict
+    /// is unproven, so the input is unsupported rather than ``Prime``.
+    #[test]
+    fn prime_above_proof_bound_is_unsupported() {
+        let n = (Uint::<4>::ONE << 89u32).wrapping_sub(&Uint::<4>::ONE);
+        assert!(n >= Uint::<4>::from(MILLER_RABIN_PROOF_BOUND));
+        assert_eq!(ecm_factor(&n, 100, 100, 10), Err(EcmError::Unsupported));
+    }
+
+    /// ψ₁₂ is composite, so ``ecm_factor`` must never certify it ``Prime``; any divisor it
+    /// does return is checked.
+    #[test]
+    fn composite_psi_12_is_never_prime() {
+        let n = Uint::<4>::from(399_165_290_221u128 * 798_330_580_441u128);
+        match ecm_factor(&n, 100, 100, 3) {
+            Ok(d) => assert_eq!(n.rem(&NonZero::new(d).unwrap()), u(0)),
+            Err(e) => assert_eq!(e, EcmError::CurvesExhausted { curves: 3 }),
+        }
+    }
+
+    /// With no curves allowed, an odd composite is exhausted at zero curves.
+    #[test]
+    fn zero_max_curves_is_exhausted_at_zero() {
+        assert_eq!(
+            ecm_factor(&u(143), 11, 11, 0),
+            Err(EcmError::CurvesExhausted { curves: 0 })
+        );
+    }
+
+    /// Exhaustion counts the curves that ran, and is distinct from every other outcome.
+    #[test]
+    fn exhaustion_counts_curves_run() {
+        // Two 20-bit primes with B1 = B2 = 2: no curve can reach either group order.
+        let n = u(1_000_003u64 * 1_000_033u64);
+        assert_eq!(ecm_factor(&n, 2, 2, 3), Err(EcmError::CurvesExhausted { curves: 3 }));
+    }
+
+    /// A candidate that is not a proper divisor is rejected by the divisor check.
+    #[test]
+    fn divisor_check_rejects_improper_candidates() {
+        let n = u(143);
+        assert_eq!(verified_divisor(&n, &u(0)), None);
+        assert_eq!(verified_divisor(&n, &u(1)), None);
+        assert_eq!(verified_divisor(&n, &n), None);
+        assert_eq!(verified_divisor(&n, &u(7)), None);
+        assert_eq!(verified_divisor(&n, &u(11)), Some(u(11)));
     }
 }

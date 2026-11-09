@@ -5,8 +5,9 @@
 //! (`rho::index_calculus`):
 //!
 //! - **Primality testing** ([`prime`]): Miller–Rabin with deterministic witness
-//!   sets for ``n < 3,317,044,064,679,887,385,961,981``, falling back to a
-//!   12-round probabilistic test for larger ``Uint<4>`` values.
+//!   sets, proven for ``n < 3,317,044,064,679,887,385,961,981`` (≈ ``2^{81.5}``,
+//!   [`MILLER_RABIN_PROOF_BOUND`]).  Above that bound a ``true`` verdict is only
+//!   "probable prime", with no proven error bound.
 //!
 //! - **B-smoothness detection** ([`smooth`]): trial-division factorisation over
 //!   a prime factor base, returning a [`SmoothWitness`] that carries the
@@ -24,9 +25,9 @@
 //!
 //! ```rust
 //! use shared_numth::{
-//!     is_prime, miller_rabin,
+//!     is_prime, miller_rabin, MILLER_RABIN_PROOF_BOUND,
 //!     SmoothWitness, trial_smooth, factor_base_up_to,
-//!     EcmResult, ecm_one_curve, ecm_factor,
+//!     EcmError, EcmResult, ecm_one_curve, ecm_factor,
 //! };
 //! ```
 
@@ -34,6 +35,6 @@ pub mod ecm;
 pub mod prime;
 pub mod smooth;
 
-pub use ecm::{ecm_factor, ecm_one_curve, EcmResult};
-pub use prime::{is_prime, miller_rabin};
+pub use ecm::{ecm_factor, ecm_one_curve, EcmError, EcmResult};
+pub use prime::{is_prime, miller_rabin, MILLER_RABIN_PROOF_BOUND};
 pub use smooth::{factor_base_up_to, trial_smooth, SmoothWitness};
