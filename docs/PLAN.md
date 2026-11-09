@@ -381,7 +381,7 @@ Row-1 implementation notes (from the code check):
 
 ### C-DpBudget
 
-Compiler + test-enforced. *To be frozen at 2.* Consumed by 3, 12. The four distinguished-point
+Compiler + test-enforced. **Frozen at 2 (1dfe746).** Consumed by 3, 12. The four distinguished-point
 solvers return `Result<DlogSolution<RhoEvidence>, DlogError>` and take an explicit total-step
 budget parameter; no input can make them run unboundedly; `solve_dp_glv` returns `Unsupported`
 off its curve.
@@ -469,7 +469,7 @@ fix with `@git-editor` after the run. Later commits pass the exact identity stri
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
 | 1 | Define a verified rho discrete-log outcome and adopt it in Brent rho | done | 7e48f9b | C-DlogOutcome |
-| 2 | Bound the distinguished-point rho solvers and verify their results | pending | | |
+| 2 | Bound the distinguished-point rho solvers and verify their results | done | 1dfe746 | C-DpBudget |
 | 3 | Recover the log from negated distinguished-point collisions | pending | | |
 | 4 | Verify Pohlig–Hellman results and name the small-subgroup method | pending | | |
 | 5 | Verify binary-field rho and Koblitz results | pending | | |
@@ -498,6 +498,24 @@ n·G = ∞ alone does not prove order n. CLI `--curve generic` has composite ord
 Texture: per-attempt Brent step cap is 2^29 − 1 (`BRENT_MAX_WINDOW`), consuming a retry rather than
 failing at once; `Inconsistent` is only reachable via `verified()` in tests (no fixture yields a
 real non-degenerate bad collision). Ignored shor cross-check takes ~470 s.
+
+### 2 — 2026-11-09
+Discovery/flex: No contract flex. Chosen budgets: tests `1 << 24` steps (≈5000× headroom over the
+measured 1.1k–3.3k steps on `tiny_a`, 20–110 on `tiny_glv`); CLI default `--max-steps` =
+`64·√n + 64·walkers·batch·2^theta` (saturating); bench `1 << 40`. `StepBudget` is one shared atomic
+counter; walkers claim steps before taking them; batch and GLV claim whole batches (≤ batch_size − 1
+steps unused; a budget below batch_size runs no walk, `steps: 0`). `run_dp_search` (scoped threads)
+replaced four spawn/collect copies; a panicking walker stops the others. `solve_dp_glv` checks
+`curve.p, a, b, n` against `secp_k1_toy` (before input validation); generator not compared.
+`glv_fewer_steps_than_negmap` is now a step-count comparison (sum over 20 seeds, 2× margin; observed
+GLV/negmap 0.62–0.77).
+Affected: C-DpBudget (frozen as implemented).
+Deferred: yes — row 3: plain `solve_dp` still keys by x only, so a P/−P collision now surfaces as
+`Inconsistent` (previously a silent wrong k); `Collision` evidence is `attempt: 0, negated: false`
+until row 3. `rho/src/ecdlp/dp.rs` and `shor/tests/ecdlp_kat.rs` needed no edit. The bench's 62-bit
+group needs ≈2.7·10⁹ steps (not practically runnable; pre-existing).
+Texture: a build subagent returned with its ~8-minute ignored shor cross-check still running in the
+background; the driver reran it itself (7 passed, 303 s) — expect orphaned long tests on later rows.
 
 ## Discoveries & risks
 
