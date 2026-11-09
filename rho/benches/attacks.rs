@@ -95,7 +95,8 @@ fn bench_mov(c: &mut Criterion) {
 
     // Pre-check: assert the solver returns the known answer before timing.
     let result = mov_reduce::<FpNaive>(&curve, &modulus, &p_point, &q_prime, &r_point, ell)
-        .expect("MOV pre-check: mov_reduce must succeed");
+        .expect("MOV pre-check: mov_reduce must succeed")
+        .k_mod_ell;
     assert_eq!(
         result, 2u64,
         "MOV pre-check: mov_reduce must recover k = 2 mod ell = 3; got {result}"

@@ -11,8 +11,12 @@
 //! 1. **Pairing identity** — `e(Q', R) = e(G, R)^k` in `F_{47²}*` for k=1 and k=2.
 //!    This is the primary correctness signal: a wrong bridge encoding, a wrong modulus, or a
 //!    wrong reduction breaks this identity directly.
-//! 2. **MOV scalar recovery** — `mov_reduce(curve, G, Q', R, ell)` returns `k mod ell` for
-//!    k=1 and k=2 (the full ℓ=3 subgroup, excluding k=0 which is the identity).
+//! 2. **MOV scalar recovery** — `mov_reduce(curve, G, Q', R, ell)` returns a solution with
+//!    `k mod ell` for k=0, 1 and 2 (the full ℓ=3 subgroup), whose `k·G == Q'` and
+//!    `g_pair^k == h_pair` are rechecked from the returned fields.
+//! 3. **Failure classes** — a degenerate R is `DegeneratePairing`; a composite ℓ, an ℓ that does
+//!    not divide `p² − 1`, and points off the curve or outside `E[ℓ]` are `InvalidInput` with the
+//!    specific defect.
 //!
 //! # Fixture
 //!
@@ -43,7 +47,9 @@
 use crypto_bigint::Uint;
 use rho::pairing::ecext::PairingPoint;
 use rho::pairing::fpext::FpExt;
-use rho::pairing::mov::mov_reduce;
+use rho::curve::Curve;
+use rho::pairing::fpext::IrreducibleModulus;
+use rho::pairing::mov::{mov_reduce, MovError, MovInputDefect, MovSolution};
 use rho::pairing::tate::reduced_tate;
 use rho::pairing::test_curves::{pairing_toy, PAIRING_TOY_P};
 use shared_field::{Fp, FpNaive};
@@ -54,6 +60,29 @@ use shared_field::{Fp, FpNaive};
 fn a_ext() -> FpExt<FpNaive<4>> {
     let p = Uint::<4>::from(PAIRING_TOY_P);
     FpExt::from_base(FpNaive::<4>::from_u64(1, &p), 2, &p)
+}
+
+/// Assert a solution's log and its evidence, rechecking both from the fields alone.
+///
+/// - `k_mod_ell == k` and `ℓ == 3`.
+/// - `k·G == Q` on the curve, computed here independently of `mov_reduce`.
+/// - `g_pair^k == h_pair` in `F_{47²}*` (the identity the finite-field log was solved against),
+///   with `g_pair ≠ 1` and `g_pair^ℓ = 1` (it lies in `μ_ℓ` and generates it).
+fn assert_solution(
+    sol: &MovSolution<FpNaive<4>>,
+    k: u64,
+    curve: &Curve,
+    modulus: &IrreducibleModulus<FpNaive<4>>,
+    g: &PairingPoint<FpNaive<4>>,
+    q: &PairingPoint<FpNaive<4>>,
+) {
+    let p = curve.p;
+    assert_eq!(sol.k_mod_ell, k, "recovered log");
+    assert_eq!(sol.ell, 3, "subgroup order");
+    assert_eq!(g.scalar_mul(sol.k_mod_ell, &a_ext(), modulus, &p), *q, "k·G == Q");
+    assert!(!sol.g_pair.is_one(&p), "g_pair must be a nontrivial ℓ-th root of unity");
+    assert!(sol.g_pair.pow_u64(sol.ell, modulus, &p).is_one(&p), "g_pair^ℓ = 1");
+    assert_eq!(sol.g_pair.pow_u64(sol.k_mod_ell, modulus, &p), sol.h_pair, "g_pair^k == h_pair");
 }
 
 // ── Non-degeneracy pre-check ──────────────────────────────────────────────────
@@ -155,14 +184,10 @@ fn mov_reduce_recovers_k1() {
     // e(G, R) ≠ 1 is verified by mov_r_is_valid_mu_ell_generator above.
     let r_point = q_point;
 
-    let result = mov_reduce::<FpNaive<4>>(&curve, &modulus, &p_point, &q_prime, &r_point, ell);
+    let sol = mov_reduce::<FpNaive<4>>(&curve, &modulus, &p_point, &q_prime, &r_point, ell)
+        .expect("mov_reduce should recover k=1 mod ell=3");
 
-    assert_eq!(
-        result,
-        Ok(1u64),
-        "mov_reduce should recover k=1 mod ell=3; got: {:?}",
-        result
-    );
+    assert_solution(&sol, 1, &curve, &modulus, &p_point, &q_prime);
 }
 
 /// MOV reduction recovers k=2: `mov_reduce(curve, G, 2·G, R, ell) = 2`.
@@ -185,25 +210,33 @@ fn mov_reduce_recovers_k2() {
     // R = Q (the fixture's extension-field 3-torsion point, a μ_ℓ-generator).
     let r_point = q_point;
 
-    let result = mov_reduce::<FpNaive<4>>(&curve, &modulus, &p_point, &q_prime, &r_point, ell);
+    let sol = mov_reduce::<FpNaive<4>>(&curve, &modulus, &p_point, &q_prime, &r_point, ell)
+        .expect("mov_reduce should recover k=2 mod ell=3");
 
-    assert_eq!(
-        result,
-        Ok(2u64),
-        "mov_reduce should recover k=2 mod ell=3; got: {:?}",
-        result
-    );
+    assert_solution(&sol, 2, &curve, &modulus, &p_point, &q_prime);
 }
 
-/// MOV reduction returns an error for a degenerate pairing (R = G, a base-field point).
-///
-/// If R is a base-field point (like G itself), `e(G, R) = reduced_tate(R, G, ell) = 1`
-/// (degenerate — R is in `ℓ·E(F_{p^k})`). The reduction must detect this and return an error
-/// rather than silently computing a wrong log.
-///
-/// This verifies the `g_pair ≠ 1` guard in `mov_reduce`.
+/// Recovering a target at infinity (`k = 0`) verifies against `0·G = ∞` with `h_pair = 1`.
 #[test]
-fn mov_reduce_degenerate_r_returns_error() {
+fn mov_reduce_recovers_k0_for_target_at_infinity() {
+    let (curve, modulus, ell, p_point, q_point) = pairing_toy();
+    let q_inf = PairingPoint::<FpNaive<4>>::Infinity;
+
+    let sol = mov_reduce::<FpNaive<4>>(&curve, &modulus, &p_point, &q_inf, &q_point, ell)
+        .expect("mov_reduce should recover k=0 for Q = ∞");
+
+    assert_solution(&sol, 0, &curve, &modulus, &p_point, &q_inf);
+    assert!(sol.h_pair.is_one(&curve.p), "e(∞, R) must be 1");
+}
+
+/// MOV reduction reports `DegeneratePairing` when R is a base-field point (R = G).
+///
+/// With R = G the Miller evaluation point meets the Miller function's divisor, and
+/// `reduced_tate(R, G, ell)` evaluates to 0 rather than a nontrivial ℓ-th root of unity. The log
+/// would then be unconstrained, so the reduction must say so rather than silently computing a
+/// wrong log, and must not report it as a failure of the log engine.
+#[test]
+fn mov_reduce_degenerate_r_is_degenerate_pairing() {
     let (curve, modulus, ell, p_point, _q_point) = pairing_toy();
     let p = curve.p;
     let a = a_ext();
@@ -219,10 +252,119 @@ fn mov_reduce_degenerate_r_returns_error() {
     let result =
         mov_reduce::<FpNaive<4>>(&curve, &modulus, &p_point, &q_prime, &r_degenerate, ell);
 
+    assert_eq!(result, Err(MovError::DegeneratePairing));
+}
+
+/// R at infinity is degenerate too: `e(G, ∞) = 1`.
+#[test]
+fn mov_reduce_infinite_r_is_degenerate_pairing() {
+    let (curve, modulus, ell, p_point, _q_point) = pairing_toy();
+    let r_inf = PairingPoint::<FpNaive<4>>::Infinity;
+
+    let result = mov_reduce::<FpNaive<4>>(&curve, &modulus, &p_point, &p_point, &r_inf, ell);
+
+    assert_eq!(result, Err(MovError::DegeneratePairing));
+}
+
+// ── Input validation ──────────────────────────────────────────────────────────
+
+/// A base-field point of `E(F_47)` lifted into `F_{47²}`.
+fn lift(x: u64, y: u64) -> PairingPoint<FpNaive<4>> {
+    let p = Uint::<4>::from(PAIRING_TOY_P);
+    PairingPoint::new(
+        FpExt::from_base(FpNaive::<4>::from_u64(x, &p), 2, &p),
+        FpExt::from_base(FpNaive::<4>::from_u64(y, &p), 2, &p),
+    )
+}
+
+/// Run `mov_reduce` on the fixture with one input replaced, returning the defect.
+fn defect_of(
+    ell: u64,
+    g: Option<PairingPoint<FpNaive<4>>>,
+    q: Option<PairingPoint<FpNaive<4>>>,
+    r: Option<PairingPoint<FpNaive<4>>>,
+) -> MovInputDefect {
+    let (curve, modulus, _ell, p_point, q_point) = pairing_toy();
+    let g = g.unwrap_or_else(|| p_point.clone());
+    let q = q.unwrap_or_else(|| p_point.clone());
+    let r = r.unwrap_or(q_point);
+    match mov_reduce::<FpNaive<4>>(&curve, &modulus, &g, &q, &r, ell) {
+        Err(MovError::InvalidInput(d)) => d,
+        other => panic!("expected InvalidInput, got {other:?}"),
+    }
+}
+
+/// The curve's order-60 generator `(10, 3)`: on the curve but outside `E[3]`.
+fn outside_torsion() -> PairingPoint<FpNaive<4>> {
+    let pt = lift(10, 3);
+    let (curve, modulus, ell, _, _) = pairing_toy();
+    let p = curve.p;
+    let a = a_ext();
     assert!(
-        result.is_err(),
-        "mov_reduce with degenerate R (base-field point) should return an error; got: {:?}",
-        result
+        !pt.scalar_mul(ell, &a, &modulus, &p).is_infinity(),
+        "fixture assumption: 3·(10, 3) ≠ ∞"
+    );
+    pt
+}
+
+/// ℓ = 4 divides `p² − 1` but is not prime; ℓ = 0 and 1 are not prime either.
+#[test]
+fn mov_reduce_rejects_composite_ell() {
+    for ell in [0u64, 1, 4] {
+        assert_eq!(defect_of(ell, None, None, None), MovInputDefect::EllNotPrime, "ell = {ell}");
+    }
+}
+
+/// ℓ = 5 is prime but does not divide `47² − 1 = 2208`, so no pairing lands in `μ_5`.
+#[test]
+fn mov_reduce_rejects_ell_not_dividing_field_order() {
+    assert_eq!(
+        defect_of(5, None, None, None),
+        MovInputDefect::EllDoesNotDivideFieldOrder
+    );
+}
+
+/// A generator at infinity generates nothing.
+#[test]
+fn mov_reduce_rejects_infinite_generator() {
+    assert_eq!(
+        defect_of(3, Some(PairingPoint::Infinity), None, None),
+        MovInputDefect::GeneratorAtInfinity
+    );
+}
+
+/// Points off the curve are rejected before any pairing is evaluated.
+#[test]
+fn mov_reduce_rejects_off_curve_points() {
+    // (10, 4) differs from the curve point (10, 3) in y only.
+    assert_eq!(
+        defect_of(3, Some(lift(10, 4)), None, None),
+        MovInputDefect::GeneratorNotOnCurve
+    );
+    assert_eq!(
+        defect_of(3, None, Some(lift(10, 4)), None),
+        MovInputDefect::TargetNotOnCurve
+    );
+    assert_eq!(
+        defect_of(3, None, None, Some(lift(10, 4))),
+        MovInputDefect::PairingPointNotOnCurve
+    );
+}
+
+/// On-curve points outside `E[ℓ]` are rejected: the pairing is only defined on `E[ℓ]`.
+#[test]
+fn mov_reduce_rejects_points_outside_e_ell() {
+    assert_eq!(
+        defect_of(3, Some(outside_torsion()), None, None),
+        MovInputDefect::GeneratorNotInTorsion
+    );
+    assert_eq!(
+        defect_of(3, None, Some(outside_torsion()), None),
+        MovInputDefect::TargetNotInTorsion
+    );
+    assert_eq!(
+        defect_of(3, None, None, Some(outside_torsion())),
+        MovInputDefect::PairingPointNotInTorsion
     );
 }
 

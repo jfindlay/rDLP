@@ -39,7 +39,10 @@
 
 use crypto_bigint::Uint;
 use num_bigint::BigInt;
+use num_integer::Integer;
+use num_traits::ToPrimitive;
 use shared_field::Fp;
+use shared_numth::is_prime;
 
 use crate::curve::Curve;
 use crate::pairing::ecext::PairingPoint;
@@ -111,18 +114,148 @@ pub fn fpext_to_bigint<F: Fp<4>>(
 
 // ─── MOV/Frey–Rück reduction ──────────────────────────────────────────────────
 
+/// A verified MOV/Frey–Rück solution: `k·G == Q` in `E[ℓ]`, with the pairing values behind it.
+///
+/// `#[non_exhaustive]` keeps the fields readable everywhere while only this crate can construct a
+/// solution, so an unverified answer cannot be built by a caller.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct MovSolution<F: Clone + PartialEq + Eq> {
+    /// The logarithm modulo ℓ, in `[0, ℓ)`, satisfying `k_mod_ell·G == Q`.
+    pub k_mod_ell: u64,
+    /// The prime subgroup order ℓ.
+    pub ell: u64,
+    /// `g_pair = e(G, R) ∈ μ_ℓ`, the base of the finite-field log.
+    pub g_pair: FpExt<F>,
+    /// `h_pair = e(Q, R) ∈ μ_ℓ`, the target of the finite-field log: `g_pair^k = h_pair`.
+    pub h_pair: FpExt<F>,
+}
+
+/// A precondition of the MOV instance that does not hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MovInputDefect {
+    /// ℓ is not prime.
+    EllNotPrime,
+    /// ℓ does not divide `p^k − 1` for the extension degree `k` of the modulus.
+    EllDoesNotDivideFieldOrder,
+    /// The generator `G` is the point at infinity.
+    GeneratorAtInfinity,
+    /// The generator `G` does not satisfy the curve equation.
+    GeneratorNotOnCurve,
+    /// `ℓ·G` is not the point at infinity, so `G ∉ E[ℓ]`.
+    GeneratorNotInTorsion,
+    /// The target `Q` does not satisfy the curve equation.
+    TargetNotOnCurve,
+    /// `ℓ·Q` is not the point at infinity, so `Q ∉ E[ℓ]`.
+    TargetNotInTorsion,
+    /// The pairing point `R` does not satisfy the curve equation.
+    PairingPointNotOnCurve,
+    /// `ℓ·R` is not the point at infinity, so `R ∉ E[ℓ]`.
+    PairingPointNotInTorsion,
+}
+
+/// Why [`mov_reduce`] did not return a verified logarithm.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MovError {
+    /// The instance does not satisfy the reduction's preconditions.
+    InvalidInput(MovInputDefect),
+    /// A pairing value is unusable: `e(G, R) = 1`, or a Miller evaluation returned 0 (the
+    /// evaluation point met the Miller function's divisor, e.g. `R = G`). `R` is then not a
+    /// μ_ℓ-generator for `G` and the finite-field log carries no information about `k`. A property
+    /// of the supplied `R`, not a solver failure.
+    DegeneratePairing,
+    /// The finite-field log engine failed; its error is passed through unchanged.
+    Dl(gnfs::dl::SolveDlError),
+    /// The log engine returned a value that fails `k·G == Q` in `E[ℓ]`.
+    ///
+    /// An invariant failure (the pairing values and the points disagree): surfaced, never
+    /// retried.
+    Inconsistent {
+        /// The candidate, reduced modulo ℓ, that failed verification.
+        k_mod_ell: u64,
+    },
+}
+
+impl From<gnfs::dl::SolveDlError> for MovError {
+    fn from(e: gnfs::dl::SolveDlError) -> Self {
+        MovError::Dl(e)
+    }
+}
+
+/// `base^exp mod m` for `m ≥ 1`, without overflow (products of residues below 2^64 fit `u128`).
+fn pow_mod(base: u64, exp: usize, m: u64) -> u64 {
+    let m = u128::from(m);
+    let mut acc: u128 = 1 % m;
+    for _ in 0..exp {
+        acc = acc * (u128::from(base) % m) % m;
+    }
+    u64::try_from(acc).expect("residue below a u64 modulus fits u64")
+}
+
+/// Validate the MOV instance: ℓ prime, `ℓ | p^k − 1`, and `G`, `Q`, `R` points of `E[ℓ]` (on the
+/// curve with `ℓ·P = ∞`).
+///
+/// Checks run in the order of [`MovInputDefect`]'s variants; the first failure is returned. `G`
+/// may not be ∞; `Q` and `R` may be (`Q = ∞` is `k = 0`; `R = ∞` is a degenerate pairing).
+fn check_mov_input<F: Fp<4>>(
+    curve: &Curve,
+    modulus: &IrreducibleModulus<F>,
+    g_point: &PairingPoint<F>,
+    q_point: &PairingPoint<F>,
+    r_point: &PairingPoint<F>,
+    ell: u64,
+) -> Result<(), MovError> {
+    let defect = |d: MovInputDefect| Err(MovError::InvalidInput(d));
+    let p = &curve.p;
+    let k = modulus.degree();
+
+    if !is_prime(&Uint::<4>::from(ell)) {
+        return defect(MovInputDefect::EllNotPrime);
+    }
+    // ℓ | p^k − 1  ⇔  p^k ≡ 1 (mod ℓ).
+    if pow_mod(p.as_words()[0] % ell, k, ell) != 1 {
+        return defect(MovInputDefect::EllDoesNotDivideFieldOrder);
+    }
+    if g_point.is_infinity() {
+        return defect(MovInputDefect::GeneratorAtInfinity);
+    }
+
+    let a = FpExt::from_base(F::from_uint(curve.a, p), k, p);
+    let b = FpExt::from_base(F::from_uint(curve.b, p), k, p);
+    let points = [
+        (g_point, MovInputDefect::GeneratorNotOnCurve, MovInputDefect::GeneratorNotInTorsion),
+        (q_point, MovInputDefect::TargetNotOnCurve, MovInputDefect::TargetNotInTorsion),
+        (
+            r_point,
+            MovInputDefect::PairingPointNotOnCurve,
+            MovInputDefect::PairingPointNotInTorsion,
+        ),
+    ];
+    for (point, off_curve, off_torsion) in points {
+        if !point.is_on_curve(&a, &b, modulus, p) {
+            return defect(off_curve);
+        }
+        if !point.scalar_mul(ell, &a, modulus, p).is_infinity() {
+            return defect(off_torsion);
+        }
+    }
+    Ok(())
+}
+
 /// Reduce an ECDLP to a finite-field DLP via the MOV/Frey–Rück reduction.
 ///
 /// Given the ECDLP `Q = k·G` in the order-ℓ subgroup of `E(F_p)`, and a μ_ℓ-generator
 /// `R ∈ E(F_{p^k})[ℓ]` with `e(G, R) ≠ 1`, this function:
 ///
-/// 1. Computes `g_pair = reduced_tate(R, G, ell)` — the pairing `e(G, R) ∈ μ_ℓ`.
-/// 2. Computes `h_pair = reduced_tate(R, Q, ell)` — the pairing `e(Q, R) ∈ μ_ℓ`.
-/// 3. Asserts `g_pair ≠ 1` (if `g_pair = 1`, the DL is undefined — R is not a μ_ℓ-generator
-///    with respect to G).
+/// 1. Validates the instance (see *Errors*): ℓ prime, `ℓ | p^k − 1`, and `G`, `Q`, `R` points of
+///    `E[ℓ]`. The reduced Tate pairing and its final exponentiation are only meaningful then.
+/// 2. Computes `g_pair = reduced_tate(R, G, ell)` — the pairing `e(G, R) ∈ μ_ℓ` — and rejects
+///    `g_pair ∈ {0, 1}` (R is not a μ_ℓ-generator with respect to G, so the DL is undefined).
+/// 3. Computes `h_pair = reduced_tate(R, Q, ell)` — the pairing `e(Q, R) ∈ μ_ℓ` — rejecting 0.
 /// 4. Encodes both pairing outputs as base-p `BigInt` via [`fpext_to_bigint`] (the MOV bridge).
 /// 5. Calls `gnfs::dl::solve_dl(&g_big, &h_big, &p_big, 2, &ell_big)` to recover `k mod ℓ`.
-/// 6. Returns `Ok(k_mod_ell)` as `u64`.
+/// 6. Reduces the result modulo ℓ and checks `k·G == Q` directly in `E[ℓ]`, independently of the
+///    pairing and of the log engine, before returning it with the pairing values.
 ///
 /// # Argument order for non-degeneracy
 ///
@@ -133,8 +266,9 @@ pub fn fpext_to_bigint<F: Fp<4>>(
 ///
 /// # Recovered log
 ///
-/// The returned value is `k mod ℓ` — the discrete log in the order-ℓ subgroup. A full
-/// composite-order lift via Pohlig–Hellman is a principle-4 annotation, not wired here.
+/// The returned value is `k mod ℓ` — the discrete log in the order-ℓ subgroup, so the check
+/// `k·G == Q` is exact in `E[ℓ]` with `k` reduced modulo ℓ. A full composite-order lift via
+/// Pohlig–Hellman is a principle-4 annotation, not wired here.
 ///
 /// # Arguments
 ///
@@ -149,9 +283,12 @@ pub fn fpext_to_bigint<F: Fp<4>>(
 ///
 /// # Errors
 ///
-/// Propagates [`gnfs::dl::SolveDlError`] from `solve_dl` (e.g., `InitSmoothingFailed`,
-/// `DescentFailed`). Returns `SolveDlError::DescentFailed { stuck_prime: 0 }` if
-/// `g_pair = 1` (degenerate pairing — R is not a valid μ_ℓ-generator for G).
+/// - [`MovError::InvalidInput`] with the first [`MovInputDefect`] found: ℓ not prime;
+///   `ℓ ∤ p^k − 1`; `G = ∞`; or `G`, `Q`, `R` off the curve or outside `E[ℓ]`.
+/// - [`MovError::DegeneratePairing`] if `R = ∞`, `e(G, R) = 1`, or a pairing evaluation is 0.
+/// - [`MovError::Dl`] with the error of `solve_dl` unchanged (e.g. `InitSmoothingFailed`,
+///   `DescentFailed`, or `Unsupported` for an extension degree above 2).
+/// - [`MovError::Inconsistent`] if the log engine's value fails `k·G == Q`.
 ///
 /// # Panics
 ///
@@ -164,51 +301,79 @@ pub fn mov_reduce<F: Fp<4>>(
     q_point: &PairingPoint<F>,
     r_point: &PairingPoint<F>,
     ell: u64,
-) -> Result<u64, gnfs::dl::SolveDlError> {
+) -> Result<MovSolution<F>, MovError> {
+    check_mov_input(curve, modulus, g_point, q_point, r_point, ell)?;
+
     let p_uint = curve.p;
+    let k = modulus.degree();
 
-    // Step 1: compute g_pair = e(G, R) = reduced_tate(R, G, ell).
-    // Argument order: R first (extension-field point), G second (base-field point).
-    // This is the non-degenerate direction for the toy fixture (see `test_curves` module).
-    let g_pair: FpExt<F> = reduced_tate(curve, modulus, r_point, g_point, ell);
-
-    // Step 2: compute h_pair = e(Q, R) = reduced_tate(R, Q, ell).
-    let h_pair: FpExt<F> = reduced_tate(curve, modulus, r_point, q_point, ell);
-
-    // Step 3: assert g_pair ≠ 1 — if g_pair = 1, R is not a μ_ℓ-generator for G and the
-    // DL is undefined. Return DescentFailed as the closest error (degenerate pairing).
-    if g_pair.is_one(&p_uint) {
-        return Err(gnfs::dl::SolveDlError::DescentFailed { stuck_prime: 0 });
+    // e(R, ∞) = 1 and the Miller loop is undefined at a point at infinity, so handle R = ∞ and
+    // Q = ∞ without evaluating the pairing.
+    if r_point.is_infinity() {
+        return Err(MovError::DegeneratePairing);
     }
 
-    // Step 4: extract p as u64 (toy-only: p < 2^64, single limb).
-    // Principle-4 boundary: at crypto scale, the full limb vector would be needed.
+    // g_pair = e(G, R) = reduced_tate(R, G, ell).
+    // Argument order: R first (extension-field point), G second (base-field point).
+    // This is the non-degenerate direction for the toy fixture (see `test_curves` module).
+    //
+    // A usable pairing value is a unit of F_{p^k}. The value 1 is the trivial pairing; the value
+    // 0 is what the Miller evaluation returns when the evaluation point meets the divisor of the
+    // Miller function (R = G), where the pairing is undefined. Neither carries a log.
+    let g_pair: FpExt<F> = reduced_tate(curve, modulus, r_point, g_point, ell);
+    if g_pair.is_one(&p_uint) || g_pair.is_zero(&p_uint) {
+        return Err(MovError::DegeneratePairing);
+    }
+
+    // h_pair = e(Q, R) = reduced_tate(R, Q, ell); the pairing at Q = ∞ is the identity.
+    let h_pair: FpExt<F> = if q_point.is_infinity() {
+        FpExt::one(k, &p_uint)
+    } else {
+        reduced_tate(curve, modulus, r_point, q_point, ell)
+    };
+    if h_pair.is_zero(&p_uint) {
+        return Err(MovError::DegeneratePairing);
+    }
+
+    // Toy-only: p < 2^64, single limb; a crypto-scale p needs the full limb vector.
     let p_u64: u64 = p_uint.as_words()[0];
 
-    // Step 5: encode both pairing outputs as base-p BigInt via the MOV bridge.
-    // The modulus-consistency guard in fpext_to_bigint ensures the pairing's modulus
-    // matches what solve_dl_ext uses internally — the silent-wrong-field defense.
+    // Encode both pairing outputs as base-p BigInt via the MOV bridge. The modulus-consistency
+    // guard in fpext_to_bigint ensures the pairing's modulus matches what solve_dl uses
+    // internally — the silent-wrong-field defense.
     let g_big: BigInt = fpext_to_bigint(&g_pair, modulus, p_u64);
     let h_big: BigInt = fpext_to_bigint(&h_pair, modulus, p_u64);
 
     let p_big = BigInt::from(p_u64);
     let ell_big = BigInt::from(ell);
 
-    // Step 6: call solve_dl to recover log_{g_pair}(h_pair) = k mod ell.
-    // k=2 path: the extension-field brute-force solver (principle-4 toy scale).
-    // This is a real solver — not a stub (ROADMAP anti-stub constraint).
+    // Recover log_{g_pair}(h_pair) with the extension-field solver (degree 2 at toy scale).
     let k_big = gnfs::dl::solve_dl(&g_big, &h_big, &p_big, 2, &ell_big)?;
 
-    // Step 7: convert BigInt → u64 (toy-only: k ∈ [0, ℓ), ℓ=3 at toy scale).
-    // Principle-4 boundary: at crypto scale, the full BigInt would be returned.
-    let k_u64 = k_big
-        .to_u64_digits()
-        .1
-        .first()
-        .copied()
-        .unwrap_or(0);
+    // The subgroup log is defined modulo ℓ; reduce whatever representative the engine returned.
+    let k_mod_ell: u64 = k_big
+        .mod_floor(&ell_big)
+        .to_u64()
+        .expect("a residue modulo a u64 ℓ fits u64");
 
-    Ok(k_u64)
+    if !log_matches(curve, modulus, g_point, q_point, k_mod_ell) {
+        return Err(MovError::Inconsistent { k_mod_ell });
+    }
+
+    Ok(MovSolution { k_mod_ell, ell, g_pair, h_pair })
+}
+
+/// Check `k·G == Q` directly on the curve, independently of the pairing and the log engine.
+fn log_matches<F: Fp<4>>(
+    curve: &Curve,
+    modulus: &IrreducibleModulus<F>,
+    g_point: &PairingPoint<F>,
+    q_point: &PairingPoint<F>,
+    k: u64,
+) -> bool {
+    let p = &curve.p;
+    let a = FpExt::from_base(F::from_uint(curve.a, p), modulus.degree(), p);
+    g_point.scalar_mul(k, &a, modulus, p) == *q_point
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -348,6 +513,32 @@ mod tests {
         let words = u.as_words();
         let b = BigInt::from(words[0]);
         assert_eq!(b, BigInt::from(46i64), "Uint<4>(46) should convert to BigInt(46)");
+    }
+
+    // ── Verification and input checks ─────────────────────────────────────────
+
+    /// `log_matches` accepts exactly the true residue of `k` modulo ℓ, so a wrong log-engine
+    /// value would be reported as inconsistent.
+    #[test]
+    fn log_matches_accepts_only_the_true_log() {
+        let (curve, modulus, _ell, g, _r) = pairing_toy();
+        let p = curve.p;
+        let a = FpExt::from_base(FpNaive::<4>::from_u64(1, &p), 2, &p);
+        let q = g.scalar_mul(2, &a, &modulus, &p);
+        assert!(log_matches(&curve, &modulus, &g, &q, 2));
+        assert!(!log_matches(&curve, &modulus, &g, &q, 0));
+        assert!(!log_matches(&curve, &modulus, &g, &q, 1));
+    }
+
+    /// `pow_mod` agrees with direct evaluation, including the degenerate modulus 1.
+    #[test]
+    fn pow_mod_matches_direct_power() {
+        assert_eq!(pow_mod(47, 2, 3), 2209 % 3);
+        assert_eq!(pow_mod(47, 2, 5), 2209 % 5);
+        assert_eq!(pow_mod(7, 0, 5), 1);
+        assert_eq!(pow_mod(7, 3, 1), 0);
+        // Residues near 2^64 must not overflow.
+        assert_eq!(pow_mod(u64::MAX - 1, 2, u64::MAX), 1);
     }
 
     // ── KAT 4: pairing_toy fixture integration ────────────────────────────────
