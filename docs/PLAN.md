@@ -412,9 +412,12 @@ documented with its source; `docs/development.md` rule 5 says so in one sentence
 
 ### C-MovOutcome
 
-Compiler + test-enforced. *To be frozen at 6.* Consumed by 12. `mov_reduce -> Result<MovSolution,
-MovError>`; `MovSolution { k_mod_ell, ell, g_pair, h_pair }` verified k·G == Q;
-`MovError { InvalidInput, DegeneratePairing, Dl(gnfs::dl::SolveDlError), Inconsistent }`.
+Compiler + test-enforced. **Frozen at 6 (3a35174).** Consumed by 12. `mov_reduce ->
+Result<MovSolution<F>, MovError>`; `MovSolution { k_mod_ell, ell, g_pair, h_pair }` (`#[non_exhaustive]`)
+verified k·G == Q; `MovError { InvalidInput(MovInputDefect), DegeneratePairing,
+Dl(gnfs::dl::SolveDlError), Inconsistent { k_mod_ell } }`; `MovInputDefect { EllNotPrime,
+EllDoesNotDivideFieldOrder, GeneratorAtInfinity, GeneratorNotOnCurve, GeneratorNotInTorsion,
+TargetNotOnCurve, TargetNotInTorsion, PairingPointNotOnCurve, PairingPointNotInTorsion }`.
 
 ### C-SsaOutcome
 
@@ -477,7 +480,7 @@ ba81676's body is also unwrapped (cosmetic; same `@git-editor` pass).
 | 3 | Recover the log from negated distinguished-point collisions | done | 6cf11c8 | C-DpSignedCollision |
 | 4 | Verify Pohlig–Hellman results and name the small-subgroup method | done | 71a72a1 | C-PohligEvidence |
 | 5 | Verify binary-field rho and Koblitz results | done | 9293b1e | — |
-| 6 | Verify MOV results and type its failure classes | pending | | |
+| 6 | Verify MOV results and type its failure classes | done | 3a35174 | C-MovOutcome |
 | 7 | Separate SSA failure classes and handle zero logs and large primes | pending | | |
 | 8 | Reject off-curve and non-subfield points in the GHS transfer | pending | | |
 | 9 | Type rho factoring outcomes and bound each attempt | pending | | |
@@ -574,8 +577,26 @@ Deferred: yes — row 12: do not claim τ-power coverage beyond power 0; documen
 targets-outside-⟨G⟩ behaviour only as tested.
 Texture: none.
 
+### 6 — 2026-11-09
+Discovery/flex: `reduced_tate(R, G)` with R = G returns 0, not 1; the old "degenerate" test only
+passed because `solve_dl` then failed with `DescentFailed`. `mov_reduce` now maps a pairing value of
+0 (or 1 for e(G, R); R = ∞) to `DegeneratePairing`. Q = ∞ is h_pair = 1 → k = 0 (Miller loop is
+undefined at ∞). Input checks also cover the pairing point R ∈ E[ℓ] (added beyond the plan). No
+`Display`/`Error` impls on the new types, following `EcdlpError`/`DlogError`. `Inconsistent` is
+reached only through `log_matches` unit tests (the engine is correct on every fixture).
+Affected: C-MovOutcome (frozen with a typed `MovInputDefect`; `Inconsistent` carries the candidate).
+Deferred: yes — (a) row 12: `docs/PEDAGOGY.md` ~line 880 still shows the old `mov_reduce` signature
+and ~line 911 an old example; `docs/BENCHMARKS.md` says "returns k = 2". (b) Unsurfaced risk: the
+p < 2^64 single-limb limit is enforced only by a `debug_assert` in `fpext_to_bigint`; a larger p is
+silently truncated in release builds and the contract has no unsupported-domain variant. Candidate
+additive item for the user (NFS-DL/gnfs-adjacent, so not absorbed here); `reduced_tate` itself was
+left untouched.
+Texture: none.
+
 ## Discoveries & risks
 
+- **Row 6 (risk, surfaced):** MOV's p < 2^64 limit is a `debug_assert`-only domain check (silent
+  truncation in release); `reduced_tate(R, G)` with R = G returns 0. Neither fixed; see digest.
 - **Row 4 (confirmed, no HALT):** literature supports the order-p enumeration claim (see digest).
 - **Row 3 (confirmed):** the P/−P defect is real (see digest); fixed in row 3.
 - **Row 1 (internal-continue):** CLI `--curve generic` order `9_223_372_037_218_517_353` is composite
