@@ -421,7 +421,9 @@ TargetNotOnCurve, TargetNotInTorsion, PairingPointNotOnCurve, PairingPointNotInT
 
 ### C-SsaOutcome
 
-Compiler + test-enforced. *To be frozen at 7.* Consumed by 12. `ssa_solve` keeps
+Compiler + test-enforced. **Frozen at 7 (9154962).** Shape frozen; `Inconsistent` is
+invariant-only once the non-canonical-lift follow-up (see Discoveries & risks) lands — until then it
+can also mark a canonical-lift input. Consumed by 12. `ssa_solve` keeps
 `Result<u64, SsaError>`; `SsaError` gains `Inconsistent` and `Unsupported`; `NotAnomalous` only on
 an exact count.
 
@@ -481,7 +483,7 @@ ba81676's body is also unwrapped (cosmetic; same `@git-editor` pass).
 | 4 | Verify Pohlig–Hellman results and name the small-subgroup method | done | 71a72a1 | C-PohligEvidence |
 | 5 | Verify binary-field rho and Koblitz results | done | 9293b1e | — |
 | 6 | Verify MOV results and type its failure classes | done | 3a35174 | C-MovOutcome |
-| 7 | Separate SSA failure classes and handle zero logs and large primes | pending | | |
+| 7 | Separate SSA failure classes and handle zero logs and large primes | done | 9154962 | C-SsaOutcome |
 | 8 | Reject off-curve and non-subfield points in the GHS transfer | pending | | |
 | 9 | Type rho factoring outcomes and bound each attempt | pending | | |
 | 10 | Type ECM factoring outcomes | pending | | |
@@ -593,8 +595,49 @@ additive item for the user (NFS-DL/gnfs-adjacent, so not absorbed here); `reduce
 left untouched.
 Texture: none.
 
+### 7 — 2026-11-09
+Discovery/flex: The enrolled lifting-defect risk FIRED. The k_raw / k_raw/2 correction is not derived:
+the fixture (y² = x³ + 5 over F_7, a = 0, CM by Z[ζ₃]) is the canonical lift, where p·P̃ has ψ
+valuation 2 (not 1), so k_raw is a lift-dependent second-order artefact (k_raw = 1, 4, 6, 1, 3, 6 for
+k = 1..6); lifting a → 7, 14, 21 gives valuation 1 and k_raw = k with no halving. Verified
+independently by the juncture fork (arithmetic recomputation at 7^10). Juncture verdict:
+`additive-reshard`, not enacted (`may-reshard` off) → row 7 committed as implemented; every `Ok`
+still passes k·G == Q, so no wrong answer escapes. Row 7 also: `Q = ∞ → Ok(0)`; `verify_anomalous`
+returns `Result<bool, SsaError>`, exact via u128 for p < 2^64, `Unsupported(&'static str)` beyond
+one limb or p < 5; u64 products in `fp_divide_logs`/halving moved to u128 `mul_mod_u64`; new KATs
+include y² = x³ + 2 over F_2738941 (anomalous; x³ overflows u64). `Inconsistent` reached only via
+unit tests (`resolve_candidate_*`); which candidate (Raw/Halved) verified is asserted in unit tests
+only (frozen signature carries no evidence). `Inconsistent` rustdoc corrected to say it can occur on
+valid input on a canonical lift.
+Affected: C-SsaOutcome (frozen as shape; `Inconsistent` semantics qualified).
+Deferred: yes — ROW 12 MUST: (a) fix MATHEMATICS §10.2: it applies log_Ê to G̃ ∉ E₁ and claims
+p·G̃ = O in E(Z/p²) (really p·G̃ ∈ E₁); correct statement: for a lift with p·P̃ ∈ E₁ \ E₂ the map
+P ↦ ψ(p·P̃)/p mod p is a lift-independent homomorphism, k = ψ(p·Q̃)/ψ(p·G̃) mod p; on the canonical
+lift p·P̃ ∈ E₂ and the method breaks (cite a source row 12 actually reads, e.g. Leprévost–Monnerat–
+Varrette–Vaudenay 2005 — NOT read by the fork — or label unverified); (b) one clearly labelled
+paragraph: the implementation lifts the curve as stored; on `anomalous_toy` (a = 0) that is the
+canonical lift, the halved candidate is an empirical compensation with no derivation, correctness
+rests on k·G == Q; cite `kat_ssa_solve_recovers_every_k` and `resolve_candidate_*`; never call the
+halving a property of the formal log or CM; (c) `formal_log` computes log(1 + t) (multiplicative),
+not log_Ê — don't call it "the elliptic formal log"; (d) PEDAGOGY names/signature wrong
+(`hensel_lift_point`/`formal_group_log` vs code's `lift_point`/`elliptic_log_proj`; `Curve<F>`,
+`F: Fp`, `p` vs `Curve`, `F: Fp<4>`, `_n`); (e) MATHEMATICS says O(log p) but the multiply-by-p loop
+is O(p) (toy-scale).
+Texture: `SsaError` has no `InvalidInput` (off-curve/G = ∞ come back as `LiftFailed`; odd order →
+no 2-torsion so `LiftFailed` always means bad input); `_n` is ignored.
+
 ## Discoveries & risks
 
+- **Row 7 (additive-reshard verdict, NOT enacted — `may-reshard` off; SURFACE TO USER):** the SSA
+  halving masks a degenerate canonical lift. Proposed follow-up (Cat B, T1, after the run): files
+  `rho/src/ssa/{reduce.rs,lift.rs,mod.rs}`, `rho/tests/ssa_kat.rs`, plus the SSA paragraphs in
+  MATHEMATICS §10.2 and PEDAGOGY §11. Lift the curve non-canonically (a → a + p·s; `lift_point` must
+  use the same lifted curve as the multiply-by-p loop); delete the halving and the `Candidate` enum;
+  rule 4 permits a second lift if the first lands in E₂ (prob ≈ 1/p); re-check whether precision 8
+  is still needed; KATs: every k on the fixture comes out Raw with valuation 1, the stored a = 0 lift
+  is shown to land in E₂, and at least one second anomalous fixture with a ≠ 0. Also flagged for
+  the user: whether `SsaError` should gain `InvalidInput` (contract change; user's call). Rows 8–11
+  are independent of SSA and proceed.
 - **Row 6 (risk, surfaced):** MOV's p < 2^64 limit is a `debug_assert`-only domain check (silent
   truncation in release); `reduced_tate(R, G)` with R = G returns 0. Neither fixed; see digest.
 - **Row 4 (confirmed, no HALT):** literature supports the order-p enumeration claim (see digest).
