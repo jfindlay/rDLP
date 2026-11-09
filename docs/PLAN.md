@@ -229,7 +229,7 @@ Prose invariants: relations hold mod ℓ because ℓ ∥ n; x comes only from a 
 | 1 | Recover the ECDLP exponent from finite-precision Fourier outcomes | done | 89b0d59 | C-ShorExtraction |
 | 2 | Report Shor ECDLP measurement evidence without exhaustive fallback | done | 2cb56f3 | C-ShorSolve |
 | 3 | Recover the index-calculus log from a relation combination | done | 15cdec6 | C-IndexCalcRecovery |
-| 4 | Correct the Shor ECDLP and index-calculus exposition ◆ | pending | | |
+| 4 | Correct the Shor ECDLP and index-calculus exposition ◆ | done | e3040c4 | |
 | 5 | Anneal cleanup (skippable) | pending | | |
 
 ## Action-frame digest
@@ -299,6 +299,32 @@ gnfs linalg/sieve, `semaev/*`, `pairing/mov.rs`, `ghs_kat.rs`; "C-EWBench" in `a
 "frozen" wording in untouched KATs. All hit the anneal denylist and are outside the declared arc
 footprint — surface at the ◆ gate, do not absorb silently.
 Texture: coverage 93.78% after row 3; `index_calculus/mod.rs` at 77% from error-enum Display impls.
+
+### 4 — 2026-11-08
+Discovery/flex: Docs corrected; no contract flexed. Allowed extras (4d, plainly part of the unit):
+`shor/src/lib.rs` (crate rustdoc still stated the old `b'·k ≡ −a'` rule; also dropped its
+`C-ECDLPSolve`/`C-PointAdd` labels at that passage) and `README.md` (cross-references broken by
+label renames). `shor/docs/PEDAGOGY.md` was rewritten whole. Published quantitative claims carry
+tests (17 qubits → `qubit_budget_within_ceiling`; distribution formula → `distribution_matches_
+fourier_formula_*`; peak pairs → `extract_exact_peak_pairs_recover_k`; fixture pairs →
+`ecdlp_k*_seed0`; 60-residue recovery → `recovers_every_residue`) or are labelled estimates: per-
+measurement success ≈0.64–0.66 (function `primary_success_probability`, no test asserts the value)
+and exhaustion ≈0.36⁸ ≈ 3·10⁻⁴. Removed: old-rule success numbers, "768 qubits (Proos–Zalka)"
+(inconsistent with the doc's own formula), "~35 s total", stale test counts, "KAT-verified …
+Complete" verdicts, an O((log r)³) expected-time claim (kept as a labelled literature claim).
+Affected: none.
+Deferred: yes — at the ◆ gate. (a) Denylist hits remain in files this row touched, left by the
+subagent as "the library's own organising vocabulary": `docs/PEDAGOGY.md` (~46 non-citation hits:
+"Track S/E/D/G/ρ", "Phase 0–8" rho chapter headings), `docs/BENCHMARKS.md` (~35: "G.B–G.W" section
+labels, "Phase 1–4"), `README.md` (~30 Track/G.x/E.x), `shor/src/lib.rs` (C-ModExp, C-PointAdd,
+C-OrderFind, C-Factor, C-StateVec, C-QFT outside the ecdlp passage). `docs/MATHEMATICS.md` hits
+are bibliography keys ([S09], [S93], [S85]…): keyword matches. Out-of-file leakage in code
+comments (`decompose.rs` "principle-4 boundary", gnfs/semaev/pairing, "C-EWBench") is not in the
+arc's touched durable files except where already listed. (b) The unrelated pre-existing
+inconsistency in BENCHMARKS (N=91 "21 qubits" vs its own table's 14) was left alone.
+Texture: the denylist's `Track`/`Phase` patterns hit the repo's own cross-document organising
+labels (shared with README, SURVEY and the gnfs docs), so a coordinated rename is wider than the
+row's footprint.
 
 ## Discoveries & risks
 
