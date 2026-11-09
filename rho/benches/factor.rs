@@ -14,6 +14,9 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use rho::factor::{brent, brent_batched, floyd};
 
+/// Step bound far above what any input below needs, so the bound never ends a run early.
+const STEPS: u64 = 1 << 28;
+
 /// Three semiprimes spanning 30–64 bits.  Each is a product of two primes
 /// of roughly equal size so that rho's expected steps are ~N^(1/4).
 struct Input {
@@ -31,7 +34,7 @@ fn bench_floyd(c: &mut Criterion) {
     let mut group = c.benchmark_group("floyd");
     for input in INPUTS {
         group.bench_with_input(BenchmarkId::new("n", input.label), &input.n, |b, &n| {
-            b.iter(|| floyd(n, 1, 2).expect("floyd failed"));
+            b.iter(|| floyd(n, 1, 2, STEPS).expect("floyd failed"));
         });
     }
     group.finish();
@@ -41,7 +44,7 @@ fn bench_brent(c: &mut Criterion) {
     let mut group = c.benchmark_group("brent");
     for input in INPUTS {
         group.bench_with_input(BenchmarkId::new("n", input.label), &input.n, |b, &n| {
-            b.iter(|| brent(n, 1, 2).expect("brent failed"));
+            b.iter(|| brent(n, 1, 2, STEPS).expect("brent failed"));
         });
     }
     group.finish();
@@ -51,7 +54,7 @@ fn bench_brent_batched(c: &mut Criterion) {
     let mut group = c.benchmark_group("brent_batched");
     for input in INPUTS {
         group.bench_with_input(BenchmarkId::new("n", input.label), &input.n, |b, &n| {
-            b.iter(|| brent_batched(n, 1, 2, 128).expect("brent_batched failed"));
+            b.iter(|| brent_batched(n, 1, 2, 128, STEPS).expect("brent_batched failed"));
         });
     }
     group.finish();
