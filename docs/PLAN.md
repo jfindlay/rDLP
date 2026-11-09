@@ -230,7 +230,7 @@ Prose invariants: relations hold mod ℓ because ℓ ∥ n; x comes only from a 
 | 2 | Report Shor ECDLP measurement evidence without exhaustive fallback | done | 2cb56f3 | C-ShorSolve |
 | 3 | Recover the index-calculus log from a relation combination | done | 15cdec6 | C-IndexCalcRecovery |
 | 4 | Correct the Shor ECDLP and index-calculus exposition ◆ | done | e3040c4 | |
-| 5 | Anneal cleanup (skippable) | pending | | |
+| 5 | Anneal cleanup (skippable) | done | 208fc6f | |
 
 Boundary note (row 4 ◆, 2026-11-08): `still-on-intent`. Fix-loop budget 2 of 2 spent (anneal-fix
 cf42c3c; correction of seven fork-named statements ec4c5f7). Allowed extras on row 4: `README.md`,
@@ -388,6 +388,21 @@ line), the over-100-character lines, and optionally the "2D-lattice" → "dual-l
 `k·G_ℓ = Q_ℓ` vs `x` notation in `docs/BENCHMARKS.md:524`, `rho/benches/attacks.rs:185,202,208`.
 Texture: the fork's judgment that a non-solver 0..R scan inside a test oracle is consistent with
 "no code path enumerates candidate exponents" is the reading tolerated for C-ShorSolve.
+
+### 5 — 2026-11-08
+Discovery/flex: Ran (not skipped): ~100 arc-added over-width lines and the carried-over PEDAGOGY
+statement. Rewrapped all prose/comment overruns; PEDAGOGY's "relation matrix whose solution recovers
+the discrete log" now matches README (left-kernel combination, log mod ℓ); "2D-lattice" → "dual-
+lattice" in `shor/src/ecdlp/mod.rs`; `k·G_ℓ = Q_ℓ` → `x·G_ℓ = Q_ℓ` in BENCHMARKS and `attacks.rs`
+(assert message text only). Full gate green on the final tree: check, test, dep-policy, audit,
+coverage 93.78%.
+Affected: none.
+Deferred: remaining over-width lines are unwrappable by kind: markdown table rows and fenced
+blocks (PEDAGOGY, BENCHMARKS, MATHEMATICS:110, shor PEDAGOGY, README:121), code lines
+(`ecdlp_kat.rs:230,364`, `collect.rs:211`, `decompose.rs:65`, `index_calculus_kat.rs:1116`) and two
+`#[ignore = "…"]` attributes (`ecdlp_kat.rs:525,556`). Not touched: SURVEY, the out-of-footprint
+"principle-4" survivors, the brute-force small-subgroup / extension-field solvers flagged in the
+boundary note.
 
 ## Discoveries & risks
 
