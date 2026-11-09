@@ -505,7 +505,7 @@ ba81676's body is also unwrapped (cosmetic; same `@git-editor` pass).
 | 9 | Type rho factoring outcomes and bound each attempt | done | a404982 | C-RhoFactorOutcome |
 | 10 | Type ECM factoring outcomes | done | 54c393a | C-EcmOutcome |
 | 11 | Report Shor factoring provenance and return the minimal order | done | c20ef50 | C-ShorFactorOutcome |
-| 12 | Correct the solver-outcome exposition ◆ | pending | | |
+| 12 | Correct the solver-outcome exposition ◆ | done | 748528e | — |
 | 13 | Anneal cleanup (skippable) | pending | | |
 
 ## Action-frame digest
@@ -753,6 +753,47 @@ edge (a transitive one pre-exists; no manifest changed).
 Affected: C-ShorFactorOutcome (frozen as built, `CommonFactor` removed).
 Deferred: yes — row 12: shor PEDAGOGY's factoring chapter and `docs/MATHEMATICS.md:3906` (still names
 `shor/src/shor.rs`); describe the check order, the ceiling constant, and `n ≤ 2 → NotComposite`.
+Texture: none.
+
+### 12 — 2026-11-09
+Discovery/flex: Docs-only row; seven files (`shared/numth/docs/PEDAGOGY.md` added to the sweep by the
+juncture verdict). Every behaviour claim cites an existing test by file + name (driver spot-checked 14
+of them by grep) or is labelled: "no test / code reading" (Brent per-attempt cap 2²⁹−1, rho-factoring
+step bound and skipped constants, ECM stage-1 overflow, binary/Koblitz targets outside ⟨G⟩, Pohlig
+`n·Q ≠ ∞`, MOV p < 2^64, SSA `p < 5`), "exploratory" (SSA k_raw sequence 1,4,6,1,3,6 and the E₂
+observation; GLV/negmap ratio 0.62–0.77), "unverified" (the SSA attack fails on the canonical lift;
+no source cited), "arithmetic only, benches not run" (~2.7·10⁹-step estimate). Overclaims removed
+(ECM "used inside NFS/Pohlig", "certify found factors", "(or a divisor of r)", the √3 GLV speedup as
+tested, "all five rho variants on secp_k1_toy"). BENCHMARKS' Shor-factoring section was substantially
+wrong (seed 7 not 8; wrong amplitude and qubit counts) and was rewritten. Contract-vs-code
+disagreements (code authoritative): rho factoring's step bound is ⌊n^{1/4}⌋+1 (digest/ledger said
+⌈n^{1/4}⌉); C-SsaOutcome's "invariant-only after follow-up" holds only after the lift fix (docs say
+`Inconsistent` can occur on valid input on the canonical lift); `factor(25)` "needs c = 5" is not pinned
+by any test and is uncited. Other surfaced facts: `ecm_factor` has no in-tree caller except its own
+tests; by arithmetic the default `rho-dlog` Brent run on `secp-toy` (and `bench_brent`) would most
+likely end `BudgetExhausted` (per-attempt cap 2²⁹−1 vs expected ≈ 2.7·10⁹) — not run; pre-existing
+behaviour (previously `None`).
+STALE SOURCE COMMENTS (not edited — outside row 12's files; for the anneal sweep): `rho/src/factor/rho.rs:46-47`
+("uses exactly those bases … proof only below this value": `is_prime` now uses 13 bases from ψ₁₂;
+"≈ 2^78.0" should be 78.1), `:95` and `:389` ("⌈n^{1/4}⌉"), `:5` ("the plan's 30–80-bit target range");
+`rho/src/ssa/formal_log.rs:1,4,14,36` and `reduce.rs:8,70,147` ("elliptic formal-group logarithm" — it
+is log(1 + t)), `formal_log.rs:84` ("should not happen"), `ssa/mod.rs:3` ("polynomial time" — O(p));
+`rho/tests/ssa_kat.rs:370-372,410` (factor 2 attributed to CM); `rho/src/ecdlp/mod.rs:1804`
+("demonstrating the √3 speedup" — test asserts ≤ 2×) and `:1018` (√6/√3 as fact); `rho/benches/ecdlp.rs:4,14-17`
+("≈ sqrt(k)" — cost is √n); `shared/numth/src/ecm.rs:387-388` (Montgomery-ladder comment beside the
+wrapping scalar); `rho/src/ecdlp/pohlig.rs:41-42,104-105` ("`ecm_factor` available as a fallback" —
+unused, and "fallback" contradicts rule 5); `rho/src/ghs/descent.rs:384` ("should not happen");
+`rho/src/binary_ecdlp/mod.rs:4,54` ("parallel implementation") and `koblitz.rs:350` (√(2m) speedup as
+fact). PLAN-vocabulary in source (pre-existing denylist hits): "Principle-4 annotation/boundary" in
+~40 places across `rho/src/{ssa,ghs,pairing,semaev,binary_curve,ecdlp/pohlig.rs}` and tests;
+`C-PadicLog`/`C-Padic`/`C-Hensel` in `rho/src/ssa`; `C-F2m` and "Cat-C baseline rule" in
+`rho/src/binary_ecdlp/koblitz.rs:5,35`; `C-ModExp` in `shor/src/shor/mod.rs:9,22`; "principle 4" in
+`shor/tests/factor_kat.rs`; and in `shared/numth/docs/PEDAGOGY.md` lines 23, 24, 44-48, 130, 233-240,
+361, 397, 404, 452-455, 460-462 (session ids, `G.C`/`D.A`/`E.K`/…, "Phase α", "Contract C1",
+"ROADMAP"); `docs/development.md:25` references `docs/NOTES.md`. Other pre-existing drift: README rho
+layout lists nonexistent `field/`, `util/`; `docs/PEDAGOGY.md` cites `src/util/batch_inv.rs`.
+Affected: none (every frozen contract consumed as built).
+Deferred: no — hand the stale-comment and denylist lists above to the boundary anneal gate / row 13.
 Texture: none.
 
 ## Discoveries & risks
