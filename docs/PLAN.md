@@ -393,7 +393,7 @@ requires equal full x; opposite y-parity yields the negated relation and `negate
 
 ### C-PohligEvidence
 
-Compiler + test-enforced. *To be frozen at 4.* Consumed by 12.
+Compiler + test-enforced. **Frozen at 4 (71a72a1).** Consumed by 12.
 
 ```rust
 pub fn solve_ecdlp_composite<F: Fp<4>>(curve: &Curve, g: &AffinePoint<F>, q: &AffinePoint<F>,
@@ -401,8 +401,11 @@ pub fn solve_ecdlp_composite<F: Fp<4>>(curve: &Curve, g: &AffinePoint<F>, q: &Af
 pub struct PohligEvidence { pub components: Vec<PrimePowerComponent> }
 pub struct PrimePowerComponent { pub p: u64, pub e: u32, pub residue: u64,
                                  pub digits: Vec<DigitMethod> }
-pub enum DigitMethod { SubgroupTable, Rho(RhoEvidence) }  // name per the primary source
+pub enum DigitMethod { SubgroupEnumeration, Rho(RhoEvidence) }  // name per the primary source
 ```
+
+(Frozen name: `SubgroupEnumeration` — Pohlig and Hellman 1978 §IV's order-p step is
+trial-and-error enumeration, not a stored table, so the drafted `SubgroupTable` was renamed.)
 
 Prose invariant: the small-subgroup step is the published method's own size-selected sub-step,
 documented with its source; `docs/development.md` rule 5 says so in one sentence.
@@ -472,7 +475,7 @@ ba81676's body is also unwrapped (cosmetic; same `@git-editor` pass).
 | 1 | Define a verified rho discrete-log outcome and adopt it in Brent rho | done | 7e48f9b | C-DlogOutcome |
 | 2 | Bound the distinguished-point rho solvers and verify their results | done | 1dfe746 | C-DpBudget |
 | 3 | Recover the log from negated distinguished-point collisions | done | 6cf11c8 | C-DpSignedCollision |
-| 4 | Verify Pohlig–Hellman results and name the small-subgroup method | pending | | |
+| 4 | Verify Pohlig–Hellman results and name the small-subgroup method | done | 71a72a1 | C-PohligEvidence |
 | 5 | Verify binary-field rho and Koblitz results | pending | | |
 | 6 | Verify MOV results and type its failure classes | pending | | |
 | 7 | Separate SSA failure classes and handle zero logs and large primes | pending | | |
@@ -532,8 +535,29 @@ and may cite this seed-search record.
 Texture: `Inconsistent` looked rare before only because at larger θ P/−P pairs are rarer; at low θ
 almost every walker hit is a distinguished point.
 
+### 4 — 2026-11-09
+Discovery/flex: The enrolled literature check passed (no HALT): Pohlig and Hellman 1978 §IV (read in
+full text from the author's Stanford copy) implements the order-p_i step either as a table lookup
+or as trial-and-error exhaustion over α^g, g = 0..p_i−1. Silver (unpublished) and Pollard 1978 were
+NOT read; citing rho for the large prime is from memory. Variant renamed `SubgroupTable` →
+`SubgroupEnumeration` (the code enumerates; it stores no table). The paper's own large-p step is a
+time–memory lemma (Knuth-style), not rho: the module doc says so, and rule 5's new sentence covers
+only the small-subgroup enumeration. Input check order: infinity/off-curve → `ZeroOrder` →
+n·G ≠ ∞ → (n/p)·G = ∞ for some p | n (both `WrongGeneratorOrder`) → n·Q ≠ ∞; an enumeration with no
+match is `InvalidInput(TargetOutsideSubgroup)`; the post-CRT `Inconsistent` branch is judged
+unreachable (untested defence in depth). Rho digit errors (incl. `BudgetExhausted`) pass through
+unchanged. Fixture `composite_rho_toy`: y² = x³ + 2x + 3 mod 1009, G = (10, 425), n = 1068 =
+2²·3·89; rho solves ≈0.16 s each in debug, so the KAT samples 51 k's (full 1068 sweep run once:
+passed, 367 s).
+Affected: C-PohligEvidence (frozen with the `SubgroupEnumeration` rename).
+Deferred: yes — row 12 must cite Pohlig and Hellman 1978 §IV only for the small-subgroup step, state
+that the large-prime step is rho (not the paper's time–memory step), and fix the nonexistent
+`rho/tests/pohlig_kat.rs` reference (Pohlig tests live in `rho/tests/ecdlp_kat.rs`).
+Texture: none.
+
 ## Discoveries & risks
 
+- **Row 4 (confirmed, no HALT):** literature supports the order-p enumeration claim (see digest).
 - **Row 3 (confirmed):** the P/−P defect is real (see digest); fixed in row 3.
 - **Row 1 (internal-continue):** CLI `--curve generic` order `9_223_372_037_218_517_353` is composite
   (7 · 17 · 77_507_328_043_853_087); Brent on it is now `InvalidInput(OrderNotPrime)`. Flagged for
