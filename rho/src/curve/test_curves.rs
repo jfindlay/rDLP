@@ -47,6 +47,21 @@
 //! | b | `33` |
 //! | n | `60 = 2² · 3 · 5` |
 //! | G | `(10, 3)` |
+//!
+//! # Composite-order curve with a large prime factor — `composite_rho_toy`
+//!
+//! `y² = x³ + 2x + 3  mod  1009`
+//!
+//! Generator of full order `n = 1068 = 2² · 3 · 89`. The factor `89` exceeds the
+//! subgroup-enumeration limit (64), so Pohlig–Hellman solves that component with rho.
+//!
+//! | Symbol | Value |
+//! |--------|-------|
+//! | p | `1009` |
+//! | a | `2` |
+//! | b | `3` |
+//! | n | `1068 = 2² · 3 · 89` |
+//! | G | `(10, 425)` |
 
 use crypto_bigint::Uint;
 use crate::curve::Curve;
@@ -157,6 +172,34 @@ pub const COMPOSITE_TOY_N: u64 = 60;
 /// Sorted `(prime, exponent)` pairs.  `∏ pᵢ^{eᵢ} = 60`.
 /// The `2²` entry exercises the `e > 1` lift in Pohlig–Hellman.
 pub const COMPOSITE_TOY_FACTORS: &[(u64, u32)] = &[(2, 2), (3, 1), (5, 1)];
+
+// ── Composite-order curve with a rho-sized prime factor ───────────────────────
+
+/// Return the composite-order curve whose order has a prime factor above 64.
+///
+/// `y² = x³ + 2x + 3 mod 1009`.  Group order `n = 1068 = 2² · 3 · 89`, generator
+/// `G = (10, 425)` of full order `n`.  The prime `89` exceeds the subgroup-enumeration limit of
+/// 64, so Pohlig–Hellman solves that component with rho while the `2²` and `3` components use
+/// enumeration. Every prime power is small enough for `factor_order`'s trial division.
+///
+/// Parameters computed offline by point-counting; verified by `n·G = ∞` and
+/// `[n/2]·G, [n/3]·G, [n/89]·G ≠ ∞`.
+pub fn composite_rho_toy() -> Curve {
+    Curve {
+        p:  Uint::<4>::from(1009u64),
+        a:  Uint::<4>::from(2u64),
+        b:  Uint::<4>::from(3u64),
+        n:  Uint::<4>::from(1068u64),
+        gx: Uint::<4>::from(10u64),
+        gy: Uint::<4>::from(425u64),
+    }
+}
+
+/// Group order of `composite_rho_toy`: `n = 1068 = 2² · 3 · 89`.
+pub const COMPOSITE_RHO_TOY_N: u64 = 1068;
+
+/// Prime-power factorization of `COMPOSITE_RHO_TOY_N`.
+pub const COMPOSITE_RHO_TOY_FACTORS: &[(u64, u32)] = &[(2, 2), (3, 1), (89, 1)];
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -366,6 +409,36 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ── composite_rho_toy tests ───────────────────────────────────────────────
+
+    #[test]
+    fn composite_rho_toy_generator_on_curve() {
+        let c = composite_rho_toy();
+        let g: AffinePoint<FpMonty> = c.generator();
+        assert!(c.is_on_curve(&g), "composite_rho_toy: generator not on curve");
+    }
+
+    /// `G` has order exactly `n`: `n·G = ∞` and `[n/p]·G ≠ ∞` for every prime `p | n`.
+    #[test]
+    fn composite_rho_toy_generator_full_order() {
+        let c = composite_rho_toy();
+        let g: AffinePoint<FpMonty> = c.generator();
+        assert!(c.scalar_mul(&g, &c.n).is_infinity(), "n·G should be ∞");
+        for &(p, _) in COMPOSITE_RHO_TOY_FACTORS {
+            let cofactor = Uint::<4>::from(COMPOSITE_RHO_TOY_N / p);
+            assert!(!c.scalar_mul(&g, &cofactor).is_infinity(), "[n/{p}]·G should not be ∞");
+        }
+    }
+
+    /// The recorded factorization multiplies back to `n`, and one prime exceeds the
+    /// enumeration limit so the rho branch is reachable.
+    #[test]
+    fn composite_rho_toy_factors_product_and_rho_prime() {
+        let product: u64 = COMPOSITE_RHO_TOY_FACTORS.iter().map(|&(p, e)| p.pow(e)).product();
+        assert_eq!(product, COMPOSITE_RHO_TOY_N);
+        assert!(COMPOSITE_RHO_TOY_FACTORS.iter().any(|&(p, _)| p > 64));
     }
 
     /// [30]·G = (38, 0) — a point of order 2 (y = 0), confirming the 2² factor.

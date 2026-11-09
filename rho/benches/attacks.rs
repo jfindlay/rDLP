@@ -47,7 +47,7 @@ use rho::ssa::{ANOMALOUS_TOY_P, anomalous_toy, ssa_solve};
 /// Bench: Pohlig–Hellman on `composite_toy()` (n = 60 = 2²·3·5).
 ///
 /// Known answer: k = 7 (Q = 7·G = (24, 43) on the composite-order toy curve).
-/// The bench asserts `solve_ecdlp_composite` returns `Some(7)` before timing.
+/// The bench asserts `solve_ecdlp_composite` returns a verified solution before timing.
 fn bench_pohlig_hellman(c: &mut Criterion) {
     let curve = composite_toy();
     let g: AffinePoint<FpMonty> = curve.generator();
@@ -56,7 +56,8 @@ fn bench_pohlig_hellman(c: &mut Criterion) {
 
     // Pre-check: assert the solver returns the known answer before timing.
     let k_check = solve_ecdlp_composite(&curve, &g, &q, COMPOSITE_TOY_N)
-        .expect("Pohlig–Hellman pre-check: solve_ecdlp_composite must succeed");
+        .expect("Pohlig–Hellman pre-check: solve_ecdlp_composite must succeed")
+        .k;
     // The solver returns k mod n; verify k·G = Q (the canonical correctness check).
     let q_check: AffinePoint<FpMonty> = curve.scalar_mul(&g, &Uint::<4>::from(k_check));
     assert_eq!(

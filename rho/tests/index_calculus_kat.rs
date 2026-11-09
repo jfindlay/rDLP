@@ -812,7 +812,8 @@ fn ecdlp_agreement() {
     // solve_ecdlp_composite returns k such that k·G = Q (full discrete log mod n).
     let n_u64 = curve.n.as_words()[0];
     let k = solve_ecdlp_composite(curve, &g, &q, n_u64)
-        .expect("solve_ecdlp_composite should succeed for Q = 7·G on the toy fixture");
+        .expect("solve_ecdlp_composite should succeed for Q = 7·G on the toy fixture")
+        .k;
 
     // Verify the rho oracle is correct: k·G = Q.
     let k_g = scalar_mul_u64(curve, &g, k);

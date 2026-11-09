@@ -6,18 +6,32 @@
 //! - [`factor_order`] — prime-power decomposition of a u64 group order.
 //! - [`project_to_subgroup`] — map `(G, Q)` to the order-`p^e` subgroup via
 //!   `[n / p^e]`-scalar-multiplication.
-//! - [`solve_ecdlp_composite`] — composite-order ECDLP via prime-power lift + CRT combine.
+//! - [`solve_ecdlp_composite`] — composite-order ECDLP via prime-power lift + CRT combine,
+//!   returning a verified [`DlogSolution`] with [`PohligEvidence`].
 //!
 //! # Algorithm
 //!
 //! [`solve_ecdlp_composite`] decomposes the DLP `Q = k·G` in a group of composite order
-//! `n = ∏ pᵢ^{eᵢ}` into independent DLPs in each prime-power subgroup, solves each by
-//! handing off to the frozen rho solvers (which require a **prime** order), and reassembles
-//! the answer by the Chinese Remainder Theorem.
+//! `n = ∏ pᵢ^{eᵢ}` into independent DLPs in each prime-power subgroup and reassembles the answer
+//! by the Chinese Remainder Theorem (Pohlig and Hellman 1978, §IV).
 //!
 //! The prime-power lift (for `eᵢ > 1`) recovers `k mod pᵢ^{eᵢ}` digit-by-digit in base `pᵢ`:
 //! at each digit step, the current remainder is projected to the order-`pᵢ` sub-subgroup and
-//! solved by a single rho call with prime order `pᵢ`.
+//! the resulting prime-order DLP is solved by one of two methods, chosen by the size of `pᵢ`:
+//!
+//! - `pᵢ ≤ 64`: **subgroup enumeration**, [`DigitMethod::SubgroupEnumeration`]. Pohlig and
+//!   Hellman (1978, §IV) compute each digit with a function `gᵢ(w)` that takes one of only `pᵢ`
+//!   values, implemented either as a table lookup or, at the other end of their time–memory
+//!   trade-off, by trying `γ^g` for `g = 0, 1, …, pᵢ − 1` until it equals `w`. This module uses
+//!   the second form, so no table is stored. It is the published method's own sub-step, selected
+//!   by size, not a fallback for the rho solver.
+//! - `pᵢ > 64`: **Pollard rho** ([`solve_brent`]) on the order-`pᵢ` subgroup, with its evidence
+//!   carried unchanged as [`DigitMethod::Rho`]. Pollard (1978) is the published method for a
+//!   large prime-order subgroup; the Pohlig–Hellman paper's own large-`pᵢ` sub-step is a
+//!   time–memory search generalizing Knuth's square-root algorithm instead.
+//!
+//! Both methods receive the prime order `pᵢ`, never `pᵢ^{eᵢ}`: the rho solver's modular inverse
+//! uses Fermat's little theorem and is wrong on composite moduli.
 //!
 //! # Scope
 //!
@@ -34,7 +48,50 @@ use shared_numth::{factor_base_up_to, is_prime, trial_smooth};
 use shared_field::Fp;
 
 use crate::curve::{AffinePoint, Curve, JacobianPoint};
-use crate::ecdlp::solve_brent;
+use crate::ecdlp::{
+    solve_brent, verify_log, DlogError, DlogSolution, InputDefect, RhoEvidence,
+};
+
+/// Largest prime order solved by subgroup enumeration; larger primes go to rho.
+///
+/// Below this size the rho walk table (20 entries) is comparable to the group itself, so walks
+/// degenerate, and enumerating the subgroup costs at most 64 point additions.
+const SUBGROUP_ENUMERATION_MAX: u64 = 64;
+
+/// Fresh rho attempts allowed per digit above [`SUBGROUP_ENUMERATION_MAX`].
+const RHO_MAX_RETRIES: usize = 50;
+
+// ── Evidence ──────────────────────────────────────────────────────────────────
+
+/// How one base-`p` digit of a prime-power residue was found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DigitMethod {
+    /// Enumeration of the order-`p` subgroup: `γ^g` for `g = 0, 1, …` until it equals the
+    /// target (Pohlig and Hellman 1978, §IV), used for `p ≤ 64`.
+    SubgroupEnumeration,
+    /// A Pollard rho solve on the order-`p` subgroup, with its evidence unchanged.
+    Rho(RhoEvidence),
+}
+
+/// The solve of `k mod p^e`, one [`DigitMethod`] per base-`p` digit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrimePowerComponent {
+    /// The prime `p`.
+    pub p: u64,
+    /// The exponent `e`; the component determines `k mod p^e`.
+    pub e: u32,
+    /// `k mod p^e`: the value `Σ dⱼ·pʲ` of the recovered digits `dⱼ`.
+    pub residue: u64,
+    /// How digit `dⱼ` was found, least significant first; length `e`.
+    pub digits: Vec<DigitMethod>,
+}
+
+/// Provenance of a Pohlig–Hellman solution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PohligEvidence {
+    /// One component per prime power of `n`, in increasing prime order.
+    pub components: Vec<PrimePowerComponent>,
+}
 
 // ── factor_order ──────────────────────────────────────────────────────────────
 
@@ -134,81 +191,128 @@ pub fn project_to_subgroup<F: Fp<4>>(
 
 // ── solve_ecdlp_composite ─────────────────────────────────────────────────────
 
+/// Validate a composite-order instance and return the factorization of `n`.
+///
+/// Checks, in order: `G ≠ ∞`; `G` and `Q` on the curve; `n ≠ 0`; `n·G = ∞`; `(n/p)·G ≠ ∞` for
+/// every prime `p | n`; `n·Q = ∞`. With composite `n`, `n·G = ∞` alone only shows that the order
+/// of `G` divides `n`; the per-prime checks show it is exactly `n`, which the prime-power
+/// projections rely on. `n·G = ∞` is tested before `n` is factored so a wrong `n` is rejected
+/// without trial division.
+fn check_composite_input<F: Fp<4>>(
+    curve: &Curve,
+    g: &AffinePoint<F>,
+    q: &AffinePoint<F>,
+    n: u64,
+) -> Result<Vec<(u64, u32)>, DlogError> {
+    let defect = |d: InputDefect| Err(DlogError::InvalidInput(d));
+    if g.is_infinity() {
+        return defect(InputDefect::GeneratorAtInfinity);
+    }
+    if !curve.is_on_curve(g) {
+        return defect(InputDefect::GeneratorNotOnCurve);
+    }
+    if !curve.is_on_curve(q) {
+        return defect(InputDefect::TargetNotOnCurve);
+    }
+    if n == 0 {
+        return defect(InputDefect::ZeroOrder);
+    }
+    if !curve.scalar_mul(g, &Uint::<4>::from(n)).is_infinity() {
+        return defect(InputDefect::WrongGeneratorOrder);
+    }
+    let factors = factor_order(n);
+    for &(p, _) in &factors {
+        if curve.scalar_mul(g, &Uint::<4>::from(n / p)).is_infinity() {
+            return defect(InputDefect::WrongGeneratorOrder);
+        }
+    }
+    if !curve.scalar_mul(q, &Uint::<4>::from(n)).is_infinity() {
+        return defect(InputDefect::TargetOutsideSubgroup);
+    }
+    Ok(factors)
+}
+
 /// Solve `Q = k·G` on a curve whose generator has composite order `n`.
 ///
 /// Decomposes the DLP into independent DLPs in each prime-power subgroup via
-/// Pohlig–Hellman, solves each with the frozen rho solver (`solve_brent`), and
-/// reassembles the answer by the Chinese Remainder Theorem.
+/// Pohlig–Hellman, solves each digit of each residue by subgroup enumeration or rho (see the
+/// module documentation), and reassembles the answer by the Chinese Remainder Theorem. The
+/// result is checked with [`verify_log`] before it is returned.
 ///
 /// # Algorithm
 ///
 /// For each prime power `pᵢ^{eᵢ}` in the factorization of `n`:
 /// 1. Project `(G, Q)` to the order-`pᵢ^{eᵢ}` subgroup.
-/// 2. Recover `k mod pᵢ^{eᵢ}` digit-by-digit in base `pᵢ` (the prime-power lift).
-///    Each digit is solved by a rho call with prime order `pᵢ` — never `pᵢ^{eᵢ}`,
-///    because `inv_mod_prime` inside the rho solver uses Fermat's little theorem and
-///    is silently wrong on composite moduli.
+/// 2. Recover `k mod pᵢ^{eᵢ}` digit-by-digit in base `pᵢ` (the prime-power lift), recording the
+///    method of each digit.
 /// 3. CRT-combine the per-prime-power residues into `k mod n`.
 ///
-/// # Returns
+/// `Q = ∞` is not special-cased: every digit is `0` and the answer is `k = 0`.
 ///
-/// `Some(k)` with `k·G = Q`, or `None` if any per-subgroup rho call fails.
+/// # Errors
+///
+/// * [`DlogError::InvalidInput`] — a point is at infinity or off the curve (`GeneratorAtInfinity`,
+///   `GeneratorNotOnCurve`, `TargetNotOnCurve`), `n = 0` (`ZeroOrder`), `G` does not have order
+///   exactly `n` (`WrongGeneratorOrder`), or the target is outside `⟨G⟩`
+///   (`TargetOutsideSubgroup`, found by `n·Q ≠ ∞` or by a digit enumeration that proves it).
+/// * [`DlogError::BudgetExhausted`], [`DlogError::Inconsistent`] — a rho digit solve failed this
+///   way; its error is returned unchanged, so exhaustion is never reported as anything else.
+/// * [`DlogError::Inconsistent`] — also when the CRT combination fails `k·G = Q`. Every
+///   per-prime-power solve then succeeded, which for a verified instance cannot happen; it is
+///   surfaced, never retried.
 ///
 /// # Preconditions
 ///
-/// - `G` must have full order `n` (not a subgroup generator).
-/// - `n` must equal the product of the prime powers returned by `factor_order(n)`.
+/// `G` has full order `n` (checked). `Q` lies in `⟨G⟩`; the check `n·Q = ∞` cannot exclude a
+/// target in `E[n]` outside `⟨G⟩` on its own, and such a target is rejected by the digit solves.
 pub fn solve_ecdlp_composite<F: Fp<4>>(
     curve: &Curve,
     g: &AffinePoint<F>,
     q: &AffinePoint<F>,
     n: u64,
-) -> Option<u64> {
-    // Handle the trivial case: Q = ∞ means k = 0 (or n, but 0 is canonical).
-    if q.is_infinity() {
-        return Some(0);
-    }
+) -> Result<DlogSolution<PohligEvidence>, DlogError> {
+    let factors = check_composite_input(curve, g, q, n)?;
 
-    let factors = factor_order(n);
-
-    // Collect (x_i mod p_i^e_i, p_i^e_i) for each prime power.
+    let mut components: Vec<PrimePowerComponent> = Vec::with_capacity(factors.len());
+    // (x_i mod p_i^e_i, p_i^e_i) for each prime power, for the CRT combine.
     let mut residues: Vec<(u64, u64)> = Vec::with_capacity(factors.len());
 
     for &(p, e) in &factors {
-        let p_power = p.pow(e); // pᵢ^{eᵢ}
-        let x_pe = solve_prime_power(curve, g, q, n, p, e, p_power)?;
-        residues.push((x_pe, p_power));
+        let component = solve_prime_power(curve, g, q, n, p, e)?;
+        residues.push((component.residue, p.pow(e)));
+        components.push(component);
     }
 
-    // CRT-combine all residues into k mod n.
-    Some(crt_combine(&residues, n))
+    let k = crt_combine(&residues, n);
+    if !verify_log(curve, g, q, k) {
+        return Err(DlogError::Inconsistent { k });
+    }
+    Ok(DlogSolution::new(k, PohligEvidence { components }))
 }
 
-/// Solve `d · G = Q` by brute force for small prime order `p` (p ≤ 64).
+/// Solve `d · γ = target` by enumerating the order-`p` subgroup, for small prime `p`.
 ///
-/// Iterates `d = 1, 2, …, p-1`, computing `d·G` by repeated addition.
-/// Returns `Some(d)` when `d·G = Q`, or `None` if no solution exists in `[0, p)`.
-///
-/// Used instead of `solve_brent` when `p` is small enough that the rho walk
-/// table (20 entries) would exceed the group size, causing excessive degeneration.
-fn solve_small_dlog<F: Fp<4>>(
+/// Tries `d = 0, 1, …, p − 1` (`d = 0` is `target = ∞`), computing `d·γ` by repeated addition.
+/// This is the Pohlig–Hellman 1978 digit step with no table stored. Returns `None` when
+/// `target ∉ ⟨γ⟩`, which the exhaustive pass proves.
+fn enumerate_subgroup_log<F: Fp<4>>(
     curve: &Curve,
-    g: &AffinePoint<F>,
-    q: &AffinePoint<F>,
+    gamma: &AffinePoint<F>,
+    target: &AffinePoint<F>,
     p: u64,
 ) -> Option<u64> {
-    // d=0: G·0 = ∞; caller already handles the ∞ case before calling here.
-    let mut acc = g.clone(); // 1·G
+    if target.is_infinity() {
+        return Some(0);
+    }
+    let mut acc = gamma.clone(); // 1·γ
     for d in 1..p {
-        if &acc == q {
+        if &acc == target {
             return Some(d);
         }
-        // acc ← acc + G
+        // acc ← acc + γ
         let acc_jac = JacobianPoint::from_affine(&acc, &curve.p);
-        acc = curve.add_mixed(&acc_jac, g).to_affine(&curve.p);
+        acc = curve.add_mixed(&acc_jac, gamma).to_affine(&curve.p);
     }
-    // d = p: p·G = ∞ (group order), which is the identity — not a valid solution
-    // for a non-identity Q (caller checks Q ≠ ∞ before calling).
     None
 }
 
@@ -216,9 +320,10 @@ fn solve_small_dlog<F: Fp<4>>(
 ///
 /// Projects `(G, Q)` to the order-`p^e` subgroup, then iteratively recovers each
 /// base-`p` digit of `k mod p^e` by projecting the current remainder to the
-/// order-`p` sub-subgroup and solving a prime-order DLP with `solve_brent`.
+/// order-`p` sub-subgroup and solving a prime-order DLP by subgroup enumeration (`p ≤ 64`) or
+/// `solve_brent`, recording which.
 ///
-/// Every rho call receives the prime order `p`, never `p^e` — the prime-only
+/// Every digit solve receives the prime order `p`, never `p^e` — the prime-only
 /// precondition of `inv_mod_prime` (Fermat) is honoured throughout.
 fn solve_prime_power<F: Fp<4>>(
     curve: &Curve,
@@ -227,8 +332,8 @@ fn solve_prime_power<F: Fp<4>>(
     n: u64,
     p: u64,
     e: u32,
-    p_power: u64, // p^e
-) -> Option<u64> {
+) -> Result<PrimePowerComponent, DlogError> {
+    let p_power = p.pow(e); // p^e
     // Project (G, Q) to the order-p^e subgroup.
     let (g_pe, q_pe) = project_to_subgroup(curve, g, q, n, p_power);
 
@@ -240,6 +345,7 @@ fn solve_prime_power<F: Fp<4>>(
     let mut x_pe: u64 = 0;
     // Q_curr tracks the "remaining" target after subtracting known digits.
     let mut q_curr = q_pe.clone();
+    let mut digits: Vec<DigitMethod> = Vec::with_capacity(e as usize);
 
     for j in 0..e {
         // Project Q_curr to the order-p sub-subgroup: rhs = p^(e-1-j) · Q_curr.
@@ -247,19 +353,18 @@ fn solve_prime_power<F: Fp<4>>(
         let exp = p.pow(e - 1 - j); // p^(e-1-j)
         let rhs = curve.scalar_mul(&q_curr, &Uint::<4>::from(exp));
 
-        // Solve d_j · γ = rhs with prime order p.
-        // γ has order p (prime), so solve_brent is valid here.
-        // For small p (≤ 64), brute-force is faster and avoids rho walk degeneration
-        // on tiny groups where the walk table (20 entries) exceeds the group size.
-        let d_j = if rhs.is_infinity() {
-            // rhs = ∞ means d_j = 0.
-            0u64
-        } else if p <= 64 {
-            solve_small_dlog(curve, &gamma, &rhs, p)?
+        // Solve d_j · γ = rhs with prime order p (γ has order p, so solve_brent is valid).
+        // Small p use the published enumeration step; the rho walk table (20 entries) would
+        // be comparable to the group and degenerate.
+        let (d_j, method) = if p <= SUBGROUP_ENUMERATION_MAX {
+            let d = enumerate_subgroup_log(curve, &gamma, &rhs, p)
+                .ok_or(DlogError::InvalidInput(InputDefect::TargetOutsideSubgroup))?;
+            (d, DigitMethod::SubgroupEnumeration)
         } else {
-            // Interim adaptation: this function still reports a single failure class.
-            solve_brent(curve, &gamma, &rhs, p, 0, 50).ok().map(|s| s.k)?
+            let solution = solve_brent(curve, &gamma, &rhs, p, 0, RHO_MAX_RETRIES)?;
+            (solution.k, DigitMethod::Rho(solution.evidence))
         };
+        digits.push(method);
 
         // Accumulate: x_pe += d_j · p^j.
         x_pe += d_j * p.pow(j);
@@ -276,7 +381,7 @@ fn solve_prime_power<F: Fp<4>>(
         // If d_j == 0, Q_curr is unchanged (subtracting 0·G_pe = ∞ is a no-op).
     }
 
-    Some(x_pe)
+    Ok(PrimePowerComponent { p, e, residue: x_pe, digits })
 }
 
 /// Combine residues `{(xᵢ, mᵢ)}` into `x mod M` by the Chinese Remainder Theorem.

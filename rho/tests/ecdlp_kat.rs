@@ -30,9 +30,10 @@ use rho::curve::{AffinePoint, Curve, JacobianPoint};
 use rho::curve::generic::generic_curve;
 use rho::curve::secp_k1_toy::{secp_k1_toy, GX, LAMBDA, N as SECP_N};
 use rho::curve::test_curves::{
-    composite_toy, tiny_a, tiny_b, tiny_glv, COMPOSITE_TOY_N, TINY_A_N, TINY_B_N, TINY_GLV_N,
+    composite_rho_toy, composite_toy, tiny_a, tiny_b, tiny_glv, COMPOSITE_RHO_TOY_FACTORS,
+    COMPOSITE_RHO_TOY_N, COMPOSITE_TOY_N, TINY_A_N, TINY_B_N, TINY_GLV_N,
 };
-use rho::ecdlp::pohlig::solve_ecdlp_composite;
+use rho::ecdlp::pohlig::{solve_ecdlp_composite, DigitMethod, PohligEvidence};
 use rho::ecdlp::{
     solve_brent, solve_dp, solve_dp_batch, solve_dp_glv, solve_dp_negmap, verify_log, DlogError,
     DlogSolution, InputDefect, RhoEvidence,
@@ -659,20 +660,74 @@ fn tiny_b_dlog_k99991() {
 // - At least one case exercises the e>1 lift (the 2² factor).
 // - At least one case exercises the multi-prime CRT (all three primes 2, 3, 5).
 
-/// Helper: verify solve_ecdlp_composite finds a valid DLP solution on composite_toy.
+/// Assert the identities a `PohligEvidence` must satisfy on its own: the components are the
+/// prime powers of `n` in order, each residue is `k mod p^e` and the sum of its digits, and every
+/// digit's method is consistent with the size of `p`. Returns `(subgroup enumerations, rho
+/// solves)` counted over all digits.
+fn check_pohlig_evidence(
+    evidence: &PohligEvidence,
+    factors: &[(u64, u32)],
+    k: u64,
+    label: &str,
+) -> (usize, usize) {
+    assert_eq!(evidence.components.len(), factors.len(), "{label}: component count");
+    let (mut enumerated, mut rho) = (0, 0);
+    for (component, &(p, e)) in evidence.components.iter().zip(factors) {
+        assert_eq!((component.p, component.e), (p, e), "{label}: component prime power");
+        let p_power = p.pow(e);
+        assert_eq!(component.residue, k % p_power, "{label}: residue ≢ k (mod {p}^{e})");
+        assert_eq!(component.digits.len(), e as usize, "{label}: one method per digit of {p}^{e}");
+        for (j, method) in component.digits.iter().enumerate() {
+            let digit = (component.residue / p.pow(j as u32)) % p;
+            match method {
+                DigitMethod::SubgroupEnumeration => {
+                    assert!(p <= 64, "{label}: enumeration used for p = {p} > 64");
+                    enumerated += 1;
+                }
+                DigitMethod::Rho(ev) => {
+                    assert!(p > 64, "{label}: rho used for p = {p} ≤ 64");
+                    rho += 1;
+                    // The collision identity holds modulo the order-p subgroup, with the digit
+                    // the evidence produced standing for k.
+                    if let RhoEvidence::Collision { a1, b1, a2, b2, negated, .. } = ev {
+                        let m = p as u128;
+                        let lhs = (*a1 as u128 + *b1 as u128 * digit as u128) % m;
+                        let rhs = (*a2 as u128 + *b2 as u128 * digit as u128) % m;
+                        let rhs = if *negated { (m - rhs) % m } else { rhs };
+                        assert_eq!(lhs, rhs, "{label}: rho collision identity, digit {j} of {p}");
+                    }
+                }
+            }
+        }
+    }
+    (enumerated, rho)
+}
+
+/// Helper: verify solve_ecdlp_composite finds a valid DLP solution on composite_toy, and that
+/// its evidence is consistent with the solution.
 fn check_composite_solver(k_target: u64, label: &str) {
     let curve = composite_toy();
     let g: AffinePoint<FpMonty> = curve.generator();
     let q = curve.scalar_mul(&g, &Uint::<4>::from(k_target));
 
-    let k = solve_ecdlp_composite(&curve, &g, &q, COMPOSITE_TOY_N)
-        .unwrap_or_else(|| panic!("{label}: solve_ecdlp_composite failed for k_target={k_target}"));
+    let solution = solve_ecdlp_composite(&curve, &g, &q, COMPOSITE_TOY_N).unwrap_or_else(|err| {
+        panic!("{label}: solve_ecdlp_composite failed for k_target={k_target}: {err:?}")
+    });
 
-    let check = curve.scalar_mul(&g, &Uint::<4>::from(k));
+    let check = curve.scalar_mul(&g, &Uint::<4>::from(solution.k));
     assert_eq!(
         check, q,
-        "{label}: recovered k={k} gives k·G ≠ Q (k_target={k_target})"
+        "{label}: recovered k={} gives k·G ≠ Q (k_target={k_target})",
+        solution.k
     );
+    // Every prime of composite_toy is ≤ 5, so no digit reaches rho.
+    let (enumerated, rho) = check_pohlig_evidence(
+        &solution.evidence,
+        &[(2, 2), (3, 1), (5, 1)],
+        solution.k,
+        label,
+    );
+    assert_eq!((enumerated, rho), (4, 0), "{label}: digits 2 + 1 + 1, all enumerated");
 }
 
 /// k=1: trivial case, exercises all three prime subgroups.
@@ -728,12 +783,161 @@ fn composite_dlog_k0_identity() {
     let g: AffinePoint<FpMonty> = curve.generator();
     let q = AffinePoint::Infinity;
 
-    let k = solve_ecdlp_composite(&curve, &g, &q, COMPOSITE_TOY_N)
+    let solution = solve_ecdlp_composite(&curve, &g, &q, COMPOSITE_TOY_N)
         .expect("composite_dlog_k0_identity: solve_ecdlp_composite failed for Q=∞");
 
-    let check = curve.scalar_mul(&g, &Uint::<4>::from(k));
+    assert_eq!(solution.k, 0, "Q = ∞ is k = 0");
     assert!(
-        check.is_infinity(),
-        "composite_dlog_k0_identity: k={k} gives k·G ≠ ∞"
+        solution.evidence.components.iter().all(|c| c.residue == 0),
+        "every residue of k = 0 is 0"
     );
+}
+
+/// Every `k` in `[0, n)` on `composite_toy`: a verified solution whose evidence is consistent.
+#[test]
+fn composite_dlog_every_k() {
+    let curve = composite_toy();
+    let g: AffinePoint<FpMonty> = curve.generator();
+    for k_target in 0..COMPOSITE_TOY_N {
+        let q = curve.scalar_mul(&g, &Uint::<4>::from(k_target));
+        let solution = solve_ecdlp_composite(&curve, &g, &q, COMPOSITE_TOY_N)
+            .unwrap_or_else(|err| panic!("k = {k_target}: {err:?}"));
+        assert_eq!(solution.k, k_target, "G has full order, so k is unique in [0, n)");
+        check_pohlig_evidence(&solution.evidence, &[(2, 2), (3, 1), (5, 1)], solution.k, "toy");
+    }
+}
+
+/// A sampled set of `k` on `composite_rho_toy`, whose prime factor 89 exceeds the enumeration
+/// limit: each solve is verified, and the evidence shows enumeration for the `2²` and `3`
+/// components and rho for the `89` component, with each residue ≡ k (mod p^e).
+///
+/// Each rho solve costs about 0.16 s in a debug build even though the walk is only a dozen
+/// steps, so all 1068 values take minutes; the sample is every 23rd `k` — stride 23 is coprime
+/// to 12 and 89, so it meets every residue mod 12 — plus the edges and the residues 0 and 1 mod
+/// 89 whose rho digit is `Trivial`.
+#[test]
+fn composite_rho_dlog_sampled_k() {
+    let curve = composite_rho_toy();
+    let g: AffinePoint<FpMonty> = curve.generator();
+    let mut sample: Vec<u64> = (0..COMPOSITE_RHO_TOY_N).step_by(23).collect();
+    sample.extend([1, 89, 90, COMPOSITE_RHO_TOY_N - 1]);
+    let residues_mod_12: std::collections::BTreeSet<u64> = sample.iter().map(|k| k % 12).collect();
+    assert_eq!(residues_mod_12.len(), 12, "the sample must meet every residue mod 2²·3");
+
+    let (mut total_enumerated, mut total_rho, mut rho_collisions) = (0, 0, 0);
+    for &k_target in &sample {
+        let q = curve.scalar_mul(&g, &Uint::<4>::from(k_target));
+        let solution = solve_ecdlp_composite(&curve, &g, &q, COMPOSITE_RHO_TOY_N)
+            .unwrap_or_else(|err| panic!("k = {k_target}: {err:?}"));
+        assert_eq!(solution.k, k_target, "k = {k_target}: unique in [0, n)");
+        assert!(verify_log(&curve, &g, &q, solution.k));
+        let (enumerated, rho) = check_pohlig_evidence(
+            &solution.evidence,
+            COMPOSITE_RHO_TOY_FACTORS,
+            solution.k,
+            "composite_rho_toy",
+        );
+        // Digits: 2² gives two and 3 gives one (enumeration); 89 gives one (rho).
+        assert_eq!((enumerated, rho), (3, 1), "k = {k_target}");
+        total_enumerated += enumerated;
+        total_rho += rho;
+        if let DigitMethod::Rho(RhoEvidence::Collision { .. }) =
+            solution.evidence.components[2].digits[0]
+        {
+            rho_collisions += 1;
+        }
+    }
+    assert_eq!(total_enumerated, 3 * sample.len());
+    assert_eq!(total_rho, sample.len());
+    // Residues 0 and 1 mod 89 are `Trivial`; the rest ran a walk.
+    let trivial = sample.iter().filter(|k| *k % 89 <= 1).count();
+    assert!(trivial >= 3, "the sample includes residues 0 and 1 mod 89");
+    assert_eq!(rho_collisions, sample.len() - trivial);
+}
+
+fn input_defect<T: std::fmt::Debug>(r: Result<T, DlogError>) -> InputDefect {
+    match r {
+        Err(DlogError::InvalidInput(d)) => d,
+        other => panic!("expected InvalidInput, got {other:?}"),
+    }
+}
+
+/// A wrong or degenerate `n` is `InvalidInput`, and `n = 0` no longer panics.
+#[test]
+fn composite_wrong_order_is_invalid_input() {
+    let curve = composite_toy();
+    let g: AffinePoint<FpMonty> = curve.generator();
+    let q = curve.scalar_mul(&g, &Uint::<4>::from(7u64));
+
+    assert_eq!(input_defect(solve_ecdlp_composite(&curve, &g, &q, 0)), InputDefect::ZeroOrder);
+    // n = 1 and n = 59: n·G ≠ ∞.
+    for n in [1u64, 59] {
+        let r = solve_ecdlp_composite(&curve, &g, &q, n);
+        assert_eq!(input_defect(r), InputDefect::WrongGeneratorOrder, "n = {n}");
+    }
+    // Multiples of the true order have n·G = ∞ without being the order of G: 120 = 2·60 and
+    // 180 = 3·60 fail the per-prime `(n/p)·G ≠ ∞` check.
+    for n in [120u64, 180] {
+        let r = solve_ecdlp_composite(&curve, &g, &q, n);
+        assert_eq!(input_defect(r), InputDefect::WrongGeneratorOrder, "n = {n}");
+    }
+    // A point of smaller order as generator: 2·G has order 30, not 60.
+    let g2 = curve.scalar_mul(&g, &Uint::<4>::from(2u64));
+    let r = solve_ecdlp_composite(&curve, &g2, &g2, COMPOSITE_TOY_N);
+    assert_eq!(input_defect(r), InputDefect::WrongGeneratorOrder);
+    // The point-level defects come before the order checks.
+    let inf = AffinePoint::<FpMonty>::Infinity;
+    let r = solve_ecdlp_composite(&curve, &inf, &q, COMPOSITE_TOY_N);
+    assert_eq!(input_defect(r), InputDefect::GeneratorAtInfinity);
+}
+
+/// The same wrong-order rejection on the fixture that reaches rho.
+#[test]
+fn composite_rho_wrong_order_is_invalid_input() {
+    let curve = composite_rho_toy();
+    let g: AffinePoint<FpMonty> = curve.generator();
+    let q = curve.scalar_mul(&g, &Uint::<4>::from(5u64));
+    for n in [COMPOSITE_RHO_TOY_N - 1, COMPOSITE_RHO_TOY_N * 2, COMPOSITE_RHO_TOY_N / 2] {
+        let r = solve_ecdlp_composite(&curve, &g, &q, n);
+        assert_eq!(input_defect(r), InputDefect::WrongGeneratorOrder, "n = {n}");
+    }
+}
+
+/// A target in `E[n]` outside `⟨G⟩` is `InvalidInput(TargetOutsideSubgroup)`, not a wrong `k`.
+///
+/// `y² = x³ − x mod 19` has 20 points with full 2-torsion (`Z/2 × Z/10`). `G = (2, 5)` has order
+/// 10, so `⟨G⟩` holds one of the three 2-torsion points; another one passes `n·Q = ∞` yet is not
+/// a multiple of `G`, and the order-2 digit enumeration proves it.
+#[test]
+fn composite_target_outside_subgroup_is_invalid_input() {
+    let curve = Curve {
+        p: Uint::<4>::from(19u64),
+        a: Uint::<4>::from(18u64),
+        b: Uint::<4>::ZERO,
+        n: Uint::<4>::from(10u64),
+        gx: Uint::<4>::from(2u64),
+        gy: Uint::<4>::from(5u64),
+    };
+    let g: AffinePoint<FpMonty> = curve.generator();
+    let inside = curve.scalar_mul(&g, &Uint::<4>::from(5u64)); // the 2-torsion point in ⟨G⟩
+    let two_torsion = [(0u64, 0u64), (1, 0), (18, 0)].map(|(x, y)| {
+        let p = curve.p;
+        AffinePoint::new(
+            FpMonty::from_uint(Uint::<4>::from(x), &p),
+            FpMonty::from_uint(Uint::<4>::from(y), &p),
+        )
+    });
+    let outside = two_torsion
+        .iter()
+        .find(|t| **t != inside)
+        .expect("three 2-torsion points, one inside ⟨G⟩")
+        .clone();
+    assert!(curve.is_on_curve(&outside));
+    assert!(curve.scalar_mul(&outside, &Uint::<4>::from(10u64)).is_infinity());
+
+    let r = solve_ecdlp_composite(&curve, &g, &outside, 10);
+    assert_eq!(input_defect(r), InputDefect::TargetOutsideSubgroup);
+    // The instance with the in-subgroup 2-torsion point solves (k = 5).
+    let solution = solve_ecdlp_composite(&curve, &g, &inside, 10).expect("in-subgroup target");
+    assert_eq!(solution.k, 5);
 }
