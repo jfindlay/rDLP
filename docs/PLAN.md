@@ -429,8 +429,10 @@ an exact count.
 
 ### C-GhsTransferGuard
 
-Compiler + test-enforced. *To be frozen at 8.* Consumed by 12.
-`transfer_point -> Result<_, GhsError>` with `NotOnCurve` and `NotInSubfield`.
+Compiler + test-enforced. **Frozen at 8 (dbc33d2).** Consumed by 12.
+`transfer_point -> Result<_, GhsError>` with `NotOnCurve` and `NotInSubfield`. Final
+`GhsError { SubfieldDivisibility, NonDescendable, NotOnCurve, NotInSubfield }`
+(`PointAtInfinity` removed: ∞ maps to the identity divisor `[1, 0]`).
 
 ### C-RhoFactorOutcome
 
@@ -484,7 +486,7 @@ ba81676's body is also unwrapped (cosmetic; same `@git-editor` pass).
 | 5 | Verify binary-field rho and Koblitz results | done | 9293b1e | — |
 | 6 | Verify MOV results and type its failure classes | done | 3a35174 | C-MovOutcome |
 | 7 | Separate SSA failure classes and handle zero logs and large primes | done | 9154962 | C-SsaOutcome |
-| 8 | Reject off-curve and non-subfield points in the GHS transfer | pending | | |
+| 8 | Reject off-curve and non-subfield points in the GHS transfer | done | dbc33d2 | C-GhsTransferGuard |
 | 9 | Type rho factoring outcomes and bound each attempt | pending | | |
 | 10 | Type ECM factoring outcomes | pending | | |
 | 11 | Report Shor factoring provenance and return the minimal order | pending | | |
@@ -626,8 +628,30 @@ is O(p) (toy-scale).
 Texture: `SsaError` has no `InvalidInput` (off-curve/G = ∞ come back as `LiftFailed`; odd order →
 no 2-torsion so `LiftFailed` always means bad input); `_n` is ignored.
 
+### 8 — 2026-11-09
+Discovery/flex: The guard is in front of an unchanged reinterpretation. `transfer_point` checks
+`is_on_curve` (→ `NotOnCurve`), maps ∞ to the identity divisor, computes the conorm sum R, and
+requires each coordinate c to satisfy `c^(2^l) == c` (Galois-invariant under the relative Frobenius;
+→ `NotInSubfield`) before the raw-bits reinterpretation. `NotInSubfield` fixture: toy equation with
+a = 0x02 = α ∉ GF(2²), point (0x01, 0x26), toy `curve_c` unchanged. DISCOVERY: the raw-bits
+`from_uint(bits, poly_l)` reinterpretation is valid only by coincidence on the fixture
+(x²+x+1 ∤ x⁶+x+1, so reducing raw bits is not a general field homomorphism); on GF(4) ⊂ GF(2⁶) it
+maps 0x3b→3, 0x3a→2, whereas `shared_gf2m::restrict` maps 0x3b→2, 0x3a→3 (Frobenius conjugate).
+Switching to `restrict` breaks `transfer_sample_point_known_answer` and
+`transfer_g_plus_p_known_answer` (β and β² swap in v) while the homomorphism and log-preservation
+KATs still pass. Kept the raw reinterpretation so existing KATs are unchanged; the helper's doc
+comment notes its fixture-only validity.
+Affected: C-GhsTransferGuard (frozen; shape untouched by the discovery).
+Deferred: yes — row 12: `docs/PEDAGOGY.md` still shows an older `transfer_point` signature; do not
+claim the GHS transfer's field identification is general. Follow-up for the user (not absorbed):
+switch the reinterpretation to `restrict` and rewrite the two expected constants.
+Texture: none.
+
 ## Discoveries & risks
 
+- **Row 8 (risk, surfaced):** GHS transfer's GF(2^l) reinterpretation is a fixture coincidence, not
+  a general homomorphism; correct fix (`restrict`) rewrites two known-answer constants. Not enrolled;
+  surface to the user.
 - **Row 7 (additive-reshard verdict, NOT enacted — `may-reshard` off; SURFACE TO USER):** the SSA
   halving masks a degenerate canonical lift. Proposed follow-up (Cat B, T1, after the run): files
   `rho/src/ssa/{reduce.rs,lift.rs,mod.rs}`, `rho/tests/ssa_kat.rs`, plus the SSA paragraphs in
