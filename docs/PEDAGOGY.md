@@ -76,7 +76,7 @@ sections.**
 | G | GNFS | Integer factoring | $L_N[1/3,\, (64/9)^{1/3}]$ | Number-field bridge + smoothness | Exponent $1/3$ from sieve/linear-algebra balance; constant from full analysis [LLMP93] |
 | D | NFS-DL | DLP in $\mathbb{F}_p^*$ | $L_p[1/3,\, (64/9)^{1/3}]$ | Same number-field bridge | Same exponent and constant as GNFS; descent is asymptotically subdominant (§9.7 delta) |
 | E | MOV/Frey–Rück | ECDLP (small embedding degree) | $L_{p^k}[1/3,\, (64/9)^{1/3}]$ (via NFS-DL) | Pairing → $\mathbb{F}_{p^k}^*$ DLP | Cross-track bridge: ECDLP → NFS-DL; precondition $\ell \mid p^k - 1$, $k$ small |
-| E | Smart–Satoh–Araki | ECDLP (anomalous curve) | $L_p[0] = O(\log p)$ (polynomial time) | $p$-adic formal group logarithm | Sharpest escape in Track E; precondition $\#E(\mathbb{F}_p) = p$ |
+| E | Smart–Satoh–Araki | ECDLP (anomalous curve) | $L_p[0] = O(\log p)$ (polynomial time) | $p$-adic formal group logarithm | Sharpest escape among the algebraic attacks; precondition $\#E(\mathbb{F}_p) = p$ |
 | E | Index calculus | ECDLP ($E/\mathbb{F}_{p^n}$, $n > 1$) | $L_{p^n}[1/2,\, c]$ (subexponential) | Factor-base decomposability | Asymptotic win requires extension-field setting; toy fixture is $n = 1$ |
 | E | Pohlig–Hellman | ECDLP (composite order) | $L_{p_{\max}}[1,\, 1/2]$ (largest prime factor) | CRT group-order homomorphism | Reduces to prime-order subgroup DLPs; speedup requires $p_{\max} \ll n$ |
 | S | Shor (factoring) | Integer factoring | $O((\log N)^3) = L_N[0,\, 3]$ | Quantum period-finding | Polynomial in $\log N$; dissolves the $L$-notation framework entirely |
@@ -90,7 +90,7 @@ classically) to the quantum dissolution of the $L$-notation framework entirely (
 polynomially). Each step down the $\alpha$ hierarchy is achieved by finding a new kind of
 exploitable structure.
 
-**Principle-4 honesty.** The $L$-notation separations in this table are NOT observable at the toy
+**Scale honesty.** The $L$-notation separations in this table are NOT observable at the toy
 scale of the project's fixtures. The table reports theoretical complexity classes; the toy-scale
 timings are in `docs/BENCHMARKS.md`. The separation between $L[1, 1/2]$ (rho), $L[1/3]$ (GNFS/
 NFS-DL/MOV), $L[1/2]$ (index calculus), and $L[0]$ (SSA, Shor) is a statement about asymptotic
@@ -150,9 +150,9 @@ descent is asymptotically subdominant (the delta proof is in `docs/MATHEMATICS.m
 
 **The shared substrate threading G and D.** Both tracks consume the α-substrate (smoothness
 detection, ECM for large-prime variations) and the number-field substrate (polynomial arithmetic,
-norm map, ideal factorisation, Dedekind criterion). The `PolyPair` contract (C-PolyPair, frozen
-G.B.1) is the load-bearing interface: it carries the polynomial pair $(f, g)$ with the shared-root
-invariant $f(m) \equiv 0 \pmod{N}$, and is consumed unchanged by D.A's relation collection.
+norm map, ideal factorisation, Dedekind criterion). The `PolyPair` type is the load-bearing
+interface: it carries the polynomial pair $(f, g)$ with the shared-root invariant
+$f(m) \equiv 0 \pmod{N}$, and is consumed unchanged by the NFS-DL relation collection.
 
 ### §0.5 Track S: Shor's Algorithm
 
@@ -166,26 +166,28 @@ $L_N[1/3, (64/9)^{1/3}]$ (GNFS) to $O((\log N)^3)$ (Shor factoring) and from $L_
 (Pollard rho) to $O((\log r)^3)$ (Shor ECDLP): from subexponential or fully exponential to
 polynomial in the bit-length.
 
-Track S is organised into three sub-tracks (`shor/docs/PEDAGOGY.md` §§1–8):
+Track S is organised into three parts (`shor/docs/PEDAGOGY.md` §§1–8):
 
-- **S.A** — the state-vector quantum-circuit simulator (`statevec`, `gates`, `sparse`, `measure`,
-  `qft`). The substrate on which Shor's algorithm runs: a classical program that faithfully
-  simulates the evolution of a quantum register by maintaining the full $2^n$-amplitude array.
-  The frozen gate set (C-StateVec, C-Sparse, C-QFT) is the "no new gate after S.A" invariant
-  that S.B and S.C consume.
+- **The simulator** — the state-vector quantum-circuit simulator (`statevec`, `gates`, `sparse`,
+  `measure`, `qft`). The substrate on which Shor's algorithm runs: a classical program that
+  faithfully simulates the evolution of a quantum register by maintaining the full
+  $2^n$-amplitude array. Its gate set is complete before the algorithms are built on it: neither
+  factoring nor ECDLP adds a gate.
 
-- **S.B** — Shor's factoring algorithm (`arith`, `shor`). The complete order-finding circuit
+- **Factoring** — Shor's factoring algorithm (`arith`, `shor`). The complete order-finding circuit
   (reversible modular exponentiation via permutation synthesis, iQFT, continued-fraction period
   extraction) and the `factor(N)` driver. Factors 15 → {3,5}, 21 → {3,7}, 35 → {5,7}, 91 →
   {7,13} using 8–14 qubits.
 
-- **S.C** — Shor's ECDLP algorithm (`curve`, `ecc`, `ecdlp`). The two-register hidden-subgroup
+- **ECDLP** — Shor's ECDLP algorithm (`curve`, `ecc`, `ecdlp`). The two-register hidden-subgroup
   construction: the $a$-register and $b$-register each hold $t$ qubits; the work register holds
   the running point on $E$. The controlled point-addition circuit (permutation synthesis, ancilla-
   free) evaluates $f(a, b) = a \cdot G + b \cdot Q$ in superposition; the two-dimensional iQFT
-  concentrates amplitude on the dual lattice of the hidden subgroup; the 2D-lattice extraction
-  recovers $k$ via $k \equiv -a' \cdot (b')^{-1} \pmod{r}$. Solves the ECDLP on a toy curve
-  ($r = 13$) using 17 qubits.
+  concentrates amplitude near the dual lattice of the hidden subgroup, the pairs $(j/r, l/r)$ with
+  $l \equiv k j \pmod{r}$; the extraction rounds the measured pair $(c, d)$ to the nearest
+  multiples of $1/r$ and returns the single candidate $k = l \cdot j^{-1} \bmod r$, which the
+  solver accepts only after checking $k \cdot G = Q$ and otherwise measures again. Solves the
+  ECDLP on a toy curve ($r = 13$) using 17 qubits.
 
 For the mathematical development — the QFT phase-estimation argument, the order-finding →
 factoring reduction, the two-register hidden-subgroup proof, and the post-quantum migration
@@ -199,17 +201,17 @@ Three connections thread the five tracks into one story.
 of the library. Given an elliptic curve with small embedding degree $k$ ($\ell \mid p^k - 1$), the
 Weil/Tate pairing $e: E[\ell] \times E[\ell] \to \mu_\ell \subset \mathbb{F}_{p^k}^*$ transports
 the ECDLP to a DLP in $\mathbb{F}_{p^k}^*$, where NFS-DL (Track D) applies. In code: `mov_reduce`
-evaluates the reduced Tate pairing twice, encodes both outputs via the C-MovBridge
-(`fpext_to_bigint`), and calls `gnfs::dl::solve_dl` (the frozen C2 interface from D.C.3). The
-MOV bridge is the one place in the library where two tracks are directly composed at the code
+evaluates the reduced Tate pairing twice, encodes both outputs via the bridge encoder
+(`fpext_to_bigint`), and calls `gnfs::dl::solve_dl` (the `gnfs` crate's discrete-log entry
+point). The MOV bridge is the one place in the library where two tracks are directly composed at the code
 level.
 
 **The shared substrate threading G, D, and E.** The α-substrate (smoothness detection, ECM) and
 the number-field substrate (polynomial arithmetic, norm map, ideal factorisation) are consumed by
 all three classical-algebraic tracks. Track E's index-calculus attack (§§13–14) uses the same
 smoothness-detection infrastructure as Tracks G and D; the Semaev summation polynomial is the
-ECDLP analogue of the NFS factor base. The substrate is specified once (Phase α), for all
-consumers — the Category-A substrate-over-specifies discipline that runs through the whole project.
+ECDLP analogue of the NFS factor base. The substrate is specified once, for all consumers —
+the substrate-over-specifies discipline that runs through the whole project.
 
 **The classical → quantum arc (ρ/G/D/E → S).** The five tracks form a historical and conceptual
 arc. Pollard rho (1978) established the $\sqrt{n}$ generic bound and the first optimisations
@@ -227,8 +229,8 @@ richness that enables escapes also enables attacks on post-quantum candidates.
 scale, never at cryptographically relevant scale. The toy fixtures (secp_k1_toy at 63 bits,
 GNFS on small semiprimes, NFS-DL at $p = 11$, Shor factoring $N \leq 91$) are correct
 demonstrations of the algorithms; they are not attacks. The $L$-notation separations are
-asymptotic statements; the toy-scale timings are in `docs/BENCHMARKS.md`. This is the
-principle-4 honesty that runs through every chapter.
+asymptotic statements; the toy-scale timings are in `docs/BENCHMARKS.md`. This scale honesty
+runs through every chapter.
 
 ---
 
@@ -730,39 +732,40 @@ rho-dlog --curve secp-toy --walkers 4 --batch-size 16 --glv --theta 8
 
 # Chapter E — Algebraic ECDLP Attacks: An Integrative Chapter
 
-This chapter is the integrative code-tour for the complete Track-E algebraic ECDLP attack survey.
-It is the depth chapter for Track E in the umbrella synthesis (§0 above). The eight Track-E
-sessions (E.A–E.K) each implemented one attack or primitive in isolation. This chapter surveys the
-whole attack landscape in a single narrative, names the cross-attack contracts that connect the
-attacks, verifies the project's design statement against the realised Track-E implementation, and
-annotates the scale-dependent phenomena at demonstration fidelity.
+This chapter is the integrative code-tour for the complete algebraic ECDLP attack survey. It is
+the depth chapter for the algebraic attacks in the umbrella synthesis (§0 above). Each attack or
+primitive is implemented in isolation in the `rho` crate. This chapter surveys the whole attack
+landscape in a single narrative, names the interfaces that connect the attacks, states what each
+attack implements and claims, and annotates the scale-dependent phenomena at demonstration
+fidelity.
 
-Track E is an *attack survey*, not a linear pipeline. The attacks do not compose sequentially —
+The algebraic attacks form an *attack survey*, not a linear pipeline. The attacks do not compose
+sequentially —
 each exploits a different curve structure and applies only on the curve whose precondition it
 requires. The "at a glance" view is therefore a **taxonomy table** (which structure unlocks which
 escape), not a data-flow diagram.
 
 For the mathematics — the pairing reduction, the p-adic logarithm, the Weil descent, and the
-per-attack L-notation complexity — see `docs/MATHEMATICS.md` ch. 10 (the T.E chapter). This
+per-attack L-notation complexity — see `docs/MATHEMATICS.md` ch. 10. This
 chapter is code-first: it assumes the reader knows the mathematics and shows how the code
 realises it.
 
 ---
 
-## 8. Track E — Algebraic ECDLP Attacks: At a Glance
+## 8. Algebraic ECDLP Attacks: At a Glance
 
-The through-line of Track E is the §"Escape from Search" framing from `docs/MATHEMATICS.md`:
-every attack finds a curve structure that escapes the generic $\sqrt{n}$ bound. The table below
-names the structure, the module that realises it, the toy fixture, and the frozen contract.
+The through-line of the algebraic attacks is the §"Escape from Search" framing from
+`docs/MATHEMATICS.md`: every attack finds a curve structure that escapes the generic $\sqrt{n}$
+bound. The table below names the structure, the module that realises it, and the toy fixture.
 
-| Attack | Curve structure exploited | Module surface | Toy fixture | C-contract |
-|--------|--------------------------|----------------|-------------|------------|
-| Pollard rho (baseline) | None — generic group | `rho::ecdlp` (`solve_brent`, `solve_dp`, `solve_dp_negmap`, `solve_dp_batch`, `solve_dp_glv`) | `secp_k1_toy` (63-bit, prime order) | C-Pollard |
-| Pohlig–Hellman | Composite group order $n = \prod p_i^{e_i}$ | `rho::ecdlp::pohlig` (`solve_ecdlp_composite`) | `composite_toy()` ($n = 60 = 2^2 \cdot 3 \cdot 5$) | C-Pohlig |
-| MOV/Frey–Rück | Small embedding degree $k$; $\ell \mid p^k - 1$ | `rho::pairing::mov` (`mov_reduce`) | `pairing_toy()` ($\ell = 3$, $k = 2$, $\mathbb{F}_{47^2}$) | C-Mov |
-| Smart–Satoh–Araki (SSA) | Anomalous curve: $\#E(\mathbb{F}_p) = p$ (trace = 1) | `rho::ssa` (`ssa_solve`) | `anomalous_toy()` ($y^2 = x^3 + 5 \bmod 7$, $\#E = 7 = p$) | C-Ssa |
-| GHS/Weil descent (**transfer**) | Binary curve $E/\mathbb{F}_{2^m}$ with subfield tower | `rho::ghs` (`ghs_descend`, `verify_log_preservation`, `transfer_point`) | `ghs_toy_curve()` ($\mathbb{F}_{2^6}$, $m = 6$, $l = 2$) | C-GHSDescent |
-| Semaev / index calculus | Semaev-decomposable points over a factor base | `rho::semaev` + `rho::index_calculus` (`semaev_poly`, `index_calculus_dlp`, `collect_relations`, `decompose`) | `IndexCalcStrategy::toy()` ($\ell = 5$, $|FB| = 6$, $m = 2$) | C-Semaev, C-IndexCalc |
+| Attack | Curve structure exploited | Module surface | Toy fixture |
+|--------|--------------------------|----------------|-------------|
+| Pollard rho (baseline) | None — generic group | `rho::ecdlp` (`solve_brent`, `solve_dp`, `solve_dp_negmap`, `solve_dp_batch`, `solve_dp_glv`) | `secp_k1_toy` (63-bit, prime order) |
+| Pohlig–Hellman | Composite group order $n = \prod p_i^{e_i}$ | `rho::ecdlp::pohlig` (`solve_ecdlp_composite`) | `composite_toy()` ($n = 60 = 2^2 \cdot 3 \cdot 5$) |
+| MOV/Frey–Rück | Small embedding degree $k$; $\ell \mid p^k - 1$ | `rho::pairing::mov` (`mov_reduce`) | `pairing_toy()` ($\ell = 3$, $k = 2$, $\mathbb{F}_{47^2}$) |
+| Smart–Satoh–Araki (SSA) | Anomalous curve: $\#E(\mathbb{F}_p) = p$ (trace = 1) | `rho::ssa` (`ssa_solve`) | `anomalous_toy()` ($y^2 = x^3 + 5 \bmod 7$, $\#E = 7 = p$) |
+| GHS/Weil descent (**transfer**) | Binary curve $E/\mathbb{F}_{2^m}$ with subfield tower | `rho::ghs` (`ghs_descend`, `verify_log_preservation`, `transfer_point`) | `ghs_toy_curve()` ($\mathbb{F}_{2^6}$, $m = 6$, $l = 2$) |
+| Semaev / index calculus | Semaev-decomposable points over a factor base | `rho::semaev` + `rho::index_calculus` (`semaev_poly`, `index_calculus_dlp`, `collect_relations`, `decompose`) | `IndexCalcStrategy::toy()` ($\ell = 5$, $|FB| = 6$, $m = 2$) |
 
 **The through-line in one sentence per row.** Pollard rho is the generic $\sqrt{n}$ baseline —
 no structure exploited. Pohlig–Hellman finds a *group-order homomorphism*: composite order
@@ -782,14 +785,14 @@ relation matrix whose solution recovers the discrete log.
 
 The group order $n = \#E(\mathbb{F}_p)$ is composite: $n = \prod p_i^{e_i}$. The ECDLP in a
 group of composite order reduces to independent DLPs in each prime-power subgroup via the
-Chinese Remainder Theorem. Each prime-order subgroup DLP is solved by the frozen rho solvers
+Chinese Remainder Theorem. Each prime-order subgroup DLP is solved by the rho solvers
 (which require prime order). The CRT reassembles the answer.
 
 The escape: instead of running rho on the full group of order $n$, run rho on the largest
 prime-power subgroup of order $p_{\max}^{e_{\max}}$. The cost drops from $O(\sqrt{n})$ to
 $O(\sum e_i (\log n + \sqrt{p_i}))$ — a dramatic speedup when $n$ has small prime factors.
 
-### The module surface (C-Pohlig, frozen E.A)
+### The module surface
 
 ```rust
 // rho::ecdlp::pohlig
@@ -854,10 +857,10 @@ $\mu_\ell$-generator $R$. By bilinearity, $e(Q, R) = e(k \cdot G, R) = e(G, R)^k
 $g_0 = e(G, R)$ and $h_0 = e(Q, R)$, the ECDLP scalar $k$ is exactly $\log_{g_0}(h_0)$ in
 $\mathbb{F}_{p^k}^*$ — where index calculus applies.
 
-This is the cross-track bridge: the MOV reduction transports the ECDLP to the NFS-DL setting
-(Track D), which the frozen `gnfs::dl::solve_dl` entry point solves.
+This is the cross-crate bridge: the MOV reduction transports the ECDLP to the NFS-DL setting
+(the `gnfs` crate's discrete-log solver), which the `gnfs::dl::solve_dl` entry point solves.
 
-### The module surface (C-Mov, frozen E.C)
+### The module surface
 
 ```rust
 // rho::pairing::mov
@@ -877,7 +880,7 @@ pub fn mov_reduce<F: Fp<4>>(
 ```
 
 `mov_reduce` evaluates the reduced Tate pairing twice (via `reduced_tate` in `rho::pairing::tate`),
-encodes both outputs through the C-MovBridge (`fpext_to_bigint`), and calls `gnfs::dl::solve_dl`
+encodes both outputs through the bridge encoder (`fpext_to_bigint`), and calls `gnfs::dl::solve_dl`
 to recover $k \bmod \ell$.
 
 The pairing infrastructure:
@@ -917,14 +920,14 @@ argument — see `docs/MATHEMATICS.md` §10.5 (the designated payoff proof).
 
 The curve is *anomalous*: $\#E(\mathbb{F}_p) = p$ (trace of Frobenius = 1). The p-adic formal
 group logarithm lifts the ECDLP to $\mathbb{Z}_p$ via Hensel's lemma, where it is trivially
-linear. The escape is polynomial time — the sharpest escape in Track E.
+linear. The escape is polynomial time — the sharpest escape among the algebraic attacks.
 
 The key steps: (1) lift the affine point $G \in E(\mathbb{F}_p)$ to a point $\tilde{G}$ on the
 formal group $\hat{E}(\mathbb{Z}_p)$ via Hensel's lemma; (2) apply the formal group logarithm
 $\log_{\hat{E}}$ to get $\log_{\hat{E}}(\tilde{G}) \in p\mathbb{Z}_p$; (3) the ECDLP scalar
 $k$ is recovered as $\log_{\hat{E}}(\tilde{Q}) / \log_{\hat{E}}(\tilde{G}) \bmod p$.
 
-### The module surface (C-Ssa, frozen E.E)
+### The module surface
 
 ```rust
 // rho::ssa
@@ -946,8 +949,8 @@ The internal structure:
   (`formal_group_log`).
 - `rho::ssa::reduce` — the full SSA reduction assembling the three steps (`ssa_solve`).
 
-The p-adic substrate is provided by `shared-padic` (C-Padic, C-Hensel, C-PadicLog — frozen
-before E.E).
+The p-adic substrate (arithmetic, Hensel lifting, and the p-adic logarithm) is provided by
+`shared-padic`.
 
 ### The toy KAT/fixture
 
@@ -983,10 +986,10 @@ Jacobian of a hyperelliptic curve $C/\mathbb{F}_{2^l}$, where index calculus app
 
 **GHS is a transfer, not an end-to-end solve.** `rho::ghs` exposes the descent reduction and
 log-preservation verification, but has no `ghs_dlp` solver. The downstream solve is index
-calculus (a deferred re-shard). Representing GHS as an end-to-end solve time would misrepresent
-the attack's scope.
+calculus on the Jacobian, which is not implemented. Representing GHS as an end-to-end solve time
+would misrepresent the attack's scope.
 
-### The module surface (C-GHSDescent, frozen E.H)
+### The module surface
 
 ```rust
 // rho::ghs
@@ -1061,7 +1064,7 @@ is *decomposable* over $\mathcal{F}$ if $P = \sum_{i=1}^m F_i$ for some $F_i \in
 The Semaev polynomial detects this: $S_m(x_{F_1}, \ldots, x_{F_{m-1}}, x_P) = 0$ iff $P$
 decomposes over $\mathcal{F}$ with the given $F_i$.
 
-### The module surface (C-Semaev, frozen E.J)
+### The module surface
 
 ```rust
 // rho::semaev
@@ -1089,166 +1092,223 @@ development — the summation polynomial definition and the relation-collection 
 
 ### What it exploits
 
-The index-calculus attack collects *relations*: random multiples $k_i \cdot G$ that decompose
+The index-calculus attack collects *relations*: points $a_i \cdot G + b_i \cdot Q$ that decompose
 over the factor base $\mathcal{F}$ (detected via the Semaev polynomial). Each decomposition
-gives a linear equation over $\mathbb{Z}/\ell\mathbb{Z}$. Once enough relations are collected,
-the linear system is solved (block-Lanczos/Wiedemann over $\mathbb{F}_\ell$) to recover the
-discrete logarithm.
+$a_i G + b_i Q = \sum_j e_{ij} F_j$ gives a linear equation over $\mathbb{Z}/\ell\mathbb{Z}$,
 
-**Principle-4 boundary.** Over $E(\mathbb{F}_p)$, index calculus is NOT faster than Pollard
-rho — the asymptotic win requires the extension-field setting $E(\mathbb{F}_{p^n})$ with $n > 1$
-(the genuine Gaudry–Diem setting, a deferred re-shard). The toy fixture demonstrates the
+$$a_i + b_i \cdot x \equiv \sum_j e_{ij} \cdot l_j \pmod{\ell},$$
+
+in the unknown $x = \log_G(Q) \bmod \ell$ and the unknown factor-base logarithms $l_j$. The
+equation holds modulo $\ell$ because $\ell \,\|\, n$: the $\ell$-Sylow subgroup of
+$\langle G\rangle$ is cyclic, generated by $G_\ell = (n/\ell) \cdot G$, so every point's $\ell$-component has a
+logarithm modulo $\ell$. This is an invariant of the fixture (asserted by `toy_fixture_parameters`),
+not something a test proves independently.
+
+The code does not solve for the $l_j$. It computes the *left kernel* of the exponent matrix — the
+vectors $u$ with $\sum_i u_i e_{ij} \equiv 0$ for every $j$ — and any $u$ with
+$u^{\top} b \not\equiv 0$ gives $x \equiv -u^{\top} a \,/\, u^{\top} b$, because the weighted sum of
+the relations has no $l_j$ left in it. The value of $x$ comes only from a relation combination; no candidate logarithm is ever
+tried.
+
+**Scale boundary.** Over $E(\mathbb{F}_p)$, index calculus is NOT faster than Pollard rho — the
+asymptotic win requires the extension-field setting $E(\mathbb{F}_{p^n})$ with $n > 1$ (the genuine
+Gaudry–Diem setting), which this code does not implement. The toy fixture demonstrates the
 mechanism; the asymptotic win is not observable at $p = 47$.
 
-### The module surface (C-IndexCalc, frozen E.K)
+### The module surface
 
 ```rust
 // rho::index_calculus
 
-/// Full index-calculus ECDLP pipeline: collect relations → solve linear system → recover log.
+/// Collect relations and recover log_G(Q) mod ℓ from a left-kernel combination.
 pub fn index_calculus_dlp(
     g: AffinePoint<FpNaive>,
     q: AffinePoint<FpNaive>,
     strategy: &IndexCalcStrategy,
-) -> Result<Option<u64>, IndexCalcError>;
+) -> Result<IndexCalcSolution, IndexCalcError>;
 
-/// Collect relations: random multiples of G that decompose over the factor base.
+/// The verified answer and the evidence that produced it.
+pub struct IndexCalcSolution {
+    pub x: u64,                    // log_G(Q) mod ℓ, verified x·G_ℓ == Q_ℓ
+    pub combination: Vec<FpNaive>, // the kernel vector u used; uᵀb ≢ 0
+    pub relations: Vec<Relation>,  // the relation system u combines
+}
+
+/// Left-kernel basis of the relation exponent matrix over F_ℓ: each u satisfies Σᵢ uᵢ·eᵢ ≡ 0.
+pub fn solve_ek_linalg(
+    relations: &[Relation],
+    strategy: &IndexCalcStrategy,
+) -> Result<Vec<Vec<FpNaive>>, IndexCalcError>;
+
+/// Collect relations over the (a, b) enumeration until the system is over-determined.
 pub fn collect_relations(
     g: AffinePoint<FpNaive>,
     q: AffinePoint<FpNaive>,
     strategy: &IndexCalcStrategy,
 ) -> Result<Vec<Relation>, IndexCalcError>;
 
-/// Decompose a point over the factor base (returns None if not decomposable).
+/// Decompose a point as a sum of m factor-base points (None if no such decomposition exists).
 pub fn decompose(
-    point: AffinePoint<FpNaive>,
+    q: AffinePoint<FpNaive>,
     strategy: &IndexCalcStrategy,
-) -> Option<Vec<u64>>;
+) -> Option<Vec<FbPoint>>;
 ```
+
+`decompose` returns `Option<Vec<FbPoint>>`: `Some` holds the $m$ factor-base points (with
+repetition allowed; $m = 2$ is the only implemented arity) whose sum is `q` under the group law,
+and `None` means no decomposition exists over the current factor base. It returns the points
+themselves, not their indices; the relation records the indices.
 
 The `IndexCalcStrategy` bundles the curve, factor base, subgroup modulus $\ell$, and Semaev
 polynomial degree $m$. The `toy()` constructor builds the canonical toy fixture.
 
 The internal structure:
-- `rho::index_calculus::strategy` — `FbPoint`, `IndexCalcStrategy`, `Relation` (C-IndexCalcStrategy,
-  C-EKRelation).
-- `rho::index_calculus::collect` — relation collection loop (`collect_relations`).
+- `rho::index_calculus::strategy` — `FbPoint`, `IndexCalcStrategy`, `Relation`.
+- `rho::index_calculus::collect` — relation collection (`collect_relations`, and
+  `RelationStream`, which yields relations one at a time).
 - `rho::index_calculus::decompose` — point decomposition via Semaev polynomial (`decompose`).
 - `rho::index_calculus::linalg` — $\mathbb{F}_\ell$ linear algebra (`build_ek_matrix`,
-  `solve_ek_linalg`).
+  `solve_ek_linalg`). At this scale the kernel is computed by exact dense row reduction inside
+  `block_wiedemann_fl`, not by a Krylov (Wiedemann or Lanczos) iteration; the returned basis is
+  complete.
 - `rho::index_calculus::solve` — full pipeline assembler (`index_calculus_dlp`).
 
-**Index-calculus counts.** `index_calculus_dlp` returns only the log. The relation count and
-decomposition count are derived from the public re-exports `collect_relations(...).len()` and
-`decompose(...)` (C-IndexCalc unamended — the E.K.5-flagged decision).
+**How the solver draws relations.** `index_calculus_dlp` starts from `fb_size + 1` relations and
+asks for `fb_size` more per round while no kernel vector has $u^{\top} b \not\equiv 0$. The
+relations come from a deterministic `RelationStream` that visits the pairs $(a, b)$ with $a \in [1, n)$,
+$b \in [0, n)$ along the anti-diagonals $a + b = 1, 2, \ldots$. That enumeration bounds how many
+relations exist to be collected; it is not a search over candidate logarithms.
+
+**Outcomes.** `index_calculus_dlp` returns `Ok` only after checking that every basis vector with
+$u^{\top} b \not\equiv 0$ gives the same $x$ and that $x \cdot G_\ell = Q_\ell$ by the group law.
+Its errors keep distinct classes apart:
+
+- `Undetermined { relations }` — the relation enumeration is exhausted and no kernel vector has
+  $u^{\top} b \not\equiv 0$. It is a statement about the relation set, not a negative about the
+  logarithm.
+- `Inconsistent` — an invariant failure: combinations disagree on $x$, verification fails, or a
+  kernel vector has $u^{\top} b \equiv 0$ but $u^{\top} a \not\equiv 0$. It is surfaced, never
+  retried or masked.
+- `UnderdeterminedSystem`, `InvalidSubgroup`, `FactorBaseTooSmall`, `Semaev` — input and
+  setup errors propagated from the earlier steps.
+
+**Counts.** The relation count is `solution.relations.len()`. `collect_relations(...).len()` and
+`decompose(...)` remain available for a caller that wants counts without running the solver.
 
 ### The toy KAT/fixture
 
-The fixture is `IndexCalcStrategy::toy()`: $y^2 = x^3 + x + 33 \bmod 47$, $\ell = 5$,
-$|FB| = 6$, $m = 2$. The known scalar is $k = 7$: $Q = 7 \cdot G$ (with $Q_\ell = (n/\ell) \cdot Q$
-in the order-$\ell$ subgroup).
+The fixture is `IndexCalcStrategy::toy()`: $y^2 = x^3 + x + 33 \bmod 47$, $n = 60$, $\ell = 5$,
+$|FB| = 6$, $m = 2$ (asserted by `toy_fixture_parameters`). The known scalar is $k = 7$:
+$Q = 7 \cdot G$ (with $Q_\ell = (n/\ell) \cdot Q$ in the order-$\ell$ subgroup).
 
 ```rust
 let strategy = IndexCalcStrategy::toy().expect("toy strategy must build");
 let curve = strategy.curve.clone();
 let g = curve.generator::<FpNaive>();
 let q = curve.scalar_mul(&g, &Uint::<4>::from(7u64));
-let k = index_calculus_dlp(g.clone(), q.clone(), &strategy)
-    .expect("index_calculus_dlp must not error")
-    .expect("index_calculus_dlp must recover k");
-// Verify k·G_ℓ = Q_ℓ (subgroup-log correctness).
+let solution = index_calculus_dlp(g.clone(), q.clone(), &strategy)
+    .expect("index_calculus_dlp must recover x");
+let x = solution.x;
+// Verify x·G_ℓ = Q_ℓ (subgroup-log correctness).
 let cofactor = n / ell;
 let g_ell = curve.scalar_mul(&g, &Uint::<4>::from(cofactor));
 let q_ell = curve.scalar_mul(&q, &Uint::<4>::from(cofactor));
-assert_eq!(curve.scalar_mul(&g_ell, &Uint::<4>::from(k)), q_ell);
+assert_eq!(curve.scalar_mul(&g_ell, &Uint::<4>::from(x)), q_ell);
 ```
 
 The bench pre-check in `rho/benches/attacks.rs` (`bench_index_calculus`) asserts this before
-timing.
+timing. The tests in `rho/tests/index_calculus_kat.rs` that pin the mechanism are:
+
+- `left_kernel_annihilates_exponents` — every returned basis vector satisfies
+  $\sum_i u_i e_i \equiv 0$, is nonzero, and the basis size equals #relations − rank (complete).
+- `adapter_fidelity` — the matrix handed to the linear algebra is the transposed exponent matrix.
+- `recovers_every_residue` — for every $k \in 0..60$, the solver returns $x = k \bmod 5$ with
+  $u^{\top} b \not\equiv 0$, and $\sum_i u_i (a_i + b_i x) \equiv 0$ is checked explicitly from the
+  returned combination and relations.
+- `undetermined_when_no_combination_sees_b` — honest relations that all have
+  $b \equiv 0 \pmod{\ell}$ give `Undetermined`.
+- `corrupted_relation_is_inconsistent` — one corrupted relation gives `Inconsistent`.
+- `toy_fixture_parameters` — the fixture constants above.
+
+`Undetermined` is not reachable for an honest $Q$ on this fixture; the tests exercise it only on
+constructed relation sets. Over $E(\mathbb{F}_p)$ these tests demonstrate the mechanism, not the
+asymptotic advantage.
 
 ### Cross-reference
 
 For the mathematical development — the Semaev polynomial, the relation-collection loop, the
-$\mathbb{Z}/\ell\mathbb{Z}$ linear algebra, and the L-notation — see `docs/MATHEMATICS.md` §10.4.
+left-kernel recovery, and the L-notation — see `docs/MATHEMATICS.md` §10.4.
 
 ---
 
-## 15. The Cross-Phase Contract View
+## 15. The Attack Interfaces
 
-The seven frozen Track-E contracts are the interfaces that allow the attacks to be developed,
+Each algebraic attack exposes a small, separate interface, which lets the attacks be developed,
 tested, and reasoned about independently. This section names them in one place.
 
-| Contract | Frozen at | What it exposes | Consumed by |
-|----------|-----------|-----------------|-------------|
-| **C-Pollard** | E.A | `solve_brent`, `solve_dp`, `solve_dp_negmap`, `solve_dp_batch`, `solve_dp_glv` — the generic-$\sqrt{n}$ rho solvers | E.W (baseline column), all Track-E attacks (rho as sub-solver in Pohlig–Hellman) |
-| **C-Pohlig** | E.A | `solve_ecdlp_composite`, `factor_order`, `project_to_subgroup` — composite-order ECDLP via CRT | E.W (Pohlig–Hellman bench + code-tour) |
-| **C-Mov** | E.C | `mov_reduce` — MOV/Frey–Rück reduction to $\mathbb{F}_{p^k}^*$ DLP | E.W (MOV bench + code-tour); T.E §10.5 (the payoff proof) |
-| **C-Ssa** | E.E | `ssa_solve` — SSA polynomial-time anomalous-curve attack | E.W (SSA bench + code-tour) |
-| **C-GHSDescent** | E.H | `ghs_descend`, `verify_log_preservation`, `transfer_point` — binary-curve transfer (NOT a solver) | E.W (GHS bench + code-tour, annotated as transfer) |
-| **C-Semaev** | E.J | `semaev_poly` + `MultiPoly` operations — the index-calculus primitive | E.K (index calculus consumes C-Semaev); E.W (code-tour) |
-| **C-IndexCalc** | E.K.5 ◆ | `index_calculus_dlp`, `collect_relations`, `decompose` — full index-calculus pipeline | E.W (index-calculus bench + code-tour) |
+| Interface | What it exposes | Used by |
+|-----------|-----------------|---------|
+| Pollard rho (`rho::ecdlp`) | `solve_brent`, `solve_dp`, `solve_dp_negmap`, `solve_dp_batch`, `solve_dp_glv` — the generic-$\sqrt{n}$ rho solvers | the benchmark baseline column; Pohlig–Hellman (rho as sub-solver) |
+| Pohlig–Hellman (`rho::ecdlp::pohlig`) | `solve_ecdlp_composite`, `factor_order`, `project_to_subgroup` — composite-order ECDLP via CRT | the Pohlig–Hellman bench and code-tour |
+| MOV (`rho::pairing::mov`) | `mov_reduce` — MOV/Frey–Rück reduction to $\mathbb{F}_{p^k}^*$ DLP | the MOV bench and code-tour; the payoff proof in `docs/MATHEMATICS.md` §10.5 |
+| SSA (`rho::ssa`) | `ssa_solve` — SSA polynomial-time anomalous-curve attack | the SSA bench and code-tour |
+| GHS (`rho::ghs`) | `ghs_descend`, `verify_log_preservation`, `transfer_point` — binary-curve transfer (NOT a solver) | the GHS bench and code-tour, annotated as a transfer |
+| Semaev (`rho::semaev`) | `semaev_poly` + `MultiPoly` operations — the index-calculus primitive | index calculus; the Semaev code-tour |
+| Index calculus (`rho::index_calculus`) | `index_calculus_dlp` returning `IndexCalcSolution`, `collect_relations`, `solve_ek_linalg`, `decompose` — the relation-collection and left-kernel pipeline | the index-calculus bench and code-tour |
 
-**All read, none amended by E.W.** The E.W sessions (E.W.1 and E.W.2) read every frozen
-Track-E contract and add only additive Criterion benches + prose. No solver surface is touched.
+The benches add only Criterion timing and prose; no solver surface is touched by them.
 
 ---
 
-## 16. Design-Statement Verification (Principles 1/3/4)
+## 16. What Each Attack Implements and Claims
 
-The ROADMAP names E.W.2 as "the moment where the design statement is verified against the
-actual Track-E implementation." The design statement has three scoping principles. This section
-walks each principle against what E.A–E.K actually shipped.
+This section states, attack by attack, what the code implements, what exercises it, and what it
+deliberately does not claim.
 
-### Principle 1: Algorithmic content complete
+### Algorithmic content
 
-**Statement.** All eight Track-E attacks are implemented head-on, not stubbed. Every attack —
-Pollard rho, Pohlig–Hellman, MOV, SSA, GHS, Semaev, and index calculus — is present and
-KAT-verified.
+Every attack — Pollard rho, Pohlig–Hellman, MOV, SSA, GHS, Semaev, and index calculus — is
+implemented head-on, not stubbed, and exercised by KATs on a toy fixture.
 
-**Verification.**
+- **Pollard rho.** `solve_brent`, `solve_dp`, `solve_dp_negmap`, `solve_dp_batch`,
+  `solve_dp_glv` — all five solver variants are exercised by KATs on `secp_k1_toy`.
 
-- **Pollard rho (E.A).** `solve_brent`, `solve_dp`, `solve_dp_negmap`, `solve_dp_batch`,
-  `solve_dp_glv` — all five solver variants implemented and KAT-verified on `secp_k1_toy`.
-  **Complete.**
+- **Pohlig–Hellman.** `solve_ecdlp_composite` with `factor_order` and
+  `project_to_subgroup` — composite-order ECDLP via CRT, exercised on `composite_toy()`
+  ($n = 60$).
 
-- **Pohlig–Hellman (E.A).** `solve_ecdlp_composite` with `factor_order` and
-  `project_to_subgroup` — composite-order ECDLP via CRT, implemented and KAT-verified on
-  `composite_toy()` ($n = 60$). **Complete.**
+- **MOV/Frey–Rück.** `mov_reduce` with the full pairing infrastructure (Miller's
+  algorithm, reduced Tate pairing, $\mathbb{F}_{p^k}$ arithmetic, the bridge to
+  `gnfs::dl::solve_dl`) — exercised on `pairing_toy()` ($\ell = 3$, $k = 2$).
 
-- **MOV/Frey–Rück (E.C).** `mov_reduce` with the full pairing infrastructure (Miller's
-  algorithm, reduced Tate pairing, $\mathbb{F}_{p^k}$ arithmetic, C-MovBridge to
-  `gnfs::dl::solve_dl`) — implemented and KAT-verified on `pairing_toy()` ($\ell = 3$, $k = 2$).
-  **Complete.**
+- **Smart–Satoh–Araki.** `ssa_solve` with Hensel lift and formal group logarithm —
+  polynomial-time anomalous-curve attack, exercised on `anomalous_toy()`
+  ($p = 7$, $\#E = 7$).
 
-- **Smart–Satoh–Araki (E.E).** `ssa_solve` with Hensel lift and formal group logarithm —
-  polynomial-time anomalous-curve attack, implemented and KAT-verified on `anomalous_toy()`
-  ($p = 7$, $\#E = 7$). **Complete.**
+- **GHS/Weil descent.** `ghs_descend`, `verify_log_preservation`, `transfer_point` —
+  binary-curve transfer to hyperelliptic Jacobian, exercised on `ghs_toy_curve()`
+  ($\mathbb{F}_{2^6}$). It is a transfer only (no `ghs_dlp`); the downstream solve on the
+  Jacobian is not implemented.
 
-- **GHS/Weil descent (E.H).** `ghs_descend`, `verify_log_preservation`, `transfer_point` —
-  binary-curve transfer to hyperelliptic Jacobian, implemented and KAT-verified on
-  `ghs_toy_curve()` ($\mathbb{F}_{2^6}$). Represented honestly as a transfer (no `ghs_dlp`).
-  **Complete (as a transfer).**
+- **Semaev summation polynomials.** `semaev_poly` via the resultant ladder — the
+  index-calculus primitive, exercised by `rho/tests/semaev_kat.rs`.
 
-- **Semaev summation polynomials (E.J).** `semaev_poly` via the resultant ladder — the
-  index-calculus primitive, implemented and KAT-verified. **Complete.**
+- **Index calculus.** `index_calculus_dlp` with `collect_relations`, `decompose`,
+  `build_ek_matrix`, `solve_ek_linalg` — the relation-collection and left-kernel mechanism of
+  the Gaudry–Diem–Joux–Vitse algorithm, exercised on `IndexCalcStrategy::toy()`. It recovers
+  $x = \log_G(Q) \bmod \ell$ from a relation combination and verifies $x \cdot G_\ell = Q_\ell$;
+  the tests that pin this are listed in §14. It demonstrates the mechanism over $E(\mathbb{F}_p)$,
+  not the asymptotic advantage, and `Undetermined` is a statement about a relation set, not a
+  negative about the logarithm.
 
-- **Index calculus (E.K).** `index_calculus_dlp` with `collect_relations`, `decompose`,
-  `build_ek_matrix`, `solve_ek_linalg` — full Gaudry–Diem–Joux–Vitse pipeline, implemented
-  and KAT-verified on `IndexCalcStrategy::toy()`. **Complete.**
+### No engineering optimisation
 
-**Verdict: Principle 1 — pass.** All eight attacks implemented end-to-end. No attack is a stub.
-GHS is complete as a transfer (the honest representation of the attack's scope).
+Oracle tests stay opt-in; there is no production solver acceleration, no GPU, and no distributed
+computation.
 
-### Principle 3: No engineering optimisation crept in
-
-**Statement.** PARI/msolve oracles remain `#[ignore]`-gated dev-only. No production solver
-acceleration, no GPU, no distributed computation.
-
-**Verification.**
-
-- **PARI/msolve oracles.** All oracle KATs across Track E are gated behind
+- **Oracle tests.** The oracle KATs that need an external tool (PARI/GP, msolve) are gated behind
   `#[ignore = "PARI not installed; run manually when available"]` (or the msolve analogue).
-  None are on the green test path. No production dependency was added.
+  None are on the default test path. No production dependency was added.
 
 - **Pairing computation.** Miller's algorithm is implemented at demonstration fidelity: the
   standard Miller loop with the final exponentiation. No optimised pairing (ate pairing, optimal
@@ -1262,49 +1322,29 @@ acceleration, no GPU, no distributed computation.
   demonstration fidelity. No optimised descent (no Magma/PARI oracle for the hyperelliptic
   Jacobian DLP).
 
-**Verdict: Principle 3 — pass.** No engineering optimisations were added. All oracle cross-checks
-remain `#[ignore]`-gated.
+All oracle cross-checks remain `#[ignore]`-gated.
 
-### Principle 4: Scale-only at demonstration fidelity
+### Scale: demonstration fidelity
 
-**Statement.** The implementation is correct but not production-scale. Scale-dependent phenomena
-are annotated explicitly; the annotations document the science↔engineering gap.
-
-**Verification.** The principle-4 annotations are present throughout Track E:
+The implementation is correct but not production-scale. Scale-dependent phenomena are annotated
+explicitly, and the annotations document the science↔engineering gap:
 
 | Attack | Phenomenon | Annotation |
 |--------|-----------|------------|
-| Pohlig–Hellman | Speedup over rho only exponential at crypto scale; at toy scale ($n = 60$) the gain is invisible | §10.1 of T.E; BENCHMARKS.md §E.W |
-| MOV/Frey–Rück | At $k = 2$, $p = 47$: pairing + $\mathbb{F}_{p^2}$ DLP overhead dominates; asymptotic win requires crypto-scale $p$ | §10.5 of T.E; BENCHMARKS.md §E.W |
-| SSA | Polynomial-time at all scales; toy fixture ($p = 7$) makes constant factors invisible | §10.2 of T.E |
-| GHS | Transfer only; asymptotic win comes from downstream index calculus on the Jacobian (deferred re-shard) | §10.3 of T.E; BENCHMARKS.md §E.W |
-| Index calculus | Over $E(\mathbb{F}_p)$: NOT faster than rho; asymptotic win requires $E(\mathbb{F}_{p^n})$, $n > 1$ | §10.4 of T.E; BENCHMARKS.md §E.W |
-| L-notation separations | $L[1, 1/2]$ (rho) vs $L[0]$ (SSA) vs $L[1/3]$ (MOV via NFS-DL) are NOT observable at $p = 47$/$p = 7$ | §10.6 of T.E |
-
-**Verdict: Principle 4 — pass.** The implementation is correct at demonstration fidelity.
-Scale-dependent phenomena are annotated explicitly throughout. No phenomenon is silently omitted.
-
-### Design-statement verification summary
-
-**Design-statement verified: pass on all three principles.**
-
-- Principle 1 (algorithmic content complete): **pass** — all eight attacks implemented
-  end-to-end; GHS complete as a transfer.
-- Principle 3 (no engineering optimisation crept in): **pass** — PARI/msolve oracles remain
-  `#[ignore]`-gated; no production acceleration.
-- Principle 4 (scale-only at demonstration fidelity): **pass** — all scale-dependent phenomena
-  annotated explicitly; L-notation separations annotated as non-observable at toy scale.
-
-No divergence requiring a corrective follow-on session was found. Track E is complete and
-KAT-green.
+| Pohlig–Hellman | Speedup over rho only exponential at crypto scale; at toy scale ($n = 60$) the gain is invisible | §10.1 of the textbook; the cross-attack harness in BENCHMARKS.md |
+| MOV/Frey–Rück | At $k = 2$, $p = 47$: pairing + $\mathbb{F}_{p^2}$ DLP overhead dominates; asymptotic win requires crypto-scale $p$ | §10.5 of the textbook; the cross-attack harness in BENCHMARKS.md |
+| SSA | Polynomial-time at all scales; toy fixture ($p = 7$) makes constant factors invisible | §10.2 of the textbook |
+| GHS | Transfer only; asymptotic win comes from downstream index calculus on the Jacobian, which is not implemented | §10.3 of the textbook; the cross-attack harness in BENCHMARKS.md |
+| Index calculus | Over $E(\mathbb{F}_p)$: NOT faster than rho; asymptotic win requires $E(\mathbb{F}_{p^n})$, $n > 1$ | §10.4 of the textbook; the cross-attack harness in BENCHMARKS.md |
+| L-notation separations | $L[1, 1/2]$ (rho) vs $L[0]$ (SSA) vs $L[1/3]$ (MOV via NFS-DL) are NOT observable at $p = 47$/$p = 7$ | §10.6 of the textbook |
 
 ---
 
-## 17. KAT Summary (E.W — Integrative)
+## 17. KAT Summary
 
-The integrative chapter does not add new KATs (it is a code-tour, not a new implementation).
-The KATs that verify the Track-E attacks are the existing per-attack KAT suites plus the
-`attacks.rs` bench pre-check asserts (the C-EWBench no-regression smoke tests).
+This chapter adds no new KATs (it is a code-tour, not a new implementation). The KATs that
+exercise the attacks are the existing per-attack KAT suites plus the `attacks.rs` bench
+pre-check asserts (no-regression smoke tests).
 
 ### Per-attack KATs
 
@@ -1315,12 +1355,12 @@ The KATs that verify the Track-E attacks are the existing per-attack KAT suites 
 | `rho/tests/ssa_kat.rs` | SSA KATs | `ssa_solve` on `anomalous_toy()` ($p = 7$); Hensel lift; formal group log; $k = 3$ recovery |
 | `rho/tests/ghs_kat.rs` | GHS KATs | `ghs_descend` + `verify_log_preservation` on `ghs_toy_curve()` ($\mathbb{F}_{2^6}$); log-preservation |
 | `rho/tests/semaev_kat.rs` | Semaev KATs | `semaev_poly` correctness; $S_3$ base case; resultant ladder |
-| `rho/tests/index_calculus_kat.rs` | Index-calculus KATs | `index_calculus_dlp` on `IndexCalcStrategy::toy()`; relation collection; decomposition; linear algebra |
+| `rho/tests/index_calculus_kat.rs` | Index-calculus KATs | factor base and relations; Semaev decomposition; the transposed matrix and its complete left kernel (`left_kernel_annihilates_exponents`); recovery of every residue $k \bmod 5$ for $k \in 0..60$ from a relation combination (`recovers_every_residue`); the `Undetermined` and `Inconsistent` outcomes; the fixture constants (`toy_fixture_parameters`) |
 
-### Bench pre-check asserts (C-EWBench no-regression smoke tests)
+### Bench pre-check asserts (no-regression smoke tests)
 
 Each bench in `rho/benches/attacks.rs` asserts the solver returns the known correct answer
-before timing. These asserts are the C-EWBench invariant: every benched attack still solves
+before timing. These asserts are a no-regression invariant: every benched attack still solves
 (or, for GHS, transfers) its toy instance.
 
 | Bench function | Pre-check assert | Known answer |
@@ -1329,7 +1369,7 @@ before timing. These asserts are the C-EWBench invariant: every benched attack s
 | `attacks/mov_frey_ruck` | `mov_reduce` returns $k = 2$ | $k = 2$ on `pairing_toy()` |
 | `attacks/ssa` | `ssa_solve` returns $k = 3$ | $k = 3$ on `anomalous_toy()` |
 | `attacks/ghs_transfer` | `verify_log_preservation` returns `true` for $k = 1$ | $k = 1$ on `ghs_toy_curve()` |
-| `attacks/index_calculus` | $k \cdot G_\ell = Q_\ell$ for $k$ returned by `index_calculus_dlp` | $k \cdot G_\ell = Q_\ell$ on `IndexCalcStrategy::toy()` |
+| `attacks/index_calculus` | $x \cdot G_\ell = Q_\ell$ for the $x$ in the `IndexCalcSolution` returned by `index_calculus_dlp` | $x \cdot G_\ell = Q_\ell$ on `IndexCalcStrategy::toy()` |
 
 ---
 
@@ -1337,38 +1377,38 @@ before timing. These asserts are the C-EWBench invariant: every benched attack s
 
 ### Mathematical textbook
 
-- **`docs/MATHEMATICS.md` ch. 10** (T.E chapter) — the maths-first sibling to this integrative
-  chapter. Develops the five algebraic ECDLP attacks mathematically: Pohlig–Hellman (§10.1),
-  Smart–Satoh–Araki (§10.2), GHS/Weil descent (§10.3), index calculus (§10.4), and the
+- **`docs/MATHEMATICS.md` ch. 10** (algebraic ECDLP attacks) — the maths-first sibling to this
+  integrative chapter. Develops the five algebraic ECDLP attacks mathematically:
+  Pohlig–Hellman (§10.1), Smart–Satoh–Araki (§10.2), GHS/Weil descent (§10.3), index calculus (§10.4), and the
   **MOV/Frey–Rück reduction (§10.5 — the designated payoff proof)**. Carries the per-attack
   L-notation comparison (§10.6). Cross-references this chapter for the code realisation.
 
 - **`docs/MATHEMATICS.md` §Pollard Rho for ECDLP** — the rho baseline this chapter's
   bound-breaking extends. The $\sqrt{n}$ generic bound established there is the baseline all
-  Track-E attacks escape.
+  algebraic attacks escape.
 
 - **`docs/MATHEMATICS.md` §"Escape from Search: The Through-Line"** — the five-family structure
-  taxonomy and the L-notation hierarchy table. The scaffold Track E realises.
+  taxonomy and the L-notation hierarchy table. The scaffold the algebraic attacks realise.
 
 ### Benchmark data
 
-- **`docs/BENCHMARKS.md` ## E.W** — the C-EWBench table: the structural-precondition-conditional
+- **`docs/BENCHMARKS.md`, the cross-attack ECDLP harness** — the structural-precondition-conditional
   benchmark table (Attack / Curve-precondition / Applies? / Toy-scale cost / Escape structure).
   The empirical substrate this code-tour stands on.
 
-### Contract definitions
+### Interface definitions
 
-- **C-Pollard:** `rho/src/ecdlp/mod.rs` (frozen E.A).
-- **C-Pohlig:** `rho/src/ecdlp/pohlig.rs` (frozen E.A).
-- **C-Mov:** `rho/src/pairing/mov.rs` (frozen E.C).
-- **C-Ssa:** `rho/src/ssa/mod.rs` (frozen E.E).
-- **C-GHSDescent:** `rho/src/ghs/mod.rs` (frozen E.H).
-- **C-Semaev:** `rho/src/semaev/mod.rs` (frozen E.J).
-- **C-IndexCalc:** `rho/src/index_calculus/mod.rs` (frozen E.K.5 ◆).
+- **Pollard rho:** `rho/src/ecdlp/mod.rs`.
+- **Pohlig–Hellman:** `rho/src/ecdlp/pohlig.rs`.
+- **MOV:** `rho/src/pairing/mov.rs`.
+- **SSA:** `rho/src/ssa/mod.rs`.
+- **GHS:** `rho/src/ghs/mod.rs`.
+- **Semaev:** `rho/src/semaev/mod.rs`.
+- **Index calculus:** `rho/src/index_calculus/mod.rs`.
 
 ---
 
-## Further Reading (E.W — Integrative)
+## Further Reading
 
 1. **Menezes, A. J., Okamoto, T., and Vanstone, S. A. (1993).** "Reducing elliptic curve
    logarithms to logarithms in a finite field." *IEEE Transactions on Information Theory*,
@@ -1396,6 +1436,6 @@ before timing. These asserts are the C-EWBench invariant: every benched attack s
    elliptic curve discrete logarithm problem." *Journal of Symbolic Computation*, 44(12),
    1690–1702. The Gaudry index-calculus algorithm.
 
-8. **`docs/MATHEMATICS.md` ch. 10** (T.E chapter). The maths-first sibling to this chapter:
-   the full MOV payoff proof (§10.5), the per-attack L-notation comparison (§10.6), and the
+8. **`docs/MATHEMATICS.md` ch. 10** (algebraic ECDLP attacks). The maths-first sibling to this
+   chapter: the full MOV payoff proof (§10.5), the per-attack L-notation comparison (§10.6), and the
    algebraic ECDLP attacks developed mathematically from first principles.

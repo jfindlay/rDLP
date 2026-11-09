@@ -170,12 +170,12 @@ parallel but runs single-threaded here. At cryptographic scale (RSA-768, d = 6),
 is much larger and the grid ranges are 100–1000×, making the scoring cost the dominant factor in
 polynomial selection time.
 
-**Science↔engineering note (principle 4).** Murphy-E's predictive value — that higher score
+**Science↔engineering note.** Murphy-E's predictive value — that higher score
 implies more smooth relations — only manifests at sieve scale (N ≳ 2^100). At toy scale the
 score is a ranking heuristic: the ordering is correct in expectation, but the absolute values and
 the improvement from root sieving are under-exposed. The root sieve KAT uses `≥` rather than `>`
 for this reason. The Coppersmith multi-poly improvement is < 2× at toy scale (KAT 5 in
-`coppersmith_kat.rs`), consistent with the principle-4 annotation.
+`coppersmith_kat.rs`), consistent with the scale annotation.
 
 ### Test coverage added (G.B)
 
@@ -184,7 +184,7 @@ for this reason. The Coppersmith multi-poly improvement is < 2× at toy scale (K
 | `tests/base_m_kat.rs` | 4 | Base-m round-trip (toy N), RSA-100 determinism, optimal_degree, monic_f |
 | `tests/murphy_kat.rs` | 10 | Murphy-E ordering, monotonicity, positivity; Dickman-ρ spot-checks |
 | `tests/root_sieve_kat.rs` | 8 | Rotation root-preservation, determinism, generator count, score agreement |
-| `tests/coppersmith_kat.rs` | 12 | Verify, count, best-score, generator, principle-4 annotation |
+| `tests/coppersmith_kat.rs` | 12 | Verify, count, best-score, generator, scale annotation |
 
 ## G.C — Sieving: line sieve, special-q, lattice sieve
 
@@ -210,9 +210,9 @@ run. In release mode this drops to < 0.1 ms.
 The special-q sieve finds 16 relations (vs. 14 for the line sieve) because it uses a looser
 threshold (0.5 vs. 0.8) and covers a different subset of the sieve region per q. The lattice
 sieve finds the same 14 relations as the line sieve for the same (q, r_q) pairs — the two
-algorithms are mathematically equivalent at toy scale (see principle-4 annotation below).
+algorithms are mathematically equivalent at toy scale (see scale annotation below).
 
-**Science↔engineering note (principle 4).** Three asymptotic wins are under-exposed at toy scale:
+**Science↔engineering note.** Three asymptotic wins are under-exposed at toy scale:
 
 1. **Log-sieve vs. brute-force trial division.** At toy scale (63 pairs, 10 primes), the
    log-threshold filter eliminates almost nothing — every candidate passes. The asymptotic win
@@ -230,7 +230,7 @@ algorithms are mathematically equivalent at toy scale (see principle-4 annotatio
    At cryptographic scale, the reduced basis (length ≈ √q) covers the sieve region with minimal
    waste, giving a significant efficiency gain over stepping by q.
 
-The KATs annotate all three disconnects explicitly (principle-4 annotations in `line_sieve_kat.rs`,
+The KATs annotate all three disconnects explicitly (scale annotations in `line_sieve_kat.rs`,
 `special_q_kat.rs`, and `lattice_kat.rs`).
 
 ### Test coverage added (G.C)
@@ -261,7 +261,7 @@ column).
 | after `merge_columns` | 5 → 4 | 4 × 10 | 8 | weight-2 pass: col 3 eliminated; 2 rows → 1 merged row |
 
 **Merge-saving (KAT a corpus):** weight reduction from 10 → 8 set entries = **20%** (1 column
-eliminated, net −1 row). At toy scale the saving is modest; see principle-4 annotation below.
+eliminated, net −1 row). At toy scale the saving is modest; see scale annotation below.
 
 **Excess-floor pruning (KAT `kat_prune_cliques_respects_excess_floor`):**
 
@@ -273,7 +273,7 @@ eliminated, net −1 row). At toy scale the saving is modest; see principle-4 an
 removal and two weight-2 merges). Provenance of the final row: {0, 1, 2} — three original
 relations. See `gnfs/tests/merge_kat.rs` for exact toy-scale dimensions.
 
-**Science↔engineering note (principle 4).** Three scale-dependent phenomena are under-exposed
+**Science↔engineering note.** Three scale-dependent phenomena are under-exposed
 at toy scale:
 
 1. **Singleton cascade depth.** At toy scale (10 columns, 5 relations), the cascade terminates
@@ -322,7 +322,7 @@ products (trivial for a 6 × 4 matrix) but the fixed overhead of the GF(2) Gauss
 elimination (64 × 64 matrix in `gf2_block_pivot`) and the Berlekamp-Massey step (sequence
 length 22). In release mode both solvers complete in microseconds.
 
-**Science↔engineering note (principle 4).** Two scale-dependent phenomena are under-exposed
+**Science↔engineering note.** Two scale-dependent phenomena are under-exposed
 at toy scale:
 
 1. **Block-width amortisation.** At toy scale, the 64-wide block vector is wider than the
@@ -376,7 +376,7 @@ y² ≡ P (mod N), the same P as the rational side; it is not |Norm(β)| mod N. 
 a square is reported by a typed outcome (the rational side by `RationalNonSquare`, the algebraic
 side only with a nonsquare certificate), not by a panic.
 
-**Science↔engineering note (principle 4).** Scale-dependent phenomena under-exposed at toy
+**Science↔engineering note.** Scale-dependent phenomena under-exposed at toy
 scale:
 
 1. **Precision and prime count.** The lifting modulus must exceed twice the certified coefficient
@@ -427,7 +427,7 @@ of the earlier sections (G.B–G.E) and were measured on their own fixtures. The
 bypasses Murphy-E scoring, whose Dickman-ρ table construction is the one measured cost in G.B
 (~30 ms per `score()` call in debug builds), and uses a hand-built polynomial pair.
 
-**Science↔engineering note (principle 4).** The toy semiprime N = 527 is far below the scale
+**Science↔engineering note.** The toy semiprime N = 527 is far below the scale
 at which the GNFS complexity $L_N[1/3, (64/9)^{1/3}]$ is meaningful. At toy scale, the
 pipeline is correct but the asymptotic win is not observable. The end-to-end KAT verifies
 correctness; the L-notation complexity analysis (see `gnfs/docs/PEDAGOGY.md` §60) explains
@@ -442,10 +442,10 @@ implementation). The pipeline-level verification is provided by the existing end
 |-----------|-------|-------|
 | `tests/factor_end_to_end_kat.rs` | 16 (+1 ignored) | Square-root stage from checked relations: N=527→17·31, non-monic N=35, checked congruence, trivial/incidental/nonsquare attempts, bounded retry; oracle KAT (ignored) |
 
-## E.W — Cross-attack ECDLP benchmark harness
+## Cross-attack ECDLP benchmark harness
 
-Track-E closes with a cross-attack synthesis: each algebraic ECDLP attack is benched on the
-toy fixture whose curve structure it exploits. The pedagogical point is *which structure unlocks
+The algebraic ECDLP attacks are benched together: each attack runs on the toy fixture whose curve
+structure it exploits. The pedagogical point is *which structure unlocks
 which escape from the generic √n bound*, not a fixed-instance timing race — each attack applies
 only on the curve whose precondition it requires.
 
@@ -455,7 +455,8 @@ duplicated.
 
 The new bench file `rho/benches/attacks.rs` adds five Criterion bench functions, one per
 algebraic attack. Each bench body asserts the solver returns the known correct answer before
-timing — the bench doubles as a no-regression smoke test (C-EWBench invariant).
+timing — the bench doubles as a no-regression smoke test (every benched attack still solves, or
+for GHS transfers, its toy instance).
 
 ### Structural-precondition-conditional table
 
@@ -473,15 +474,22 @@ algebraic property that breaks the generic √n barrier.
 | Index calculus | `E(F_{p^n})` with `n > 1` (asymptotic win); demonstrated over `E(F_p)` at toy scale | `IndexCalcStrategy::toy` (ℓ = 5, \|FB\| = 6, m = 2) | ~N µs (Criterion median) | Factor-base decomposition: relation matrix over F_ℓ; asymptotic win needs extension-field setting |
 
 **GHS note.** The GHS bench measures the *descent reduction + log-preservation verification*,
-not an end-to-end solve. `rho::ghs` has no `ghs_dlp`; the downstream solve is index calculus
-(a deferred re-shard). Reporting GHS as an end-to-end solve time would misrepresent the
-attack's scope — the bench is annotated as a transfer.
+not an end-to-end solve. `rho::ghs` has no `ghs_dlp`; the downstream solve is index calculus on
+the Jacobian, which is not implemented. Reporting GHS as an end-to-end solve time would
+misrepresent the attack's scope — the bench is annotated as a transfer.
 
-**Index-calculus counts.** The relation count and decomposition count are derived from the
-public re-exports `collect_relations(...).len()` and `decompose(...)` (C-IndexCalc unamended).
-`index_calculus_dlp` itself returns no counts.
+**Index-calculus counts.** `index_calculus_dlp` returns an `IndexCalcSolution` carrying `x`
+(the verified `log_G(Q) mod ℓ`), the relation combination `u` that produced it, and the relations
+that combination combines, so the relation count used is `solution.relations.len()`. The bench
+also prints the number of relations `collect_relations(...)` returns and the number of
+factor-base points for which `decompose(...)` (which returns `Option<Vec<FbPoint>>`) finds a
+decomposition; these are informational counts printed by the bench, not asserted values. The
+bench pre-check asserts `x·G_ℓ == Q_ℓ` for `Q = 7·G`; the recovery mechanism itself (left kernel,
+every residue `k mod ℓ`, failure classes) is tested in `rho/tests/index_calculus_kat.rs`
+(`left_kernel_annihilates_exponents`, `recovers_every_residue`,
+`undetermined_when_no_combination_sees_b`, `corrupted_relation_is_inconsistent`).
 
-### Science↔engineering note (principle 4)
+### Science↔engineering note
 
 The toy fixtures operate at `p = 47` or `p = 7` — far below the scale at which the asymptotic
 L-notation separations between attacks are observable. At toy scale:
@@ -496,14 +504,16 @@ L-notation separations between attacks are observable. At toy scale:
 - **GHS** is a transfer, not a solve; the asymptotic win comes from the downstream index
   calculus on the Jacobian, which is subexponential for large genus.
 - **Index calculus** over `E(F_p)` is NOT faster than rho — the asymptotic win requires the
-  extension-field setting `E(F_{p^n})` (the genuine Gaudry–Diem setting, a deferred re-shard).
+  extension-field setting `E(F_{p^n})` (the genuine Gaudry–Diem setting), which this code does
+  not implement.
 
-The toy-scale costs in the table are Criterion medians from the `attacks.rs` bench. The
-asymptotic picture — L-notation complexity, the five-family escape taxonomy, and the design
-statement — is developed in the E.W.2 code-tour (`docs/PEDAGOGY.md`) and the T.E maths chapter
-(`docs/MATHEMATICS.md` ch. 10).
+The `~N µs` cells in the table are placeholders: no timing is recorded in this document. The
+benches report Criterion medians when run (`cargo bench --bench attacks`); this document makes no
+speed claim for any attack. The asymptotic picture — L-notation complexity and the five-family
+escape taxonomy — is developed in the attack code-tour (`docs/PEDAGOGY.md`) and the algebraic
+attacks chapter of the textbook (`docs/MATHEMATICS.md` ch. 10).
 
-### Bench coverage added (E.W.1)
+### Bench coverage
 
 | Bench file | Bench functions | Scope |
 |------------|-----------------|-------|
@@ -514,12 +524,12 @@ statement — is developed in the E.W.2 code-tour (`docs/PEDAGOGY.md`) and the T
 | `rho/benches/attacks.rs` | `attacks/index_calculus` | Index calculus on `IndexCalcStrategy::toy` (ℓ = 5, \|FB\| = 6); asserts k·G_ℓ = Q_ℓ before timing |
 | `rho/benches/ecdlp.rs` | (existing) | Pollard-rho baseline on `secp_k1_toy` (63-bit); cited as the generic-√n reference column |
 
-## S.A — State-vector quantum-circuit simulator: dense vs sparse, qubit scaling
+## Shor simulator — State-vector quantum-circuit simulator: dense vs sparse, qubit scaling
 
-Track S opens with a classical state-vector simulator — the substrate on which Shor's algorithm
-(S.B factoring, S.C ECDLP) is built. S.A delivers the dense register, the universal gate set,
-the sparse-state optimization, Born-rule measurement, and the Quantum Fourier Transform. The
-benchmark section records the dense-vs-sparse comparison and the qubit-scaling wall.
+The Shor chapter opens with a classical state-vector simulator — the substrate on which Shor's
+algorithm (factoring and ECDLP) is built. The simulator provides the dense register, the
+universal gate set, the sparse-state optimization, Born-rule measurement, and the Quantum Fourier
+Transform. This section records the dense-vs-sparse comparison and the qubit-scaling wall.
 
 ### Dense vs sparse: state-dependent speedup
 
@@ -567,7 +577,7 @@ practical ceiling on a laptop. At n = 30 the register would require 16 GiB, exce
 RAM. The QFT applies O(n²) gates, so the total QFT cost scales as O(n² · 2^n); at n = 25 this
 is ~800 M gate operations in debug mode (~30 s wall-clock).
 
-### Science↔engineering note (principle 4)
+### Science↔engineering note
 
 **The ~25-qubit ceiling is a resource-scale wall, not a mathematical one.** The state-vector
 simulator demonstrates Shor's *mathematics* correctly at toy scale: the QFT produces the correct
@@ -577,35 +587,37 @@ fully exhibited.
 
 The ceiling is purely engineering: the `2^n`-amplitude array is the resource wall. At n = 25
 the array fits in 512 MiB; at n = 250 it would require `2^250` bytes — more than the number of
-atoms in the observable universe. This is the same posture as the index-calculus "asymptotic win
-not observable at toy scale" annotation in G.B–G.W: the simulator exhibits the algorithm's
-logic, not its quantum speedup, which requires real quantum hardware out of scope by construction.
+atoms in the observable universe. This is the same posture as the other scale annotations in
+this document (for example, that index calculus over `E(F_p)` shows no asymptotic win at toy
+scale): the simulator exhibits the algorithm's logic, not its quantum speedup, which requires
+real quantum hardware out of scope by construction.
 
 The sparse-state optimization is the same: sparsity helps only while the state is sparse. A
 Hadamard on every qubit makes the state dense, after which the sparse path matches the dense cost.
-Presenting sparse as an unconditional speedup would be a documentation defect (principle 4).
+Presenting sparse as an unconditional speedup would be a documentation defect.
 
-### Test coverage added (S.A)
+### Test coverage (Shor simulator)
 
 | Test file | Tests | Scope |
 |-----------|-------|-------|
 | `shor/tests/statevec_kat.rs` | 32 | Dense register: unitarity (X, Y, Z, H, S, T, CNOT, controlled-phase, SWAP, Toffoli), Bell state, GHZ (3, 4, 5 qubits), normalization, gate identities (HH=I, XX=I, S²=Z, T²=S) |
-| `shor/tests/qft_kat.rs` | 36 | QFT on \|0…0⟩ (n=1,2,3,4): uniform superposition; QFT on basis states (n=3,4): published Fourier amplitudes; QFT∘iQFT = identity; measurement distribution (Born-rule frequencies, seeded sampler); sparse-dense agreement (all gate types + round-trip conversion + principle-4 annotation) |
+| `shor/tests/qft_kat.rs` | 36 | QFT on \|0…0⟩ (n=1,2,3,4): uniform superposition; QFT on basis states (n=3,4): published Fourier amplitudes; QFT∘iQFT = identity; measurement distribution (Born-rule frequencies, seeded sampler); sparse-dense agreement (all gate types + round-trip conversion + the dense-state scale annotation) |
 
-## S.B — Shor's factoring algorithm: order-finding on the classical simulator
+## Shor factoring — order-finding on the classical simulator
 
-S.B delivers the complete Shor-factoring algorithm running end-to-end on the classical
-state-vector simulator: the controlled modular-exponentiation quantum circuit (S.B.1), the
-order-finding circuit orchestration, the classical continued-fraction period extraction, and
-the `factor(N)` driver (S.B.2 ◆). The benchmark section records the qubit budget against the
-simulator ceiling and the principle-4 resource-scale annotation.
+This section covers the complete Shor-factoring algorithm running end-to-end on the classical
+state-vector simulator: the controlled modular-exponentiation quantum circuit, the order-finding
+circuit orchestration, the classical continued-fraction period extraction, and the `factor(N)`
+driver. The section records the qubit budget against the simulator ceiling and the
+resource-scale annotation.
 
 ### Qubit-budget-vs-N table
 
 The order-finding circuit for an `n`-bit modulus `N` uses `exp_len + work_len` qubits, where
-`exp_len = n_bits(N)` (the S.B.1 action-frame digest choice) and `work_len = n_bits(N+1)`
-(the work register holding values in `[0, N)`). The S.B.1 ancilla-free implementation (direct
-permutation synthesis) keeps the total at exactly `exp_len + work_len` — no ancilla register.
+`exp_len = n_bits(N)` (the exponent-register width chosen for this circuit) and
+`work_len = n_bits(N+1)` (the work register holding values in `[0, N)`). The ancilla-free
+implementation (direct permutation synthesis) keeps the total at exactly `exp_len + work_len` —
+no ancilla register.
 
 | N  | n_bits(N) | exp_len (t) | work_len (n) | Total qubits | Within ~25-qubit ceiling? |
 |----|-----------|-------------|--------------|--------------|---------------------------|
@@ -616,9 +628,9 @@ permutation synthesis) keeps the total at exactly `exp_len + work_len` — no an
 
 All four targets fit within the ~25-qubit simulator ceiling. N=91 (14 qubits) is the
 ceiling-stress case: it confirms the ancilla-free circuit's budget advantage over the
-standard `~2n+3+ancilla` estimate. The exponent register uses `t = n_bits(N)` bits
-(matching the S.B.1 action-frame digest), which provides sufficient phase resolution for
-continued-fraction recovery of the order `r` for all four targets.
+standard `~2n+3+ancilla` estimate. The exponent register uses `t = n_bits(N)` bits, which
+provides sufficient phase resolution for continued-fraction recovery of the order `r` for all
+four targets.
 
 ### End-to-end factoring results
 
@@ -634,7 +646,7 @@ O(N) transpositions per controlled-mult-mod stage.
 | 35 | 5 × 7         | 8    | 12           | Seed 8 gives s=2389 (≈ 7×64/12), recovering ord₂(35)=12 |
 | 91 | 7 × 13        | 1    | 14           | Ceiling-stress case; seed 1 gives s=53 (≈ 5×128/12), recovering ord₂(91)=12 |
 
-### Science↔engineering note (principle 4)
+### Science↔engineering note
 
 **The ~25-qubit ceiling is a resource-scale wall, not a mathematical one.** The order-finding
 circuit demonstrates Shor's *factoring mathematics* correctly at toy scale: the QFT extracts
@@ -645,31 +657,33 @@ fully exhibited on the classical simulator.
 
 The ceiling is purely engineering: the `2^n`-amplitude array is the resource wall. At n = 21
 (N=91) the array holds 2^21 ≈ 2 M entries (≈ 32 MiB); at n = 25 it requires ≈ 512 MiB. To
-factor RSA-2048 (a 2048-bit N), the order-finding circuit would need ~4100 qubits — requiring
-a `2^4100`-entry array, far beyond any classical computer. This is the same posture as the S.A
-simulator ceiling and the index-calculus "asymptotic win not observable at toy scale" annotation:
-the simulator exhibits the algorithm's logic, not its quantum speedup, which requires real
-quantum hardware out of scope by construction.
+factor RSA-2048 (a 2048-bit N), this layout (`exp_len + work_len ≈ 2·2048`) would need about
+4100 qubits — arithmetic on the layout, not a published estimate — requiring a `2^4100`-entry
+array, far beyond any classical computer. This is the same posture as the simulator ceiling and
+the index-calculus "asymptotic win not observable at toy scale" annotation: the simulator
+exhibits the algorithm's logic, not its quantum speedup, which requires real quantum hardware
+out of scope by construction.
 
 N=91 is the ceiling-stress case: it is the largest target that fits within the ~25-qubit wall
-with the ancilla-free S.B.1 circuit. Larger N (e.g., N=143 = 11×13, 8-bit, 24 qubits total)
+with the ancilla-free circuit. Larger N (e.g., N=143 = 11×13, 8-bit, 24 qubits total)
 would approach the ceiling; N=221 = 13×17 (9-bit, 27 qubits) would exceed it. The BENCHMARKS
 table records this boundary as an engineering annotation, not a mathematical omission.
 
-### Test coverage added (S.B)
+### Test coverage (Shor factoring)
 
 | Test file | Tests | Scope |
 |-----------|-------|-------|
 | `shor/tests/modexp_kat.rs` | 41 | Permutation correctness (controlled-add-mod, controlled-mult-mod), modular exponentiation correctness, reversibility (forward + inverse = identity), ancilla-clean (full state restored), control-off no-op |
 | `shor/tests/factor_kat.rs` | ~30 | Order KATs (ord₂(15)=4, ord₇(15)=4, ord₂(21)=6, ord₂(35)=12, ord₂(91)=12); continued-fraction KATs (known phase → known order, deterministic classical); end-to-end factoring (15→3×5, 21→3×7, 35→5×7 with seed=0); 91 ceiling-stress KAT (91→7×13, 21 qubits, within ceiling) |
 
-## S.C — Shor's ECDLP algorithm: two-register period-finding on the classical simulator
+## Shor ECDLP — two-register period-finding on the classical simulator
 
-S.C delivers the complete Shor ECDLP algorithm running end-to-end on the classical state-vector
-simulator: the two-register period-finding circuit (S.C.2 ◆), the classical 2D-lattice
-discrete-log extraction, and the `solve_ecdlp` driver. The benchmark section records the
-two-register qubit budget against the simulator ceiling and the principle-4 resource-scale
-annotation.
+This section covers Shor's ECDLP algorithm running end-to-end on the classical state-vector
+simulator: the two-register period-finding circuit, the classical dual-lattice discrete-log
+extraction, and the `solve_ecdlp` driver. The section records the two-register qubit budget
+against the simulator ceiling and the resource-scale annotation. It records no success
+probability or timing of its own; the quantities that matter are named below with the test or
+function that computes them.
 
 ### Two-register qubit-budget-vs-curve-order table
 
@@ -682,6 +696,11 @@ total = 2·t + 3·coord_bits
 
 where `coord_bits = ⌈log₂ p⌉` (bits to hold a field element in `GF(p)`).
 
+Only the first row is a circuit this project builds; its 17 qubits are asserted by
+`qubit_budget_within_ceiling` (`EXP_BITS == 4`, `TOTAL_QUBITS == 17`). The other rows are
+arithmetic on the formula above for hypothetical prime orders and fields; the project does not
+construct curves of those orders, and no test checks those rows.
+
 | Curve order r | t = ⌈log₂ r⌉ | coord_bits = ⌈log₂ p⌉ | a-reg | b-reg | x | y | λ | Total | Within ~25-qubit ceiling? |
 |---------------|--------------|----------------------|-------|-------|---|---|---|-------|---------------------------|
 | 13 (p=7)      | 4            | 3                    | 4     | 4     | 3 | 3 | 3 | 17    | ✓ yes                     |
@@ -690,50 +709,67 @@ where `coord_bits = ⌈log₂ p⌉` (bits to hold a field element in `GF(p)`).
 | 29 (p=23)     | 5            | 5                    | 5     | 5     | 5 | 5 | 5 | 25    | ✓ yes (ceiling-stress)    |
 | 37 (p=31)     | 6            | 5                    | 6     | 6     | 5 | 5 | 5 | 27    | ✗ exceeds ceiling         |
 
-The toy curve (r=13, p=7) uses 17 qubits — well within the ~25-qubit ceiling. The ceiling-stress
-case is r≈23–29 (p≈17–23), which reaches exactly 25 qubits. Larger prime-order curves exceed the
-ceiling.
+The toy curve (r=13, p=7) uses 17 qubits — well within the ~25-qubit ceiling. By the formula, the
+ceiling-stress case is r≈23–29 (p≈17–23), which reaches exactly 25 qubits. Larger prime-order
+curves exceed the ceiling.
 
 ### End-to-end ECDLP results
 
-All ECDLP KATs run with seed=0 and complete in ~35s total on a laptop (debug, unoptimized).
-The dominant cost is the controlled-point-add circuit: for the toy curve (17 qubits), each
-controlled-point-add applies O(2^17) amplitude updates per gate, and the permutation synthesis
-applies O(r) transpositions per controlled-point-add stage.
+The fixture instances below are solved by `solve_ecdlp(G, k·G, 0)`; each is asserted by its own
+test, which checks the reported `k`, that the first attempt succeeds, the measured pair `(c, d)`
+shown, and that `extract_k_from_measurement(c, d, r) == Some(k)`. No wall-clock time is recorded
+here: the cost is dominated by simulating the 17-qubit circuit once per attempt (the test file's
+ignore reasons give roughly 10 s per simulation in a debug build).
 
-| k | Q = k·G | Seed | Total qubits | Notes |
-|---|---------|------|--------------|-------|
-| 3 | (2,2)   | 0    | 17           | Fixture instance 1 |
-| 5 | (3,3)   | 0    | 17           | Fixture instance 2 |
-| 7 | (5,4)   | 0    | 17           | Fixture instance 3 |
-| 9 | (4,2)   | 0    | 17           | Fixture instance 4 |
-| 12 | (1,5)  | 0    | 17           | Boundary case (r−1) |
+| k  | Q = k·G | Seed | Measured (c, d) | Total qubits | Test | Notes |
+|----|---------|------|-----------------|--------------|------|-------|
+| 3  | (2,2)   | 0    | (10, 13)        | 17           | `ecdlp_k3_seed0`  | Fixture instance 1 |
+| 5  | (3,3)   | 0    | (12, 13)        | 17           | `ecdlp_k5_seed0`  | Fixture instance 2 |
+| 7  | (5,4)   | 0    | (9, 12)         | 17           | `ecdlp_k7_seed0`  | Fixture instance 3 |
+| 9  | (4,2)   | 0    | (8, 13)         | 17           | `ecdlp_k9_seed0`  | Fixture instance 4 |
+| 12 | (1,5)   | 0    | (4, 12)         | 17           | `ecdlp_k12_seed0` | Boundary case (r−1) |
 
-### Science↔engineering note (principle 4)
+Seed 0 was kept for these fixtures because it succeeds on the first attempt in all five cases;
+the table is a record of fixtures, not a success rate.
+
+**Success probability (estimate).** One measurement yields the true `k` with probability
+`primary_success_probability(G, Q)`, which is computed exactly from the circuit amplitudes. No
+test asserts its numeric value (`primary_success_probability_positive_k3_k7` and
+`primary_success_probability_positive_all_k` assert only that it is positive). A single run of
+the ignored test printed values of about 0.64–0.66 for `k = 2..12`, so the budget of
+`DEFAULT_MAX_ATTEMPTS = 8` measurements is exhausted with probability roughly `0.36⁸ ≈ 3·10⁻⁴`
+(treating attempts as independent). Both figures are estimates from that printout. The test
+`ecdlp_all_k_values_within_default_budget` (ignored for cost) asserts that every `k` in `2..=12`
+is solved at seed 0 within the default budget.
+
+### Science↔engineering note
 
 **The ~25-qubit ceiling is a resource-scale wall, not a mathematical one.** The two-register
 ECDLP circuit demonstrates Shor's *ECDLP mathematics* correctly at toy scale: the two-register
-iQFT extracts the 2D period lattice of the map `(a, b) ↦ a·G + b·Q`, the measurement samples
-from the correct Born-rule distribution, and the classical 2D-lattice extraction `b'·k ≡ −a'
-(mod r)` recovers the discrete logarithm `k`. The algorithm's logic is fully exhibited.
+iQFT concentrates the exponent pair near the dual lattice `l ≡ k·j (mod r)` of the hidden
+subgroup of `(a, b) ↦ a·G + b·Q` (the circuit's exact distribution equals the Fourier-sum formula,
+`distribution_matches_fourier_formula_k3` and `_k7`), and the classical extraction
+`k = l·j⁻¹ (mod r)` from the nearest multiples `j/r`, `l/r` of the measured `(c, d)/M` recovers
+the discrete logarithm. The algorithm's logic is exhibited at this scale; nothing here claims
+the single-rounding extraction rule works for general `r`.
 
 The ceiling is purely engineering: the `2^n`-amplitude array is the resource wall. At n = 17
 (the toy curve) the array holds 2^17 ≈ 131K entries (≈ 2 MiB); at n = 25 it requires ≈ 512 MiB.
-To solve the ECDLP on a cryptographic curve (e.g., secp256k1, r ≈ 2^256), the two-register
-circuit would need `2·t + coord_bits ≈ 2·256 + 256 = 768` qubits — requiring a `2^768`-entry
-array, far beyond any classical computer. This is the same posture as the S.A simulator ceiling
-and the S.B factoring ceiling: the simulator exhibits the algorithm's logic, not its quantum
-speedup, which requires real quantum hardware out of scope by construction.
+For a cryptographic curve (e.g., secp256k1, r ≈ 2^256), this project's layout
+`2·t + 3·coord_bits` gives `2·256 + 3·256 = 1280` qubits — arithmetic on the layout, not a
+published resource estimate — requiring a `2^1280`-entry array, far beyond any classical
+computer. This is the same posture as the simulator ceiling and the factoring ceiling: the
+simulator exhibits the algorithm's logic, not its quantum speedup, which requires real quantum
+hardware out of scope by construction.
 
-The toy-scale fallback in `solve_ecdlp` (brute-force over k ∈ 0..r after the lattice extraction)
-is honest at r=13: the quantum circuit still performs the period-finding; the classical extraction
-is just exhaustive search. The quantum measurement biases the search toward the correct k (the
-high-probability outcomes cluster near the true period), but at r=13 the brute-force is fast
-enough to be the documented toy-scale choice (PLAN S.C.2 note 4). At cryptographic scale, the
-lattice extraction is the only feasible approach.
+`solve_ecdlp` has no classical fallback. It accepts a candidate only after `k·G == Q`, and a
+failed measurement is repeated with a fresh seed (the same randomized mechanism, which is the
+algorithm itself). Exhausting the attempt budget is reported as `AttemptsExhausted`, a resource
+outcome rather than a statement about the instance; no exponent is ever enumerated, and no
+success reported by the solver comes from a path other than a measured pair.
 
-### Test coverage added (S.C)
+### Test coverage (Shor ECDLP)
 
 | Test file | Tests | Scope |
 |-----------|-------|-------|
-| `shor/tests/ecdlp_kat.rs` | 19 (+5 ignored) | Order/group-law KATs (r·G=∞, scalar-multiple table); 2D-lattice extraction KATs (known (a',b') → k, all b'≠0 cases); end-to-end ECDLP (k=3,5,7,9,12 with seed=0); qubit budget (17 qubits, within ceiling); rho cross-check (#[ignore]-gated) |
+| `shor/tests/ecdlp_kat.rs` | 34 (7 ignored) | Order/group-law KATs (r·G=∞, scalar-multiple table); dual-lattice extraction KATs (exact peak pairs → k for every k and j≠0, `None` iff j≡0, out-of-range inputs rejected); exact outcome distribution equals the Fourier-sum formula (k=3, 7; all k ignored for cost); positive one-candidate success probability (k=3, 7; all k ignored); end-to-end ECDLP (k=3,5,7,9,12 with seed=0 and `Measurement` evidence; trivial cases; invalid generator; exhausted and zero budgets; retry at a fresh seed); qubit budget (17 qubits, within ceiling); in-workspace `rho` cross-checks (three, `#[ignore]`-gated: two cheap, one running a full Shor solve) |

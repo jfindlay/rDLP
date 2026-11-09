@@ -38,12 +38,14 @@
 //!   controlled-mod-exp → iQFT → measure → continued-fraction recovery of the order `r` →
 //!   even-order factor extraction via `gcd(a^(r/2) ± 1, N)`.
 //!   Factors 15 → {3,5}, 21 → {3,7}, 35 → {5,7}, 91 → {7,13} (the canonical toy targets).
-//! - [`ecdlp`] — Two-register ECDLP period-finding, 2D-lattice discrete-log extraction, and
-//!   `solve_ecdlp` driver (C-ECDLPSolve). Consumes C-PointAdd (controlled point-addition circuit)
+//! - [`ecdlp`] — Two-register ECDLP period-finding, dual-lattice discrete-log extraction, and
+//!   `solve_ecdlp` driver. Consumes the controlled point-addition circuit ([`ecc`])
 //!   and the QFT/measure surfaces. Implements Shor's ECDLP algorithm: two-register superposition
-//!   → controlled-point-add (a·G + b·Q) → iQFT on both registers → measure → 2D-lattice
-//!   extraction `b'·k ≡ −a' (mod r)` → verify `k·G = Q`. Solves the ECDLP on the toy curve
-//!   (r=13, 17 qubits, within the ~25-qubit ceiling).
+//!   → controlled-point-add (a·G + b·Q) → iQFT on both registers → measure every qubit →
+//!   extraction `k = l·j⁻¹ (mod r)` from the nearest multiples `j/r`, `l/r` of the measured
+//!   `(c, d)/M` (one candidate per measurement) → verify `k·G = Q`, repeating with a fresh
+//!   seed up to a fixed attempt budget; no classical search over `k`. Solves the ECDLP on the
+//!   toy curve (r=13, 17 qubits, within the ~25-qubit ceiling).
 //!
 //! # Basis-indexing convention (FIXED — C-StateVec)
 //!

@@ -151,12 +151,13 @@ Two complementary artifacts cover the full library:
   rho phase-by-phase implementation (§1–7), then the Track E algebraic attacks (§8–18). Z.1.2 will
   extend this into the library-wide synthesis threading all five tracks.
 - **[`docs/MATHEMATICS.md`](docs/MATHEMATICS.md)** — the maths-first textbook. A 12-chapter
-  survey (C-Textbook register: undergraduate maths background, survey with proof-sketch depth,
+  survey (documentation register: undergraduate maths background, survey with proof-sketch depth,
   Markdown + MathJax) covering the escape-from-search through-line (§3), prerequisites (§4), Pollard
   rho (§6), the α-substrate (§7), GNFS (§8), NFS-DL (§9), algebraic ECDLP attacks (§10),
   Shor + post-quantum context (§11), and the modularity speculation (§12).
 - **[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)** — per-phase benchmark results: Phases 1–4 (rho),
-  G.B–G.W (GNFS pipeline), E.W (cross-attack ECDLP harness), S.A–S.C (Shor simulator).
+  G.B–G.W (GNFS pipeline), the cross-attack ECDLP harness, and the Shor simulator, factoring,
+  and ECDLP sections.
 
 ---
 

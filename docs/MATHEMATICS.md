@@ -5,12 +5,12 @@
 
 ---
 
-## C-Textbook: Documentation-Register Contract
+## Documentation Register
 
-This section states the contract every chapter of this textbook obeys. It is frozen at session T.0
-and consumed by every later chapter (T.G, T.D, T.E, T.S, T.Z, and the `*.W` code-tours as a
-recommendation). A later chapter that cannot be written within this register must surface the
-constraint as a discovery and flex C-Textbook at an inflection review — not silently raise the level.
+This section states the register every chapter of this textbook obeys. It applies to every
+chapter (and, as a recommendation, to the code-tours). A chapter that cannot be written within
+this register must say so explicitly and relax the register for that chapter — not silently raise
+the level.
 
 ### Audience floor
 
@@ -34,7 +34,7 @@ The reader has a full undergraduate mathematics background:
 **Nothing beyond this floor is assumed.** Anything beyond is built up in text or cited with a
 precise reference. A later chapter that genuinely requires graduate-level background (e.g. étale
 cohomology for the Weil conjectures, or the theory of $p$-adic representations) must surface this
-as a C-Textbook flex, not silently assume it.
+as an explicit relaxation of this register, not silently assume it.
 
 ### Depth
 
@@ -42,8 +42,8 @@ as a C-Textbook flex, not silently assume it.
 sketches with citations to the full proof, *except* where the proof is the pedagogical payoff. The
 designated payoff proofs — where the proof *is* the lesson — are given in full:
 
-- The $L$-notation subexponentiality derivation for GNFS (T.G chapter).
-- The MOV reduction (T.E chapter).
+- The $L$-notation subexponentiality derivation for GNFS (the GNFS chapter).
+- The MOV reduction (the algebraic ECDLP attacks chapter).
 
 All other proofs are sketches: the key idea is stated, the main steps are named, and a citation
 points to the full argument. The sketch is honest — it does not pretend to be a proof, and it does
@@ -72,7 +72,7 @@ subsequent chapter.
 ### Markup
 
 **Markdown + MathJax.** Inline mathematics uses `$…$`; display mathematics uses `$$…$$`. This
-supersedes the earlier "rST or Markdown TBD" in the ROADMAP Phase τ scope contract. Rationale:
+replaces the earlier undecided "rST or Markdown" choice. Rationale:
 zero migration (every artifact stays `.md`), renders on GitHub and in standard Markdown viewers,
 and lets trivial inline glyphs stay as Unicode while non-trivial expressions use TeX delimiters.
 The TeX source is the same notation the textbook would use under any tooling. Reopen only on a
@@ -84,12 +84,10 @@ matrices, sub/superscript stacks — use MathJax delimiters.
 
 ### Artifact location
 
-**`docs/MATHEMATICS.md`** (single file). Chapters are appended to this file as they are written
-(T.G appends the GNFS chapter; T.D, T.E, T.S append their chapters at their respective ◆
-boundaries).
+**`docs/MATHEMATICS.md`** (single file). Chapters are appended to this file as they are written.
 
-**T.Z promotion decision (recorded here per the C-Textbook charter).** The single-file format is
-retained. At approximately 4500 lines across 12 chapters, the file is large but navigable: every chapter is
+**Single-file decision.** The single-file format is retained. At approximately 4500 lines across
+12 chapters, the file is large but navigable: every chapter is
 clearly delimited by a top-level heading, the ToC provides a complete map, and the cross-references
 are all intra-file or to named sections in the PEDAGOGY.md files. The principal argument for
 promotion to `docs/textbook/` would be if per-chapter editing became unwieldy or if a build system
@@ -105,20 +103,18 @@ pairing is:
 
 | Textbook chapter (this file) | Code-tour chapter |
 |------------------------------|-------------------|
-| Ch. 6 — Pollard Rho for ECDLP | `docs/PEDAGOGY.md` §§1–7 (Track ρ code-tour) |
+| Ch. 6 — Pollard Rho for ECDLP | `docs/PEDAGOGY.md` §§1–7 (Pollard rho code-tour) |
 | Ch. 7 — The α-Substrate | `shared/numth/docs/PEDAGOGY.md` (α-substrate code-tour) |
-| Ch. 8 — GNFS | `gnfs/docs/PEDAGOGY.md` §§52–62 (G.W integrative chapter) |
-| Ch. 9 — NFS-DL | `gnfs/docs/PEDAGOGY.md` §§63–71 (D.W NFS-DL chapter) |
-| Ch. 10 — Algebraic ECDLP Attacks | `docs/PEDAGOGY.md` §§8–18 (E.W integrative chapter) |
-| Ch. 11 — Shor's Algorithm and Post-Quantum Context | `shor/docs/PEDAGOGY.md` (Track S code-tour) |
+| Ch. 8 — GNFS | `gnfs/docs/PEDAGOGY.md` §§52–62 (GNFS integrative chapter) |
+| Ch. 9 — NFS-DL | `gnfs/docs/PEDAGOGY.md` §§63–71 (NFS-DL chapter) |
+| Ch. 10 — Algebraic ECDLP Attacks | `docs/PEDAGOGY.md` §§8–18 (algebraic-attack integrative chapter) |
+| Ch. 11 — Shor's Algorithm and Post-Quantum Context | `shor/docs/PEDAGOGY.md` (Shor code-tour) |
 | Ch. 12 — Modularity and the Arithmetic of Elliptic Curves | *(no code-tour sibling — see §12.7)* |
 
-**Note on Ch. 10 (Track E).** The E.W integrative chapter lives in the master `docs/PEDAGOGY.md`
-§§8–18 — not in `gnfs/docs/PEDAGOGY.md`. The Track-E code (`rho::ecdlp`, `rho::pairing`,
-`rho::ssa`, `rho::ghs`, `rho::semaev`, `rho::index_calculus`) lives in the `rho` crate; the
-integrative code-tour was written as the E.W chapter of the master tour, not as a chapter in the
-`gnfs` tour. The pairing table previously pointed at `gnfs/docs/PEDAGOGY.md (Track E chapter)`;
-that was a structural mis-pairing corrected here at T.Z.
+**Note on Ch. 10.** The algebraic-attack integrative chapter lives in the master
+`docs/PEDAGOGY.md` §§8–18 — not in `gnfs/docs/PEDAGOGY.md`. The attack code (`rho::ecdlp`,
+`rho::pairing`, `rho::ssa`, `rho::ghs`, `rho::semaev`, `rho::index_calculus`) lives in the `rho`
+crate, so its code-tour is a chapter of the master tour rather than of the `gnfs` tour.
 
 **Note on Ch. 12 (Modularity).** Chapter 12 has no code-tour sibling. The modularity
 correspondence is not implemented in the rDLP workspace; the chapter is a mathematical survey and
@@ -135,8 +131,8 @@ lenses on the same material.
 The chapter skeleton across the whole survey. Each entry is a chapter title and a one-sentence
 scope statement.
 
-1. **C-Textbook: Documentation-Register Contract** *(this section)* — the audience, depth,
-   through-line, markup, and location contract every chapter obeys.
+1. **Documentation Register** *(this section)* — the audience, depth,
+   through-line, markup, and location rules every chapter obeys.
 
 2. **Table of Contents** *(this section)* — the chapter skeleton.
 
@@ -272,8 +268,8 @@ attacks to the polynomial-time quantum dissolution. The per-track derivations ar
 (GNFS), §9.7 (NFS-DL), §10.6 (algebraic ECDLP), and §11.3.4 and §11.4.4 (Shor). The code-first
 version of this table is in `docs/PEDAGOGY.md` §0.2.
 
-| Track | Algorithm | Problem | $L$-notation complexity | Structure exploited |
-|-------|-----------|---------|------------------------|---------------------|
+| Family | Algorithm | Problem | $L$-notation complexity | Structure exploited |
+|--------|-----------|---------|------------------------|---------------------|
 | ρ | Pollard rho | ECDLP (generic curve) | $L_n[1,\, 1/2] = \Theta(\sqrt{n})$ | None — generic $\sqrt{n}$ walk; the baseline |
 | α | ECM (Lenstra) | Integer factoring (sub-step) | $L_p[1/2,\, 1]$ (largest prime factor $p$) | Group-order smoothness |
 | G | GNFS | Integer factoring | $L_N[1/3,\, (64/9)^{1/3}]$ | Number-field bridge + smoothness (§7) |
@@ -286,22 +282,23 @@ version of this table is in `docs/PEDAGOGY.md` §0.2.
 | S | Shor (factoring) | Integer factoring | $O((\log N)^3) = L_N[0,\, 3]$ | Quantum period-finding (§11.3) |
 | S | Shor (ECDLP) | ECDLP | $O((\log r)^3) = L_r[0,\, 3]$ | Quantum period-finding, 2-register HSP (§11.4) |
 
-**Reading the table.** The $\alpha$ exponent in $L[\alpha, c]$ is the key invariant. Track ρ sits
-at $\alpha = 1$ (fully exponential — the generic bound). Tracks G and D sit at $\alpha = 1/3$
-(subexponential via the number-field bridge). Track E spans the full range: Pohlig–Hellman stays
+**Reading the table.** The $\alpha$ exponent in $L[\alpha, c]$ is the key invariant. Pollard rho
+sits at $\alpha = 1$ (fully exponential — the generic bound). GNFS and NFS-DL sit at
+$\alpha = 1/3$ (subexponential via the number-field bridge). The algebraic attacks span the full
+range: Pohlig–Hellman stays
 at $\alpha = 1$ (structural speedup, not asymptotic); index calculus and GHS reach $\alpha = 1/2$
 (subexponential in the extension-field setting); MOV bridges ECDLP to the $\alpha = 1/3$ regime
 via NFS-DL; SSA achieves $\alpha = 0$ classically (polynomial time, but only for anomalous
-curves). Track S dissolves the $L$-notation framework entirely: $\alpha = 0$ polynomially for all
-curves and all integers.
+curves). Shor's algorithm dissolves the $L$-notation framework entirely: $\alpha = 0$
+polynomially for all curves and all integers.
 
-**Principle-4 honesty.** The $L$-notation separations in this table are NOT observable at the toy
+**Scale honesty.** The $L$-notation separations in this table are NOT observable at the toy
 scale of the project's fixtures. The table reports theoretical complexity classes; the toy-scale
 timings are in `docs/BENCHMARKS.md`. The separation between $L[1, 1/2]$ (rho), $L[1/3]$
 (GNFS/NFS-DL/MOV), $L[1/2]$ (index calculus), and $L[0]$ (SSA, Shor) is a statement about
 asymptotic behaviour at cryptographic scale — not a ranking of toy-scale timings.
 
-**Chapter 12 (Modularity).** Chapter 12 is the project's one chartered speculation; it surveys
+**Chapter 12 (Modularity).** Chapter 12 is the project's one deliberate speculation; it surveys
 the Taniyama–Shimura–Weil correspondence as a structural phenomenon and asks whether it suggests
 further escapes. No complexity claim is made for any modularity-based attack; the chapter does not
 add a row to this table.
@@ -551,7 +548,7 @@ and the exponent $1/3$ is the result of this optimisation.
 $B$ (written $A \leq_P B$) if there is a polynomial-time algorithm that transforms any instance of
 $A$ into an instance of $B$ such that the answer is preserved.
 
-**Why this matters.** The MOV reduction (T.E chapter) is a polynomial-time reduction from ECDLP
+**Why this matters.** The MOV reduction (§10.5) is a polynomial-time reduction from ECDLP
 on a curve with small embedding degree to DLP in $\mathbb{F}_{p^k}^*$. Pohlig–Hellman is a
 polynomial-time reduction from ECDLP in a group of composite order to ECDLP in prime-order
 subgroups. Understanding reductions is essential for understanding why these attacks work.
@@ -672,9 +669,9 @@ with the elliptic-curve material in §Algebra can follow Chapter 12 at survey de
 
 ## On Scale: A Natural-Philosophy Interlude
 
-*This interlude is the full exposition deferred from the ROADMAP's `## On scale` section. The
-ROADMAP states the clinical summary; this chapter provides the natural-philosophy context that
-belongs in a textbook register, not a planning document.*
+*This interlude gives the natural-philosophy context for the project's repeated statement that
+toy-scale demonstrations show mechanism, not asymptotic advantage — context that belongs in a
+textbook register rather than in a short status note.*
 
 ### The word "scale" is not one thing
 
@@ -1015,7 +1012,7 @@ has exploitable structure:
 - **Special field structure** (GHS descent): curves over $\mathbb{F}_{2^m}$ with a tower
   structure admit a descent to a hyperelliptic Jacobian.
 
-These are the subjects of the T.E chapter.
+These are the subjects of the algebraic ECDLP attacks chapter (§10).
 
 ### Cross-reference
 
@@ -1919,7 +1916,7 @@ is exercised separately on hand-built relation sets).
 
 ## §7 The $L$-Notation Subexponentiality Derivation
 
-*This is the designated payoff proof for the T.G chapter (C-Textbook contract). The exponent
+*This is the designated payoff proof for the GNFS chapter. The exponent
 $1/3$ is derived in full; the precise constant $(64/9)^{1/3}$ is stated and the optimisation
 argument is given, with a citation for the full derivation including the polynomial degree
 optimisation.*
@@ -2197,7 +2194,7 @@ variations, the degree-$N$ coupling) are under-exposed at toy scale.
 
 # NFS-DL: Discrete Logarithm via the Number Field Sieve
 
-*Maths-first sibling to `gnfs/docs/PEDAGOGY.md` §63–§71 (the D.W.1 NFS-DL code-tour). For the
+*Maths-first sibling to `gnfs/docs/PEDAGOGY.md` §63–§71 (the NFS-DL code-tour). For the
 code-tour — pipeline contracts, stage-by-stage implementation narrative, and KAT summary — see
 `gnfs/docs/PEDAGOGY.md` §63–§71. For the prerequisites used in this chapter, see §Prerequisites
 above. For the GNFS factoring chapter whose structure this chapter mirrors and whose §7
@@ -2452,10 +2449,10 @@ by characters, versus linearity modulo $\ell$ with $\ell \nmid h_K$ assumed) and
 ($\ell$-adic log versus Legendre symbol).
 
 **Code realisation.** The Schirokauer map is implemented in `gnfs/src/dl/schirokauer.rs`
-(C-Schirokauer, frozen D.A.1). The function `schirokauer` computes the $r$-tuple
+The function `schirokauer` computes the $r$-tuple
 $(\lambda_{\varphi_1}(\beta), \ldots, \lambda_{\varphi_r}(\beta))$ for a number-field element
 $\beta$ and a list of prime ideals. The `augment_relation` function in `gnfs/src/dl/relation.rs`
-(C-DLRelation, frozen D.A.1) wraps each smooth factoring relation with its Schirokauer columns
+wraps each smooth factoring relation with its Schirokauer columns
 to produce a `DLRelation`. See `gnfs/docs/PEDAGOGY.md` §64–§65 for the code-tour.
 
 ---
@@ -2522,9 +2519,9 @@ are more expensive than XOR), but not the $L$-notation exponent or constant. Thi
 half of the DL delta in the complexity derivation (§9.7).
 
 **Code realisation.** The $\mathbb{F}_\ell$ block-solver substrate is implemented in
-`gnfs/src/dl/linalg/blockvec_fl.rs` (C-LinAlgFl, frozen D.B.1). The types `FlBlockVec`,
+`gnfs/src/dl/linalg/blockvec_fl.rs`. The types `FlBlockVec`,
 `FlSparseMatrix`, `FlMatrixOperator`, `FlSolution`, `VirtualLogTable`, and the function
-`recover_virtual_logs` are the frozen interface. See `gnfs/docs/PEDAGOGY.md` §65–§66 for the
+`recover_virtual_logs` are its interface. See `gnfs/docs/PEDAGOGY.md` §65–§66 for the
 code-tour.
 
 ---
@@ -2618,50 +2615,47 @@ log in the $\ell$-order subgroup. Recovering the full log modulo $p - 1$ require
 (§Prerequisites): factor $p - 1 = \prod_i \ell_i^{e_i}$, run NFS-DL for each prime power
 $\ell_i^{e_i}$, and combine via CRT.
 
-**Code realisation.** The descent substrate is implemented in `gnfs/src/dl/descent/` (C-Descent,
-frozen D.C.1; C2, frozen D.C.3). The key types and functions are `DescentNode<F>`,
-`DescentFrontier<F>`, `init_descent_frontier`, `descend_node`, `run_descent`, and `assemble_log`.
-The frozen C2 interface `solve_dl(g, h, p, k, ell)` is the cross-track entry point consumed by
-E.C (the MOV bridge). See `gnfs/docs/PEDAGOGY.md` §66 for the code-tour.
+**Code realisation.** The descent substrate is implemented in `gnfs/src/dl/descent/`. The key
+types and functions are `DescentNode<F>`, `DescentFrontier<F>`, `init_descent_frontier`, `descend_node`, `run_descent`, and `assemble_log`.
+The entry point `solve_dl(g, h, p, k, ell)` is consumed across crates by the MOV reduction
+(§10.5). See `gnfs/docs/PEDAGOGY.md` §66 for the code-tour.
 
-**Engineering-scale boundary ($k > 1$, principle-4 annotation).** The `solve_dl` function
+**Engineering-scale boundary ($k > 1$).** The `solve_dl` function
 returns `SolveDlError::Unsupported { k }` immediately for $k > 1$ (extension fields
 $\mathbb{F}_{p^k}$). This is an *engineering-scale boundary, not a mathematical one*: the
 mathematics of NFS-DL over extension fields is well-understood (the number field $K$ is replaced
 by a degree-$k$ extension; the Schirokauer map adapts; the descent works over the extended
 field), but the implementation requires adapting the `PolyPair` / `NumberField` / `FactorBase`
-infrastructure to the extension-field structure. This is a non-trivial engineering task deferred
-to the E.C-prep session (Track E). The debt is recorded here as a principle-4 annotation (see
-§On Scale for the three-axis framework): the code is correct at demonstration fidelity for $k = 1$;
-the $k > 1$ path is a known gap, not a silent omission.
+infrastructure to the extension-field structure. This is a non-trivial engineering task that is
+not done here. The gap is recorded as a scale annotation (see §On Scale for the three-axis
+framework): the code is correct at demonstration fidelity for $k = 1$; the $k > 1$ path is a
+known gap, not a silent omission.
 
 ---
 
-## §9.6 Design-Statement Verification for the NFS-DL Arc
+## §9.6 What the NFS-DL Implementation Implements and Claims
 
-*This section is the D.W.2 analogue of G.W §59 — the design-statement verification for the
-whole NFS-DL arc (Track D, D.A → D.B → D.C → D.W), against the three principles.*
+*This section states what the whole NFS-DL pipeline (relation collection, linear algebra,
+descent) implements, what it leaves out, and which phenomena are scale-only.*
 
-### Principle 1: Algorithmic content complete
+### Algorithmic content
 
-**Verdict: pass.** The NFS-DL pipeline implements the algorithmic content of NFS-DL for prime
-fields end-to-end:
+The NFS-DL pipeline implements the algorithmic content of NFS-DL for prime fields end-to-end:
 
-- **Relation collection (D.A):** Smooth-pair sieving reusing the GNFS infrastructure, augmented
-  with Schirokauer map columns. The `DLMatrix` type (C-DLRelation) carries the full column
+- **Relation collection:** Smooth-pair sieving reusing the GNFS infrastructure, augmented
+  with Schirokauer map columns. The `DLMatrix` type carries the full column
   layout (rational | algebraic | Schirokauer).
-- **$\mathbb{F}_\ell$ linear algebra (D.B):** Block Lanczos / block Wiedemann over $\mathbb{F}_\ell$,
-  recovering the virtual-log table. The `VirtualLogTable` type (C-LinAlgFl) is the frozen
-  interface to D.C.
-- **Individual-logarithm descent (D.C):** Initialization-smoothing, special-$q$ descent
-  recursion, and log assembly. The `solve_dl_full` function runs the full pipeline; the frozen
-  C2 `solve_dl` is the cross-track interface.
+- **$\mathbb{F}_\ell$ linear algebra:** Block Lanczos / block Wiedemann over $\mathbb{F}_\ell$,
+  recovering the virtual-log table. The `VirtualLogTable` type is the interface to the descent.
+- **Individual-logarithm descent:** Initialization-smoothing, special-$q$ descent
+  recursion, and log assembly. The `solve_dl_full` function runs the full pipeline; `solve_dl` is
+  the cross-crate entry point.
 
 No algorithmic stage is silently omitted or replaced by a lookup table.
 
-### Principle 3: No engineering optimisations crept in
+### No engineering optimisations
 
-**Verdict: pass.** The implementation is at *demonstration fidelity* — the mathematical content
+The implementation is at *demonstration fidelity* — the mathematical content
 is present, but the engineering optimisations that make NFS-DL run at cryptographic scale are
 not implemented:
 
@@ -2677,9 +2671,9 @@ None of these omissions affect the correctness of the algorithm at toy scale. Th
 engineering optimisations that improve performance at NFS scale but are not needed for the
 mathematical demonstration.
 
-### Principle 4: Scale-only at demonstration fidelity
+### Scale-only phenomena
 
-**Verdict: pass, with annotations.** The following phenomena are annotated as scale-only:
+The following phenomena are annotated as scale-only:
 
 - **Descent-tree depth.** At toy scale ($p = 11$, factor base $\{2, 3\}$, $\ell = 5$), the
   descent tree has depth 0: the initialization-smoothing step finds $g^e \cdot h$ already smooth
@@ -2687,7 +2681,7 @@ mathematical demonstration.
   depth $O(\log \log p)$ — typically 3–5 levels. The depth is a scale-only phenomenon.
 
 - **Medium-prime tuning.** The medium-prime bound $B'$ is a critical parameter at NFS scale.
-  At toy scale, the frozen C2 `solve_dl` uses a hardcoded `medium_bound = 100`; `solve_dl_full`
+  At toy scale, `solve_dl` uses a hardcoded `medium_bound = 100`; `solve_dl_full`
   uses the factor-base bound. At NFS scale, $B'$ is calibrated to the factor-base bound and the
   expected descent depth.
 
@@ -2696,13 +2690,13 @@ mathematical demonstration.
 
 - **$k > 1$ `Unsupported` debt.** The $\mathbb{F}_{p^k}$ extension is an engineering-scale
   boundary (see §9.5 above). The mathematics is complete for $k = 1$; the $k > 1$ path is a
-  known gap recorded as a principle-4 annotation.
+  known gap recorded as a scale annotation.
 
 ---
 
 ## §9.7 The $L$-Notation Complexity of NFS-DL
 
-*This is the designated payoff proof for the T.D chapter (C-Textbook contract). It is a
+*This is the designated payoff proof for the NFS-DL chapter. It is a
 **delta** on the §GNFS §7 derivation — not a re-derivation from scratch. The reader should
 read §GNFS §7 first; this section identifies the two DL-specific differences and shows that
 neither changes the leading complexity.*
@@ -2990,7 +2984,7 @@ dimension axis, not resource/operational axis).
 
 ## Algebraic ECDLP Attacks
 
-*Maths-first sibling to `docs/PEDAGOGY.md` §8–§18 (the Track-E code-tour). For the
+*Maths-first sibling to `docs/PEDAGOGY.md` §8–§18 (the algebraic-attack code-tour). For the
 phase-by-phase implementation — module surfaces, toy fixtures, KAT summary, and design-statement
 verification — see `docs/PEDAGOGY.md`. This chapter is the mathematical development: proof
 sketches, the full MOV payoff proof, and the per-attack L-notation comparison.*
@@ -3077,7 +3071,7 @@ In L-notation: Pohlig–Hellman achieves $L_n[1, 1/2]$ in the worst case (prime 
 $L_{p_{\max}}[1, 1/2]$ when $n$ has a small largest prime factor. The asymptotic gain over rho
 is structural, not a change in the $L$-notation exponent.
 
-**Principle-4 annotation.** At toy scale ($n = 60 = 2^2 \cdot 3 \cdot 5$), the speedup over
+**Scale note.** At toy scale ($n = 60 = 2^2 \cdot 3 \cdot 5$), the speedup over
 rho is invisible — the group is too small for the birthday bound to be meaningful. At crypto
 scale, Pohlig–Hellman is catastrophic for curves whose order has a small largest prime factor
 (e.g. $n = 2^{255} \cdot q$ for a small $q$).
@@ -3141,7 +3135,7 @@ $L_p[0]$ — polynomial time. The Hensel lift and formal group logarithm each co
 arithmetic operations. This is the sharpest escape in this chapter: the anomalous structure
 collapses the ECDLP to a linear computation.
 
-**Principle-4 annotation.** The polynomial-time complexity is present at all scales. At toy
+**Scale note.** The polynomial-time complexity is present at all scales. At toy
 scale ($p = 7$), the constant factors are invisible — the computation is instantaneous. The
 pedagogical content is the mechanism, not the timing.
 
@@ -3165,8 +3159,8 @@ hyperelliptic curve $C/\mathbb{F}_{2^l}$ of genus $g = (m/l - 1)/2$.
 
 **This section represents GHS honestly as a transfer.** The GHS construction reduces the ECDLP
 on $E/\mathbb{F}_{2^m}$ to a DLP on the Jacobian $\mathrm{Jac}(C)/\mathbb{F}_{2^l}$. The
-downstream solve — index calculus on the hyperelliptic Jacobian — is a separate step (a deferred
-re-shard in this project). The chapter covers the descent reduction and log-preservation
+downstream solve — index calculus on the hyperelliptic Jacobian — is a separate step that this
+project does not implement. The chapter covers the descent reduction and log-preservation
 verification; the downstream solve is not developed here.
 
 **The Artin–Schreier extension.** The function field of $E/\mathbb{F}_{2^m}$ is a degree-2
@@ -3195,7 +3189,7 @@ The L-notation for GHS is conditional on the genus $g$ of the hyperelliptic curv
 The transfer itself (the descent reduction) costs $O(\mathrm{poly}(m))$ — polynomial in the
 field extension degree. The asymptotic win, if any, comes from the downstream solve.
 
-**Principle-4 annotation.** The toy fixture ($m = 6$, $l = 2$, $g = 1$) has genus 1 — the
+**Scale note.** The toy fixture ($m = 6$, $l = 2$, $g = 1$) has genus 1 — the
 hyperelliptic Jacobian is an elliptic curve, and the downstream DLP is no easier than the
 original. The GHS construction is demonstrated at toy scale for the mechanism; the asymptotic
 win requires larger $m/l$ (and hence larger genus).
@@ -3218,18 +3212,49 @@ decomposes with the given $F_{j_i}$.
 
 #### The escape
 
-**Relation collection.** Choose random scalars $k_i$ and compute $P_i = k_i \cdot G + l_i \cdot Q$
-for random $l_i$. For each $P_i$, attempt to decompose $P_i$ over $\mathcal{F}$ using the
-Semaev polynomial. A successful decomposition $P_i = \sum_j c_{ij} F_j$ gives a linear relation:
+**Why the logarithms live modulo $\ell$.** Let $n$ be the order of $G$ and let $\ell$ be a prime
+with $\ell \,\|\, n$ (that is, $\ell \mid n$ and $\ell^2 \nmid n$). Then the $\ell$-Sylow subgroup
+of $\langle G \rangle$ is cyclic of order $\ell$, generated by $G_\ell = (n/\ell) \cdot G$.
+Multiplying any point by $n/\ell$ projects it into that subgroup, so the $\ell$-component of $Q$
+and of every factor-base point $F_j$ has a logarithm modulo $\ell$ with respect to $G_\ell$. This
+is an invariant of the construction: `toy_fixture_parameters` asserts $\ell \,\|\, n$ for the
+fixture, and the other tests check its consequence, $x \cdot G_\ell = Q_\ell$, for every $k$
+they try; no test proves the invariant independently of the fixture.
 
-$$k_i + l_i \cdot k \equiv \sum_j c_{ij} \cdot \log_G(F_j) \pmod{\ell},$$
+**Relation collection.** Enumerate pairs $(a_i, b_i)$ and compute $P_i = a_i \cdot G + b_i \cdot
+Q$. The code walks the pairs deterministically, along the anti-diagonals $a + b = 1, 2, \ldots$
+inside $a \in [1, n)$, $b \in [0, n)$; this is a bound on how many relations are collected, not a
+search over candidate logarithms. For each $P_i$, attempt to decompose it over $\mathcal{F}$ using
+the Semaev polynomial. A successful decomposition $P_i = \sum_j e_{ij} F_j$ gives, after
+projecting to the $\ell$-component and taking logarithms to the base $G_\ell$, a linear relation
 
-where $k = \log_G(Q)$ is the unknown and $\log_G(F_j)$ are the unknown factor-base logarithms.
+$$a_i + b_i \cdot x \equiv \sum_j e_{ij} \cdot l_j \pmod{\ell},$$
 
-**Linear algebra.** Collect $B + O(1)$ relations (one per factor-base element plus a small
-overdetermination). The system is a $(B + O(1)) \times (B + 1)$ matrix over $\mathbb{Z}/\ell\mathbb{Z}$.
-Solve via block-Lanczos or block-Wiedemann (the same infrastructure as NFS-DL, §9) to recover
-$\log_G(F_j)$ for each $j$ and hence $k = \log_G(Q)$.
+where $x = \log_G(Q) \bmod \ell$ is the unknown and $l_j = \log_{G_\ell}\!\big((n/\ell) \cdot
+F_j\big)$ are the unknown factor-base logarithms.
+
+**Linear algebra: the left kernel.** Write $E$ for the matrix of exponents $e_{ij}$ (one row per
+relation, one column per factor-base point) and $a$, $b$ for the vectors of $a_i$, $b_i$. A
+vector $u$ in the *left kernel* of $E$ — that is, $\sum_i u_i \cdot e_{ij} \equiv 0 \pmod{\ell}$
+for every $j$ — cancels every unknown $l_j$ when the relations are summed with weights $u_i$:
+
+$$u^{\top} a + (u^{\top} b) \cdot x \equiv 0 \pmod{\ell}.$$
+
+When $u^{\top} b \not\equiv 0$ this determines $x \equiv -\,u^{\top} a \,/\, u^{\top} b$. The
+factor-base logarithms $l_j$ are never solved for. A kernel vector with $u^{\top} b \equiv 0$ says nothing
+about $x$, and for honest relations it must also have $u^{\top} a \equiv 0$. The code computes a
+complete basis of the left kernel (the transposed exponent matrix has the relations as columns,
+and its right kernel is the left kernel of $E$). At this scale the kernel routine
+`block_wiedemann_fl` performs an exact dense row reduction; it is the same entry point as the
+NFS-DL linear algebra (§9), not a Krylov (block-Wiedemann or block-Lanczos) iteration.
+
+**Outcomes.** The solver accepts $x$ only if (i) every basis vector with $u^{\top} b \not\equiv 0$
+gives the same $x$ and (ii) $x \cdot G_\ell = Q_\ell$ by the group law. If no basis vector has
+$u^{\top} b \not\equiv 0$ after the relation enumeration is exhausted, the result is
+*undetermined*: a statement about the collected relation set, not a negative about the logarithm.
+If combinations disagree, a vector with $u^{\top} b \equiv 0$ has $u^{\top} a \not\equiv 0$, or
+verification fails, the relations are internally contradictory; that is an invariant failure and
+is reported as such, never retried.
 
 **The Semaev polynomial.** $S_m(X_1, \ldots, X_m)$ is defined recursively:
 - $S_2(X_1, X_2) = X_1 - X_2$ (trivial: two points sum to $\mathcal{O}$ iff they are equal).
@@ -3243,9 +3268,21 @@ The degree of $S_m$ in each variable is $2^{m-2}$, growing exponentially with $m
 
 The key step is that $S_m(x_1, \ldots, x_m) = 0$ iff there exist $y_i$ such that
 $(x_i, y_i) \in E$ and $(x_1, y_1) + \cdots + (x_m, y_m) = \mathcal{O}$. This follows from
-the definition of the summation polynomial as the resultant of the addition law. The relation
-collection loop finds decomposable points by evaluating $S_m$ at random multiples of $G$ and
-$Q$; the linear algebra step recovers the discrete log from the collected relations.
+the definition of the summation polynomial as the resultant of the addition law. Because the
+polynomial sees only x-coordinates, a vanishing triple means the sum is $\pm Q$; the group law
+then decides which sign holds, and only the decomposition summing to $Q$ is kept. The relation
+collection loop finds decomposable points by evaluating $S_m$ at the enumerated combinations
+$a \cdot G + b \cdot Q$; the left-kernel combination above recovers $x = \log_G(Q) \bmod \ell$
+from the collected relations alone.
+
+**What the tests establish.** On the toy fixture ($y^2 = x^3 + x + 33$ over $\mathbb{F}_{47}$,
+$n = 60$, $\ell = 5$, $|\mathcal{F}| = 6$, $m = 2$; asserted by `toy_fixture_parameters`):
+`left_kernel_annihilates_exponents` checks that every returned basis vector satisfies
+$\sum_i u_i e_i \equiv 0$ and that the basis is complete; `recovers_every_residue` runs every
+$k \in \{0, \ldots, 59\}$, checks that the combination has $u^{\top} b \not\equiv 0$ and that
+$\sum_i u_i (a_i + b_i x) \equiv 0$ holds for the returned $x = k \bmod 5$;
+`undetermined_when_no_combination_sees_b` and `corrupted_relation_is_inconsistent` exercise the
+two failure classes. The undetermined outcome is not reachable for an honest $Q$ on this fixture.
 
 #### L-notation
 
@@ -3259,9 +3296,9 @@ $$\text{Index calculus over } E(\mathbb{F}_{p^n}) = L_{p^n}\!\left[\tfrac{1}{2},
 The exponent $1/2$ is a genuine improvement over rho's $L[1, 1/2]$ (fully exponential), but
 not as sharp as NFS-DL's $L[1/3]$.
 
-**Principle-4 annotation.** The toy fixture operates over $E(\mathbb{F}_p)$ ($n = 1$). The
-asymptotic win is not observable at toy scale — the mechanism is demonstrated, but the
-complexity separation requires $n > 1$ (the deferred re-shard).
+**Scale note.** The toy fixture operates over $E(\mathbb{F}_p)$ ($n = 1$). The asymptotic win is
+not observable at toy scale — the mechanism is demonstrated, but the complexity separation
+requires $n > 1$, which this code does not implement.
 
 #### Cross-reference
 
@@ -3272,9 +3309,9 @@ Code realisation: `docs/PEDAGOGY.md` §13–§14 (Semaev and index-calculus code
 
 ### §10.5 MOV/Frey–Rück: The Pairing Reduction (The Payoff Proof)
 
-*This is the designated payoff proof for this chapter — the one full proof at C-Textbook
-payoff depth. It is the cross-track bridge of this project: the MOV reduction connects the
-ECDLP (Track E) to the NFS-DL setting (Track D), where index calculus applies.*
+*This is the designated payoff proof for this chapter — the one full proof at payoff depth. It
+is the cross-chapter bridge of this project: the MOV reduction connects the ECDLP (this
+chapter) to the NFS-DL setting (§9), where index calculus applies.*
 
 #### The structure
 
@@ -3365,7 +3402,7 @@ $$h_0 = e(Q, R) = e(k \cdot G, R) = e(G, R)^k = g_0^k.$$
 Therefore $k = \log_{g_0}(h_0)$ in $\mathbb{F}_{p^k}^*$.
 
 **Step 4: Solve the DLP in $\mathbb{F}_{p^k}^*$.** The DLP $h_0 = g_0^k$ in $\mathbb{F}_{p^k}^*$
-is solved by NFS-DL (the frozen `gnfs::dl::solve_dl` entry point, Track D). Since $g_0, h_0
+is solved by NFS-DL (the `gnfs::dl::solve_dl` entry point; §9). Since $g_0, h_0
 \in \mu_\ell \subset \mathbb{F}_{p^k}^*$, the DLP is in the order-$\ell$ subgroup of
 $\mathbb{F}_{p^k}^*$.
 
@@ -3406,24 +3443,24 @@ $$\text{MOV-reduced ECDLP complexity} = L_{p^k}\!\left[\tfrac{1}{3},\, \left(\tf
 = L_p\!\left[\tfrac{1}{3},\, k^{1/3} \cdot \left(\tfrac{64}{9}\right)^{1/3}\right].$$
 
 This is subexponential in $\log p$ — a dramatic improvement over rho's $L_p[1, 1/2]$ (fully
-exponential). The cross-track bridge: the MOV reduction connects the ECDLP (Track E) to the
-NFS-DL setting (Track D), where the $L[1/3]$ complexity applies.
+exponential). The cross-chapter bridge: the MOV reduction connects the ECDLP (§10) to the
+NFS-DL setting (§9), where the $L[1/3]$ complexity applies.
 
-**Principle-4 annotation.** At toy scale ($p = 47$, $k = 2$, $\ell = 3$), the pairing + NFS-DL
+**Scale note.** At toy scale ($p = 47$, $k = 2$, $\ell = 3$), the pairing + NFS-DL
 overhead dominates the toy rho cost. The asymptotic win requires crypto-scale $p$ where the
 $L[1/3]$ vs $L[1, 1/2]$ separation is observable.
 
 #### Cross-reference
 
 Code realisation: `docs/PEDAGOGY.md` §10 (MOV code-tour, `rho::pairing::mov`). The NFS-DL
-solver that `mov_reduce` calls is documented in `docs/PEDAGOGY.md` §63–§71 (D.W chapter) and
-developed mathematically in §9 of this textbook.
+solver that `mov_reduce` calls is documented in `gnfs/docs/PEDAGOGY.md` §63–§71 (the NFS-DL
+chapter) and developed mathematically in §9 of this textbook.
 
 ---
 
 ### §10.6 Per-Attack L-Notation Comparison
 
-This table extends the frozen §"Escape from Search" L-notation hierarchy table with a per-attack
+This table extends the §"Escape from Search" L-notation hierarchy table with a per-attack
 row for the five algebraic ECDLP attacks. The baseline is Pollard rho.
 
 | Attack | Escape structure | L-notation complexity | Precondition | Toy-scale observable? |
@@ -3435,11 +3472,11 @@ row for the five algebraic ECDLP attacks. The baseline is Pollard rho.
 | Index calculus | Factor-base decomposability | $L_{p^n}[1/2, c]$ (subexponential, $n > 1$) | $E(\mathbb{F}_{p^n})$, $n > 1$ | No — toy fixture is $n = 1$ |
 | MOV/Frey–Rück | Small embedding degree | $L_{p^k}[1/3, (64/9)^{1/3}]$ (via NFS-DL) | $\ell \mid p^k - 1$, $k$ small | No — pairing overhead dominates at toy scale |
 
-**The principle-4 boundary, stated explicitly.** The asymptotic L-notation separations in this
-table are NOT observable at the toy scale of the C-EWBench fixtures ($p = 47$, $p = 7$). The
-table reports the theoretical complexity class; the toy-scale costs are in `docs/BENCHMARKS.md`
-§E.W. The separation between $L[1, 1/2]$ (rho), $L[1/2]$ (index calculus), $L[1/3]$ (MOV via
-NFS-DL), and $L[0]$ (SSA) is a statement about asymptotic behaviour at cryptographic scale —
+**The scale boundary, stated explicitly.** The asymptotic L-notation separations in this
+table are NOT observable at the toy scale of the benchmark fixtures ($p = 47$, $p = 7$). The
+table reports the theoretical complexity class; the toy-scale benchmark setup is in the
+cross-attack harness section of `docs/BENCHMARKS.md`. The separation between $L[1, 1/2]$ (rho),
+$L[1/2]$ (index calculus), $L[1/3]$ (MOV via NFS-DL), and $L[0]$ (SSA) is a statement about asymptotic behaviour at cryptographic scale —
 not a ranking of the toy-scale timings.
 
 ---
@@ -3448,7 +3485,8 @@ not a ranking of the toy-scale timings.
 
 #### Code realisation
 
-The Track-E code-tour in `docs/PEDAGOGY.md` §8–§18 is the code-first sibling to this chapter.
+The algebraic-attack code-tour in `docs/PEDAGOGY.md` §8–§18 is the code-first sibling to this
+chapter.
 It documents the module surfaces, toy fixtures, KAT summary, and design-statement verification
 for the five attacks. The chapter-pairing is:
 
@@ -3468,17 +3506,18 @@ for the five attacks. The chapter-pairing is:
 - **§"Escape from Search: The Through-Line"** — the five-family structure taxonomy and the
   L-notation hierarchy table. This chapter extends that taxonomy per-attack.
 
-- **§9 (NFS-DL)** — the Track-D chapter. The MOV reduction (§10.5) calls `gnfs::dl::solve_dl`
-  (the frozen C2 interface from D.C.3); the NFS-DL complexity analysis (§9.7) is the
-  mathematical basis for the MOV L-notation claim.
+- **§9 (NFS-DL)** — the NFS-DL chapter. The MOV reduction (§10.5) calls `gnfs::dl::solve_dl`
+  (the NFS-DL entry point); the NFS-DL complexity analysis (§9.7) is the mathematical basis for
+  the MOV L-notation claim.
 
 - **§Prerequisites** — the CRT (used in Pohlig–Hellman), the discrete logarithm problem
   definition, and the polynomial-time reduction definition (used in the MOV reduction).
 
 #### Benchmark data
 
-- **`docs/BENCHMARKS.md` §E.W** — the C-EWBench structural-precondition-conditional table:
-  the empirical substrate this chapter's L-notation claims stand on (at toy scale).
+- **`docs/BENCHMARKS.md`, the cross-attack ECDLP harness** — the structural-precondition-
+  conditional table: the benchmark setup this chapter's L-notation claims are read against (at
+  toy scale).
 
 ---
 
@@ -3558,7 +3597,7 @@ for the five attacks. The chapter-pairing is:
 
 ## Shor's Algorithm and Post-Quantum Context
 
-*Maths-first sibling to `shor/docs/PEDAGOGY.md` (Track S code-tour). For the phase-by-phase
+*Maths-first sibling to `shor/docs/PEDAGOGY.md` (the Shor code-tour). For the phase-by-phase
 implementation — module surfaces, toy fixtures, KAT summary, and design-statement verification —
 see `shor/docs/PEDAGOGY.md`. This chapter is the mathematical development: the full payoff proof
 (QFT phase estimation, order-finding → factoring, two-register hidden-subgroup → ECDLP), and the
@@ -3692,7 +3731,7 @@ where $R_k$ is the phase gate $|1\rangle \mapsto e^{2\pi i/2^k}|1\rangle$. The c
 the QFT in bit-reversed order; a bit-reversal permutation (SWAP network) at the output corrects
 this. See Nielsen–Chuang [NC00, §5.1] for the full circuit derivation.
 
-**Code realisation.** The `qft` module in Track S implements this circuit exactly, with the
+**Code realisation.** The `qft` module in the `shor` crate implements this circuit exactly, with the
 bit-reversal convention described in `shor/docs/PEDAGOGY.md` §2.2. The little-endian qubit
 ordering requires an input bit-reversal step before the Hadamard + controlled-phase ladder; see
 §2.2 for the load-bearing convention note.
@@ -3884,15 +3923,16 @@ subexponential to polynomial. This is not an incremental improvement — it is t
 the $L$-notation framework. The quantum period-finding structure does not reduce the search cost;
 it eliminates the search entirely.
 
-**Principle-4 annotation.** The Track-S implementation (S.B) factors $N \in \{15, 21, 35, 91\}$
+**Scale note.** The implementation factors $N \in \{15, 21, 35, 91\}$
 using 8–14 qubits on a classical state-vector simulator. The simulator holds $2^n$ complex
 amplitudes; at $n = 25$ qubits, this is $2^{25} \approx 33\,\mathrm{M}$ entries ($\approx 512\,
 \mathrm{MiB}$), the practical ceiling on a laptop. To factor RSA-2048 ($N$ a 2048-bit integer),
-the circuit would need approximately 4100 qubits — requiring a $2^{4100}$-entry amplitude array,
-far beyond any classical computer. The simulator demonstrates Shor's mathematics correctly at toy
-scale; it does not claim quantum speedup, which requires real quantum hardware out of scope by
-construction. See `shor/docs/PEDAGOGY.md` §6.3 and `docs/BENCHMARKS.md` §S.B for the full
-resource-scale annotation.
+this project's layout ($2 \cdot n_{\mathrm{bits}}(N)$ qubits) would need about 4100 qubits — an
+arithmetic consequence of the layout, not a published estimate — requiring a $2^{4100}$-entry
+amplitude array, far beyond any classical computer. The simulator demonstrates Shor's
+mathematics correctly at toy scale; it does not claim quantum speedup, which requires real quantum hardware out of scope by
+construction. See `shor/docs/PEDAGOGY.md` §6.3 and the Shor factoring section of
+`docs/BENCHMARKS.md` for the full resource-scale annotation.
 
 ---
 
@@ -3902,8 +3942,10 @@ resource-scale annotation.
 
 The ECDLP asks: given $G$ and $Q = k \cdot G$ on an elliptic curve of prime order $r$, find $k$.
 Shor's approach (Proos–Zalka [PZ03]) reformulates this as a **two-register hidden-subgroup
-problem** (HSP) over $\mathbb{Z}/M\mathbb{Z} \times \mathbb{Z}/M\mathbb{Z}$ (with $M = 2^t$,
-$t = \lceil \log_2 r \rceil + 1$).
+problem** (HSP) over $\mathbb{Z}/M\mathbb{Z} \times \mathbb{Z}/M\mathbb{Z}$ with $M = 2^t$. The
+implementation uses $t = \lceil \log_2 r \rceil = 4$ for its toy curve, so $M = 16$ and the
+group order is $r = 13$: $M$ is **not** a multiple of $r$, which governs everything in
+§11.4.3.
 
 **The function.** Define $f: \mathbb{Z}/M\mathbb{Z} \times \mathbb{Z}/M\mathbb{Z} \to E$ by
 
@@ -3929,9 +3971,10 @@ $f(a, b)$, and applying the two-dimensional QFT.
 
 **Setup.** Use two exponent registers of $t$ qubits each (the $a$-register and $b$-register) and
 one work register of $n$ qubits (holding the running point on $E$). Total: $2t + n$ qubits.
-For the Track-S toy curve ($r = 13$, $t = 4$, $n = 6$), this is 14 qubits for the exponent
-registers plus 3 bits each for $x$ and $y$ coordinates, giving 17 qubits total (see
-`shor/docs/PEDAGOGY.md` §4.2).
+For the toy curve ($r = 13$, $t = 4$) the point register holds a 3-bit $x$ coordinate and a
+3-bit $y$ coordinate, and the layout also allocates a 3-bit scratch register that the
+permutation-synthesis construction never uses. That is $2 \cdot 4 + 3 \cdot 3 = 17$ qubits in
+total (asserted by `qubit_budget_within_ceiling`; see `shor/docs/PEDAGOGY.md` §4.2).
 
 **Step 1: Uniform superposition.** Apply $H^{\otimes t}$ to both the $a$-register and
 $b$-register:
@@ -3949,88 +3992,123 @@ $a$-register qubit $j$. Then for each bit $j$ of the $b$-register, apply $|P\ran
 
 $$\frac{1}{M} \sum_{a=0}^{M-1} \sum_{b=0}^{M-1} |a\rangle |b\rangle |a \cdot G + b \cdot Q\rangle.$$
 
-This is the quantum evaluation of $f(a, b) = a \cdot G + b \cdot Q$ in superposition.
+This is the quantum evaluation of $f(a, b) = a \cdot G + b \cdot Q$ in superposition. Because
+$M$ is not a multiple of $r$, $f$ is not periodic on $\mathbb{Z}/M\mathbb{Z} \times
+\mathbb{Z}/M\mathbb{Z}$: the level sets $\{(a, b) : a + bk \equiv s \pmod{r}\}$ are truncated by
+the box $0 \le a, b < M$, so they are not full cosets of $H$. This is the finite-precision
+effect that the rest of the section accounts for.
 
-**Step 3: Measure the work register.** Measuring the work register yields some point
-$P_0 = a_0 \cdot G + b_0 \cdot Q$ for some $(a_0, b_0)$. The exponent registers collapse to
-the uniform superposition over all $(a, b)$ with $a \cdot G + b \cdot Q = P_0$, i.e. over the
-coset $(a_0, b_0) + H$ in $(\mathbb{Z}/r\mathbb{Z})^2$:
+**Step 3: Transform both exponent registers.** Apply $\mathrm{QFT}_M^\dagger$ independently to
+the $a$-register and to the $b$-register. Write $\omega = e^{2\pi i / M}$; the sign of the
+exponent below is the sign convention of the transform, and nothing that follows depends on it.
+The amplitude of $|c\rangle |d\rangle |sG\rangle$ for $s \in \{0, \ldots, r-1\}$ is
 
-$$\frac{1}{\sqrt{r}} \sum_{j=0}^{r-1} |a_0 - jk \bmod M\rangle |b_0 + j \bmod M\rangle.$$
+$$M^{-2} \sum_{\substack{a, b < M \\ a + bk \equiv s \ (\mathrm{mod}\ r)}} \omega^{\mp(ac + bd)}.$$
 
-(Here we use $M \gg r$ so that the coset wraps around at most once in $\{0, \ldots, M-1\}^2$.)
+The points $sG$ are distinct for distinct $s$, so the outcome $(c, d)$ has probability
 
-**Step 4: Apply the inverse QFT to both registers.** Apply $\mathrm{QFT}_M^\dagger$ independently
-to the $a$-register and to the $b$-register. By the two-dimensional phase-estimation lemma
-(the direct product of two one-dimensional lemmas), the output is concentrated on the dual
-lattice of $H$:
+$$P(c, d) = \sum_{s=0}^{r-1} \left| M^{-2} \sum_{\substack{a, b < M \\ a + bk \equiv s}}
+\omega^{\mp(ac + bd)} \right|^2.$$
 
-$$\mathrm{QFT}_M^\dagger \otimes \mathrm{QFT}_M^\dagger \left(
-\frac{1}{\sqrt{r}} \sum_{j=0}^{r-1} |a_0 - jk\rangle |b_0 + j\rangle \right)
-\approx \frac{1}{\sqrt{r}} \sum_{s=0}^{r-1} e^{2\pi i \phi_s} |s \cdot M/r\rangle |s \cdot kM/r\rangle,$$
+This is an exact formula for the circuit's exponent-register distribution. The function
+`exponent_outcome_distribution` computes $P(c, d)$ from the circuit's amplitudes, and
+`distribution_matches_fourier_formula_k3` and `distribution_matches_fourier_formula_k7` check,
+on the default test path, that it equals this sum to within $10^{-9}$ and sums to $1$. The same
+check for every $k \in \{2, \ldots, 12\}$ is `distribution_matches_fourier_formula_all_k`, which
+is `#[ignore]`-gated for cost.
 
-where $\phi_s$ is a phase depending on $a_0, b_0, s$. The output is concentrated on pairs
-$(a', b')$ with $a' \approx s \cdot M/r$ and $b' \approx s \cdot kM/r$ for some $s$.
+**Step 4: Measure all qubits.** The implementation measures every qubit of the register (both
+exponent registers and the point and scratch registers) in one shot and keeps the exponent pair
+$(c, d)$. The point-register outcome carries no information about $k$ beyond what the exponent
+pair already carries.
 
-**Step 5: Measure the exponent registers.** The measurement yields $(a', b')$ with
-$a' \approx s \cdot M/r$ and $b' \approx s \cdot kM/r$ for a uniformly random $s$.
+#### §11.4.3 The dual relation and the extraction rule
 
-#### §11.4.3 The 2D-lattice extraction
+**The dual relation.** Evaluate the inner sum at the lattice point $c/M = j/r$, $d/M = l/r$
+for integers $j, l$. Every term in the class $a + bk \equiv s$ then has phase
+$e^{\mp 2\pi i (aj + bl)/r}$, and, since $a \equiv s - bk \pmod{r}$,
 
-**The key relation.** From the measurement $(a', b')$, we have
+$$aj + bl \equiv (s - bk)\,j + bl = sj + b\,(l - kj) \pmod{r}.$$
 
-$$\frac{a'}{M} \approx \frac{s}{r}, \qquad \frac{b'}{M} \approx \frac{sk}{r}.$$
+The first term is constant on the class, so the terms add constructively exactly when
+$l \equiv k j \pmod{r}$. This is the *dual relation*: the measured pairs concentrate near the
+lattice points $(j/r, l/r)$ with $l \equiv kj$, i.e. the dual lattice of the hidden subgroup
+$H = \langle(-k, 1)\rangle$, since $(j, l) \cdot (-k, 1) = l - kj$. It is independent of the sign
+convention, because flipping the sign conjugates every inner sum and leaves its modulus
+unchanged. Reading $l \equiv kj$ for $j \not\equiv 0$ gives $k \equiv l\,j^{-1} \pmod{r}$; no
+sign flip enters.
 
-Dividing: $b'/a' \approx k$. More precisely, the continued-fraction algorithm applied to $a'/M$
-recovers $s/r$ (as in the factoring case), giving $s$ and $r$. Then
+**Finite precision.** When $r \mid M$ the lattice points $(j/r, l/r)$ are exactly representable
+as $(c/M, d/M)$ and the peaks are sharp. Here $M = 16$ and $r = 13$, so the points $(jM/r, lM/r)$
+are not integers; the probability mass of each peak is spread over neighbouring integer
+outcomes. The extraction rounds each measured value to the nearest multiple of $1/r$:
 
-$$k \equiv \frac{b' \cdot r}{s \cdot M} \cdot M \equiv \frac{b'}{s} \cdot \frac{r}{M} \cdot M
-\equiv b' \cdot s^{-1} \pmod{r}$$
+$$j = \operatorname{round}(r c / M) \bmod r, \qquad l = \operatorname{round}(r d / M) \bmod r,
+\qquad k = l \cdot j^{-1} \pmod{r},$$
 
-(when $\gcd(s, r) = 1$, which holds for a random $s$ with probability $\phi(r)/r \to 1$ as
-$r \to \infty$).
+with ties rounded up. The rule produces exactly one candidate per measurement, and none (`None`)
+when $j \equiv 0$, in which case the measurement carries no information about $k$. The
+candidate set is not widened to neighbouring roundings: at $r = 13$ doing so would amount to
+enumerating a large fraction of the exponents, which is a search over the answer space and not
+Shor's algorithm. No continued-fraction step is used here, and nothing in this section claims
+that a continued-fraction (or any single-rounding) rule recovers $k$ for general $r$ and $M$.
+The modular inverse is computed by Fermat's little theorem, since $r$ is prime.
 
-**Theorem (2D-lattice extraction).** *Let $r$ be prime, and let $(a', b')$ be the measurement
-outcome from the two-register circuit. If $b' \not\equiv 0 \pmod{r}$, then*
+**What the tests establish about the rule.**
+`extract_exact_peak_pairs_recover_k` checks that for every $k \in \{0, \ldots, 12\}$ and every
+$j \in \{1, \ldots, 12\}$ the pair $(c, d)$ of integers nearest to $(jM/r,\ lM/r)$, with
+$l = kj \bmod r$, extracts $k$;
+`extract_j_zero_returns_none` checks that, for $M = 16$ and $r = 13$, only $c = 0$ gives
+`None`; `extract_rejects_c_out_of_range` and `extract_rejects_d_out_of_range` check that
+$c, d \ge M$ is rejected as invalid input. These tests pin the rule on exact lattice points; they do not say how
+likely a real measurement is to land on one.
 
-$$k \equiv -a' \cdot (b')^{-1} \pmod{r}.$$
+**Success probability per measurement (estimate).** The probability that one measurement
+yields a candidate equal to the true logarithm is
+$\sum P(c, d)$ over the outcomes whose extraction returns $k$; the function
+`primary_success_probability` computes it exactly from the circuit amplitudes. No test asserts
+its numeric value: `primary_success_probability_positive_k3_k7` (default path) and
+`primary_success_probability_positive_all_k` (ignored for cost) assert only that it is positive
+and, for the first, that it equals the sum of the cached distribution over the extracting
+outcomes. A single run of the ignored test printed values between about $0.64$ and $0.66$ for
+$k = 2, \ldots, 12$ (for example $0.6450$ for $k = 2, 6, 7, 11$ and $0.6568$ for $k = 12$).
+Treat these as estimates read from that printout, not as tested facts.
 
-*Proof.* The measurement outcome satisfies $a' \approx s \cdot M/r$ and $b' \approx sk \cdot M/r$
-for some $s \in \{0, \ldots, r-1\}$. In the exact case (when $r \mid M$), we have $a' = s \cdot
-M/r$ and $b' = sk \cdot M/r$ exactly. Then $b' \cdot r / M = sk$ and $a' \cdot r / M = s$, so
-$b' / a' = k$ (when $s \neq 0$). Equivalently, $b' \cdot s^{-1} \equiv sk \cdot s^{-1} = k
-\pmod{r}$. Since $a' = s \cdot M/r$, we have $s \equiv a' \cdot r / M \pmod{r}$; substituting,
-$k \equiv b' \cdot (a' \cdot r/M)^{-1} \cdot r/M \equiv b' \cdot (a')^{-1} \pmod{r}$.
-
-In the general case ($r \nmid M$), the continued-fraction algorithm recovers $s/r$ from $a'/M$
-to within $1/(2M)$, and the same argument applies with the approximation error absorbed. The
-condition $b' \not\equiv 0 \pmod{r}$ ensures $s \not\equiv 0 \pmod{r}$ (i.e. the measurement
-is informative). $\square$
-
-**The formula in the code.** The `extract_k_from_measurement` function in `shor/src/ecdlp.rs`
-implements $k = (-a') \cdot (b')^{-1} \bmod r$ directly. See `shor/docs/PEDAGOGY.md` §4.2 for
-the module surface. The sign convention ($-a'$ rather than $a'$) arises from the orientation of
-the hidden subgroup generator $(-k, 1)$: the coset offset is $(a_0, b_0)$ with $a_0 + b_0 k
-\equiv 0 \pmod{r}$, so $a_0 \equiv -b_0 k \pmod{r}$, giving $k \equiv -a_0 \cdot b_0^{-1}
-\pmod{r}$.
+**Retries.** `solve_ecdlp` repeats measure, extract, and verify $k \cdot G = Q$ with a fresh
+seed per attempt, up to `DEFAULT_MAX_ATTEMPTS = 8` times; a candidate is accepted only after the
+group-law check. Treating the attempts as independent draws with the per-measurement probability
+above, the chance that all eight fail is about $0.36^8 \approx 3 \cdot 10^{-4}$. That figure is
+an estimate derived from the printout, not a tested bound; the only budget-related behaviour the
+tests assert is the error semantics (`ecdlp_budget_exhausted_on_wrong_candidate`,
+`ecdlp_zero_budget_is_exhausted`, `ecdlp_retry_uses_fresh_seed`) and, in an ignored test,
+that every $k$ is solved within the default budget (`ecdlp_all_k_values_within_default_budget`).
+Exhausting the budget is a resource outcome (`AttemptsExhausted`), not evidence that no
+logarithm exists, and no classical search over $k$ remains in the solver.
 
 #### §11.4.4 Complexity
 
-**Theorem (Shor's ECDLP algorithm, complexity).** *Shor's ECDLP algorithm solves the ECDLP on
-an elliptic curve of prime order $r$ in expected time $O((\log r)^3)$ on a quantum computer.*
+**Claim from the literature (not proved or measured here).** Proos and Zalka [PZ03] show that
+Shor's two-register algorithm solves the ECDLP on an elliptic curve of prime order $r$ with
+$O((\log r)^3)$ elementary quantum gates, in the sense that the circuit has $O(\log r)$ qubits,
+the controlled point additions of Step 2 dominate the gate count (using reversible
+elliptic-curve arithmetic), and the two transforms of Step 3 each cost $O((\log r)^2)$ gates.
+Turning that gate count into an *expected running time* also needs a lower bound on the
+probability that one measurement yields a usable candidate, which depends on the register size
+and on the classical post-processing. This project does not derive such a bound: the toy
+implementation uses the single-rounding rule of §11.4.3 at $M = 16$, $r = 13$, and its
+per-measurement success probability is only the estimate recorded there. Nothing in this section
+establishes the extraction rule for large $r$.
 
-*Proof sketch.* The circuit uses $2t + n = O(\log r)$ qubits. The controlled point-addition
-circuit (Step 2) requires $O((\log r)^3)$ elementary quantum gates (using reversible elliptic-
-curve arithmetic; see Proos–Zalka [PZ03] for the gate count). The two QFTs (Step 4) each require
-$O((\log r)^2)$ gates. The 2D-lattice extraction (Step 5) is classical and costs $O((\log r)^2)$.
-The total expected gate count is $O((\log r)^3)$. $\square$
-
-**Principle-4 annotation.** The Track-S implementation (S.C) solves the ECDLP on a toy curve
-with $r = 13$ using 17 qubits. To solve the ECDLP on secp256k1 ($r \approx 2^{256}$), the
-circuit would need approximately 768 qubits (Proos–Zalka [PZ03]) — requiring a $2^{768}$-entry
-amplitude array on a classical simulator, far beyond any classical computer. The simulator
-demonstrates the mathematics correctly at toy scale; the quantum speedup requires real quantum
-hardware. See `shor/docs/PEDAGOGY.md` §6.3 and `docs/BENCHMARKS.md` §S.C.
+**Scale note.** The implementation solves the ECDLP on a toy curve with $r = 13$ using 17 qubits
+(`qubit_budget_within_ceiling`). The layout it uses, $2t + 3 \cdot \lceil \log_2 p \rceil$
+qubits (two exponent registers, plus $x$, $y$, and scratch registers), would be $2 \cdot 256 +
+3 \cdot 256 = 1280$ qubits for a 256-bit curve such as secp256k1. That figure is arithmetic on
+this project's layout, not a published resource estimate, and this project does not reproduce
+the resource counts published for optimised circuits (such as [PZ03]). A classical
+state-vector simulator would need a $2^{n}$-entry amplitude array for $n$ qubits, which is
+beyond any classical computer long before that size. The simulator demonstrates the mathematics
+at toy scale; a quantum speedup requires quantum hardware. See `shor/docs/PEDAGOGY.md` §6.3 and
+the Shor ECDLP section of `docs/BENCHMARKS.md`.
 
 ---
 
@@ -4217,25 +4295,25 @@ avoid the fatal torsion-point leakage.
 
 The rDLP project documents the complete arc from classical to quantum cryptanalysis:
 
-- **Track ρ (Pollard rho):** the generic $\sqrt{n}$ bound and the birthday-paradox collision
+- **Pollard rho:** the generic $\sqrt{n}$ bound and the birthday-paradox collision
   argument — the baseline that every subsequent attack must beat.
-- **Track G (GNFS):** the number-field structure that reduces factoring to $L_N[1/3, (64/9)^{1/3}]$
+- **GNFS:** the number-field structure that reduces factoring to $L_N[1/3, (64/9)^{1/3}]$
   — the best known classical attack on RSA.
-- **Track D (NFS-DL):** the adaptation of GNFS to discrete logarithms — the best known classical
+- **NFS-DL:** the adaptation of GNFS to discrete logarithms — the best known classical
   attack on Diffie–Hellman.
-- **Track E (algebraic ECDLP attacks):** the five algebraic structures (Pohlig–Hellman, SSA,
+- **Algebraic ECDLP attacks:** the five algebraic structures (Pohlig–Hellman, SSA,
   GHS, index calculus, MOV) that escape the generic bound for elliptic-curve DLP — the classical
   attack surface for ECC.
-- **Track S (Shor's algorithm):** the quantum period-finding structure that dissolves the
+- **Shor's algorithm:** the quantum period-finding structure that dissolves the
   $L$-notation bound entirely — the quantum attack on RSA, DH, and ECC simultaneously.
 
-Together, these tracks show that every classical hardness assumption underlying RSA and ECC is
+Together, these algorithms show that every classical hardness assumption underlying RSA and ECC is
 broken — classically by subexponential algorithms, quantumly by polynomial-time algorithms. The
 post-quantum migration is the engineering response to this mathematical reality.
 
-**The principle-4 statement for Track S.** The Track-S implementation demonstrates Shor's
-mathematics at toy scale (up to 17 qubits, $N \leq 91$, $r = 13$). The ~25-qubit simulator
-ceiling is a resource-scale wall: the dense state-vector simulator holds $2^n$ complex
+**The scale statement for the Shor chapter.** The implementation demonstrates Shor's
+mathematics at toy scale (up to 17 qubits for ECDLP with $r = 13$; factoring $N \leq 91$). The
+~25-qubit simulator ceiling is a resource-scale wall: the dense state-vector simulator holds $2^n$ complex
 amplitudes, and at $n = 25$ this is the practical memory limit on a laptop. The ceiling is not
 a mathematical one — the algorithm is correct at all scales. The quantum speedup (the polynomial
 vs subexponential separation) is not observable at toy scale; it requires real quantum hardware
@@ -4245,8 +4323,8 @@ pedagogical terminus of this project, not a new construction track.
 **The survey is the contribution.** The post-quantum migration landscape (NIST PQC families,
 the SIDH break, the migration rationale) is surveyed within established literature. No PQC
 primitive is implemented; no new crate, dependency, or benchmark is added. The contribution of
-Track S is the documentation of the quantum arc — the mathematics (this chapter) and the code
-realisation (`shor/docs/PEDAGOGY.md`) — that contextualises the migration and closes the
+the Shor chapter is the documentation of the quantum arc — the mathematics (this chapter) and the
+code realisation (`shor/docs/PEDAGOGY.md`) — that contextualises the migration and closes the
 project's classical+quantum survey.
 
 ---
@@ -4255,15 +4333,15 @@ project's classical+quantum survey.
 
 #### Code realisation
 
-The Track-S code-tour in `shor/docs/PEDAGOGY.md` is the code-first sibling to this chapter.
+The Shor code-tour in `shor/docs/PEDAGOGY.md` is the code-first sibling to this chapter.
 The chapter-pairing is:
 
 | This chapter | Code-tour section |
 |-------------|-------------------|
 | §11.2 QFT and phase estimation | `shor/docs/PEDAGOGY.md` §2.2 (`qft` module) |
-| §11.3 Shor's factoring algorithm | `shor/docs/PEDAGOGY.md` §3 (Sub-Track S.B) |
-| §11.4 Shor's ECDLP algorithm | `shor/docs/PEDAGOGY.md` §4 (Sub-Track S.C) |
-| §11.7 Principle-4 annotation | `shor/docs/PEDAGOGY.md` §6.3 (resource ceiling) |
+| §11.3 Shor's factoring algorithm | `shor/docs/PEDAGOGY.md` §3 (factoring) |
+| §11.4 Shor's ECDLP algorithm | `shor/docs/PEDAGOGY.md` §4 (ECDLP) |
+| §11.7 Scale statement | `shor/docs/PEDAGOGY.md` §6.3 (resource ceiling) |
 
 #### Within this textbook
 
@@ -4281,8 +4359,9 @@ The chapter-pairing is:
 
 #### Benchmark data
 
-- **`docs/BENCHMARKS.md` §§ S.A–S.C** — the qubit-budget tables, wall-clock timings, and
-  `### Science↔engineering note` annotations for the three Track-S sub-tracks.
+- **`docs/BENCHMARKS.md`, the Shor simulator, factoring, and ECDLP sections** — the qubit-budget
+  tables, timings, and `### Science↔engineering note` annotations for the three parts of the
+  Shor chapter.
 
 ---
 
@@ -4324,15 +4403,16 @@ The chapter-pairing is:
 
 ## Chapter 12 — Modularity and the Arithmetic of Elliptic Curves: A Speculation
 
-> **This chapter is the project's one chartered speculation.** Everything in Chapters 1–11 is
-> implemented, KAT-verified, and mathematically established. This chapter is different: it surveys
-> the Taniyama–Shimura–Weil modularity theorem as a *structural* phenomenon in the same
+> **This chapter is the project's one deliberate speculation.** The algorithms of Chapters 1–11
+> are implemented and exercised by known-answer tests at toy scale, and their mathematics is
+> established in those chapters (each chapter says where its claims stop; for instance, the Shor
+> ECDLP extraction rule in §11.4 is analysed only for the toy curve). This chapter is different:
+> it surveys the Taniyama–Shimura–Weil modularity theorem as a *structural* phenomenon in the same
 > escape-from-search family the project surveys, and then asks — explicitly as speculation, not as
 > a claimed result — whether the kind of deep correspondence it exemplifies points at attacks not
 > yet realised. The speculation is flagged at every turn. No algorithm in this chapter is
-> implemented; no complexity claim is made; no attack is asserted. The chapter is here because the
-> ROADMAP charters it as a Z.1 deliverable: the project's honest closing gesture toward the
-> mathematics that lies beyond its own scope.
+> implemented; no complexity claim is made; no attack is asserted. The chapter is here as the
+> project's honest closing gesture toward the mathematics that lies beyond its own scope.
 
 ### §12.1 Introduction: Correspondences as Structure
 
@@ -4351,7 +4431,7 @@ algorithm; it is a structural theorem. But the history of the subject suggests t
 theorems of this kind have a way of generating algorithms — sometimes decades later, sometimes in
 ways their discoverers did not anticipate.
 
-This chapter surveys the TSW correspondence at the depth the C-Textbook register permits (survey
+This chapter surveys the TSW correspondence at the depth the documentation register permits (survey
 with proof-sketch depth; full proofs are cited, not given). It then asks, explicitly as
 speculation: does the modularity structure suggest further escapes from the search bound that have
 not yet been realised? The answer is: possibly, but we do not know. The speculation is honest
@@ -4683,9 +4763,10 @@ global arithmetic, not local discrete logarithms).
 ### §12.6 Why This Speculation Belongs Here
 
 The project's through-line is structure-based escape from search. The five escape families
-surveyed in Chapters 6–11 are the known escapes; they are implemented, KAT-verified, and
-mathematically established. This chapter is the honest closing gesture: a survey of the deepest
-known structural theorem about elliptic curves (TSW), an account of how it connects to the
+surveyed in Chapters 6–11 are the known escapes; they are implemented and exercised by
+known-answer tests at toy scale, with their mathematics developed in those chapters. This
+chapter is the honest closing gesture: a survey of the deepest known structural theorem about
+elliptic curves (TSW), an account of how it connects to the
 algorithms in this textbook (point counting, isogenies, the Castryck–Decru precedent), and an
 explicit speculation about whether it points at further escapes.
 
