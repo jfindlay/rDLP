@@ -24,6 +24,21 @@
 //! provided `gcd(b₂ − b₁, n) = 1`.  Degenerate collisions (where the gcd > 1)
 //! are discarded and the walk is restarted.
 //!
+//! # Outcomes
+//!
+//! [`solve_brent`] and [`solve`] validate the instance with [`check_binary_order_input`], answer
+//! `Q = ∞` and `Q = G` without a walk, and check every `k` they return with
+//! [`verify_binary_log`] before wrapping it in a [`DlogSolution`] carrying [`RhoEvidence`].
+//! Failures are a [`DlogError`]: invalid input, exhausted attempts, or a non-degenerate collision
+//! whose `k` fails verification ([`DlogError::Inconsistent`], never retried).
+//!
+//! Group orders may be composite, so unlike the prime-field solver the input check does not require
+//! a prime `n`. When `gcd(b₂ − b₁, n) = d > 1` the congruence `(b₂ − b₁)·k ≡ a₁ − a₂ (mod n)` has
+//! either no solution or `d` of them, and the collision does not single one out; the attempt is
+//! discarded instead of guessing among candidates. When `d = 1` the unique solution satisfies
+//! `k·G = Q` whenever `n·G = n·Q = ∞`, so a failed verification there is a genuine inconsistency
+//! and not bad luck.
+//!
 //! # Walk design
 //!
 //! The addend table has `R = 16` entries.  Each entry `R[i] = αᵢ·G + βᵢ·Q`
@@ -67,6 +82,7 @@ use rand::SeedableRng;
 use shared_gf2m::F2m;
 
 use crate::binary_curve::{BinaryAffinePoint, BinaryCurve};
+use crate::ecdlp::{DlogError, DlogSolution, InputDefect, RhoEvidence};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -87,7 +103,8 @@ fn add_mod_n(a: u64, b: u64, n: u64) -> u64 {
 /// Subtract two scalars modulo `n`: `(a − b) mod n`, result in `[0, n)`.
 #[inline]
 fn sub_mod_n(a: u64, b: u64, n: u64) -> u64 {
-    if a >= b { a - b } else { a + n - b }
+    // `n - (b - a)` rather than `a + n - b`: the sum `a + n` overflows u64 when n > 2^63.
+    if a >= b { a - b } else { n - (b - a) }
 }
 
 /// Multiply two scalars modulo `n`.
@@ -129,8 +146,7 @@ fn inv_mod_n(a: u64, n: u64) -> Option<u64> {
         return None;
     }
     // x may be negative; reduce to [0, n).
-    let result = ((x % n as i128) + n as i128) as u64 % n;
-    Some(result)
+    Some(x.rem_euclid(n as i128) as u64)
 }
 
 /// Sample a uniform random scalar from `[1, n)`.
@@ -315,8 +331,13 @@ fn recover_k(a1: u64, b1: u64, a2: u64, b2: u64, n: u64) -> Option<u64> {
 /// pointers according to Brent's algorithm.  When a collision is detected,
 /// the DLP is extracted from the tracked `(a, b)` scalars.
 ///
-/// The solver retries up to `max_retries` times on degenerate failures (i.e., when
-/// `gcd(b_h − b_t, n) > 1` at collision time).
+/// Validates the instance with [`check_binary_order_input`], answers `Q = ∞` and `Q = G` as
+/// [`RhoEvidence::Trivial`] without a walk, and checks the recovered `k` with
+/// [`verify_binary_log`] before returning it.
+///
+/// A degenerate collision (`gcd(b_h − b_t, n) > 1`) and an attempt that reaches the per-attempt
+/// step cap (`2^29 − 1` steps) each consume one of the `max_retries` attempts; attempt `i` uses
+/// seed `seed + i` (wrapping).
 ///
 /// # Walk-state invariant
 ///
@@ -333,9 +354,14 @@ fn recover_k(a1: u64, b1: u64, a2: u64, b2: u64, n: u64) -> Option<u64> {
 /// * `seed` — RNG seed for reproducibility.
 /// * `max_retries` — maximum number of fresh attempts (typical: 30).
 ///
-/// # Returns
+/// # Errors
 ///
-/// `Some(k)` such that `k·G = Q`, or `None` if all retries were degenerate.
+/// * [`DlogError::InvalidInput`] — the instance fails [`check_binary_order_input`].
+/// * [`DlogError::BudgetExhausted`] — all `max_retries` attempts ended degenerate
+///   (`gcd(b₂ − b₁, n) > 1`) or at the step cap (`max_retries = 0` gives `attempts: 0, steps: 0`).
+///   This proves nothing about `Q`.
+/// * [`DlogError::Inconsistent`] — a non-degenerate collision gave a `k` with `k·G ≠ Q`. It is
+///   never retried.
 pub fn solve_brent<F: F2m<1>>(
     curve: &BinaryCurve,
     g: &BinaryAffinePoint<F>,
@@ -343,58 +369,212 @@ pub fn solve_brent<F: F2m<1>>(
     n: u64,
     seed: u64,
     max_retries: usize,
-) -> Option<u64> {
-    // Special case: Q = ∞ means k = 0.
-    if q.is_infinity() {
-        return Some(0);
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
+    check_binary_order_input(curve, g, q, n)?;
+    if let Some(trivial) = trivial_solution(curve, g, q) {
+        return trivial;
     }
+    search(curve, g, q, n, seed, max_retries, |_| {})
+}
 
-    for attempt in 0..max_retries {
-        let mut rng = ChaCha20Rng::seed_from_u64(seed.wrapping_add(attempt as u64));
+/// Largest Brent window an attempt may reach: an attempt that would double past this gives up,
+/// after `2^29 − 1` walk steps.
+const BRENT_MAX_WINDOW: u64 = 1 << 28;
 
-        let table = BinaryAddendTable::new(curve, g, q, n, &mut rng);
+/// How one Brent attempt ended.
+enum BrentAttempt {
+    /// The hare caught the tortoise; the scalars of both states at the collision.
+    Collision { a_t: u64, b_t: u64, a_h: u64, b_h: u64 },
+    /// The window grew past [`BRENT_MAX_WINDOW`] without a collision.
+    StepCap,
+}
 
-        // Initialise both pointers from the same starting state (standard Brent).
-        let start = BinaryWalkState::<F>::new_random(curve, g, q, n, &mut rng);
-        let mut tortoise = start.clone();
-        let mut hare     = start;
+/// Run one Brent attempt from the walk seeded by `rng_seed`.
+///
+/// `canonicalise` is applied to the starting state and to the hare after every step; it must keep
+/// the invariant `point = a·G + b·Q`. The baseline walk passes a no-op. Adds the hare steps taken
+/// to `steps`.
+fn brent_attempt<F: F2m<1>>(
+    curve: &BinaryCurve,
+    g: &BinaryAffinePoint<F>,
+    q: &BinaryAffinePoint<F>,
+    n: u64,
+    rng_seed: u64,
+    canonicalise: &mut impl FnMut(&mut BinaryWalkState<F>),
+    steps: &mut u64,
+) -> BrentAttempt {
+    // Fresh RNG per attempt so each retry explores a different trajectory.
+    let mut rng = ChaCha20Rng::seed_from_u64(rng_seed);
 
-        let mut r: u64 = 1;     // current window size (power of 2)
-        let mut count: u64 = 0; // steps taken in the current window
+    let table = BinaryAddendTable::new(curve, g, q, n, &mut rng);
 
-        loop {
-            // Advance hare one step.
-            hare.step(curve, &table, n);
-            count += 1;
+    // Initialise both pointers from the same starting state (standard Brent).
+    let mut start = BinaryWalkState::<F>::new_random(curve, g, q, n, &mut rng);
+    canonicalise(&mut start);
+    let mut tortoise = start.clone();
+    let mut hare = start;
 
-            // Check for collision: same affine point.
-            if hare.point == tortoise.point {
-                let ta = tortoise.a;
-                let tb = tortoise.b;
-                let ha = hare.a;
-                let hb = hare.b;
-                if let Some(k) = recover_k(ta, tb, ha, hb, n) {
-                    return Some(k);
-                }
-                break; // degenerate — retry outer attempt loop
-            }
+    let mut r: u64 = 1; // current window size (power of 2)
+    let mut count: u64 = 0; // steps taken in the current window
 
-            // If hare has taken `r` steps from the last tortoise snapshot:
-            // snap tortoise forward to hare's current position and double the window.
-            if count == r {
-                tortoise = hare.clone();
-                count = 0;
-                r <<= 1;
+    loop {
+        hare.step(curve, &table, n);
+        canonicalise(&mut hare);
+        count += 1;
+        *steps += 1;
 
-                // Safety cap: give up after 2^28 total evaluations on this attempt.
-                if r > (1 << 28) {
-                    break;
-                }
+        if hare.point == tortoise.point {
+            return BrentAttempt::Collision {
+                a_t: tortoise.a,
+                b_t: tortoise.b,
+                a_h: hare.a,
+                b_h: hare.b,
+            };
+        }
+
+        // After `r` steps from the last snapshot, snap the tortoise to the hare and double the
+        // window.
+        if count == r {
+            tortoise = hare.clone();
+            count = 0;
+            r <<= 1;
+
+            if r > BRENT_MAX_WINDOW {
+                return BrentAttempt::StepCap;
             }
         }
     }
+}
 
-    None
+/// Return `k` as a solution after confirming `k·G == Q`.
+fn verified<F: F2m<1>>(
+    curve: &BinaryCurve,
+    g: &BinaryAffinePoint<F>,
+    q: &BinaryAffinePoint<F>,
+    k: u64,
+    evidence: RhoEvidence,
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
+    if verify_binary_log(curve, g, q, k) {
+        Ok(DlogSolution::new(k, evidence))
+    } else {
+        Err(DlogError::Inconsistent { k })
+    }
+}
+
+/// Answer `Q = ∞` (`k = 0`) and `Q = G` (`k = 1`) without a walk; `None` for any other target.
+fn trivial_solution<F: F2m<1>>(
+    curve: &BinaryCurve,
+    g: &BinaryAffinePoint<F>,
+    q: &BinaryAffinePoint<F>,
+) -> Option<Result<DlogSolution<RhoEvidence>, DlogError>> {
+    if q.is_infinity() {
+        Some(verified(curve, g, q, 0, RhoEvidence::Trivial))
+    } else if q == g {
+        Some(verified(curve, g, q, 1, RhoEvidence::Trivial))
+    } else {
+        None
+    }
+}
+
+/// Run up to `max_retries` Brent attempts and return the first verified collision.
+///
+/// Attempt `i` uses seed `seed + i` (wrapping). A degenerate collision and a step-capped attempt
+/// each consume one attempt; a non-degenerate collision is final, verified or not.
+fn search<F: F2m<1>>(
+    curve: &BinaryCurve,
+    g: &BinaryAffinePoint<F>,
+    q: &BinaryAffinePoint<F>,
+    n: u64,
+    seed: u64,
+    max_retries: usize,
+    mut canonicalise: impl FnMut(&mut BinaryWalkState<F>),
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
+    let mut steps: u64 = 0;
+    for attempt in 0..max_retries {
+        let rng_seed = seed.wrapping_add(attempt as u64);
+        let BrentAttempt::Collision { a_t, b_t, a_h, b_h } =
+            brent_attempt(curve, g, q, n, rng_seed, &mut canonicalise, &mut steps)
+        else {
+            continue; // step cap reached
+        };
+        let Some(k) = recover_k(a_t, b_t, a_h, b_h, n) else {
+            continue; // degenerate collision
+        };
+        let evidence = RhoEvidence::Collision {
+            attempt,
+            steps,
+            a1: a_t,
+            b1: b_t,
+            a2: a_h,
+            b2: b_h,
+            negated: false,
+        };
+        return verified(curve, g, q, k, evidence);
+    }
+
+    Err(DlogError::BudgetExhausted { attempts: max_retries, steps })
+}
+
+// ── Verification and input checks ─────────────────────────────────────────────
+
+/// Check `k·G == Q` exactly.
+///
+/// Independent of the method that produced `k`; every binary solver calls it before constructing
+/// a [`DlogSolution`].
+#[must_use]
+pub fn verify_binary_log<F: F2m<1>>(
+    curve: &BinaryCurve,
+    g: &BinaryAffinePoint<F>,
+    q: &BinaryAffinePoint<F>,
+    k: u64,
+) -> bool {
+    curve.scalar_mul(g, &Uint::<1>::from(k)) == *q
+}
+
+/// Validate a binary-curve discrete-log instance whose order `n` may be composite.
+///
+/// Checks, in order: `G ≠ ∞`; `G` and `Q` on the curve; `n ≠ 0`; `n·G = ∞`; `n·Q = ∞`. It costs
+/// two scalar multiplications. Unlike [`crate::ecdlp::check_prime_order_input`] it does not
+/// require `n` prime, because the walk recovers `k` with an extended-gcd inverse and the toy
+/// binary curves have composite order.
+///
+/// For composite `n` the check claims only what it tests: `n·G = ∞` means the order of `G`
+/// divides `n`, not that it equals `n`, and `n·Q = ∞` does not prove `Q ∈ ⟨G⟩`. A target outside
+/// `⟨G⟩` can never give a non-degenerate collision, so it surfaces from a solver as
+/// [`DlogError::BudgetExhausted`] (or, on the τ-orbit walk, possibly
+/// [`DlogError::Inconsistent`]).
+///
+/// # Errors
+///
+/// [`DlogError::InvalidInput`] with the first [`InputDefect`] found, in the order above.
+/// [`InputDefect::OrderNotPrime`] is never returned here.
+pub fn check_binary_order_input<F: F2m<1>>(
+    curve: &BinaryCurve,
+    g: &BinaryAffinePoint<F>,
+    q: &BinaryAffinePoint<F>,
+    n: u64,
+) -> Result<(), DlogError> {
+    let defect = |d: InputDefect| Err(DlogError::InvalidInput(d));
+    if g.is_infinity() {
+        return defect(InputDefect::GeneratorAtInfinity);
+    }
+    if !curve.is_on_curve(g) {
+        return defect(InputDefect::GeneratorNotOnCurve);
+    }
+    if !curve.is_on_curve(q) {
+        return defect(InputDefect::TargetNotOnCurve);
+    }
+    if n == 0 {
+        return defect(InputDefect::ZeroOrder);
+    }
+    let order = Uint::<1>::from(n);
+    if !curve.scalar_mul(g, &order).is_infinity() {
+        return defect(InputDefect::WrongGeneratorOrder);
+    }
+    if !curve.scalar_mul(q, &order).is_infinity() {
+        return defect(InputDefect::TargetOutsideSubgroup);
+    }
+    Ok(())
 }
 
 /// Solve `Q = k·G` on a binary curve (primary entry point).
@@ -408,15 +588,15 @@ pub fn solve_brent<F: F2m<1>>(
 /// * `q` — target point Q (`Q = k·G` for the unknown `k`).
 /// * `n` — group order.
 ///
-/// # Returns
+/// # Errors
 ///
-/// `Some(k)` such that `k·G = Q`, or `None` if the solver failed.
+/// As [`solve_brent`].
 pub fn solve<F: F2m<1>>(
     curve: &BinaryCurve,
     g: &BinaryAffinePoint<F>,
     q: &BinaryAffinePoint<F>,
     n: u64,
-) -> Option<u64> {
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
     solve_brent(curve, g, q, n, 0, 50)
 }
 
@@ -508,6 +688,18 @@ mod tests {
         assert_eq!(inv_mod_n(5, 12), Some(5));
         // 7 * 7 = 49 ≡ 1 (mod 12). ✓
         assert_eq!(inv_mod_n(7, 12), Some(7));
+    }
+
+    /// Scalar helpers stay exact for `n` above `2^63`, where `a + n` overflows `u64`.
+    #[test]
+    fn scalar_helpers_handle_orders_above_2_63() {
+        let n = u64::MAX - 58; // 2^64 − 59, prime
+        assert_eq!(sub_mod_n(1, 3, n), n - 2);
+        assert_eq!(sub_mod_n(n - 1, n - 1, n), 0);
+        for a in [1, 2, n - 1, n / 2 + 1] {
+            let inv = inv_mod_n(a, n).expect("prime modulus");
+            assert_eq!(mul_mod_n(a, inv, n), 1, "a = {a}");
+        }
     }
 
     /// `recover_k` returns `None` for degenerate collisions (b1 = b2 mod n).

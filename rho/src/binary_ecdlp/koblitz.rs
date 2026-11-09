@@ -39,27 +39,12 @@
 //! `solve` / `solve_brent` functions.
 
 use crypto_bigint::Uint;
-use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
 
 use shared_gf2m::F2m;
 
 use crate::binary_curve::{BinaryAffinePoint, BinaryCurve};
-use crate::binary_ecdlp::{BinaryAddendTable, BinaryWalkState};
-
-// ── Modular arithmetic helpers (local copies; mirrors binary_ecdlp/mod.rs) ────
-
-/// Subtract two scalars modulo `n`: `(a − b) mod n`, result in `[0, n)`.
-#[inline]
-fn sub_mod_n(a: u64, b: u64, n: u64) -> u64 {
-    if a >= b { a - b } else { a + n - b }
-}
-
-/// Multiply two scalars modulo `n`.
-#[inline]
-fn mul_mod_n(a: u64, b: u64, n: u64) -> u64 {
-    ((a as u128 * b as u128) % n as u128) as u64
-}
+use crate::binary_ecdlp::{check_binary_order_input, mul_mod_n, search, trivial_solution};
+use crate::ecdlp::{DlogError, DlogSolution, RhoEvidence};
 
 // ── Frobenius endomorphism ────────────────────────────────────────────────────
 
@@ -308,14 +293,23 @@ pub fn tau_naf_mul<F: F2m<1>>(
 ///
 /// A vector `[λ_0, λ_1, ..., λ_{m-1}]` where `τ^k(G) = λ_k · G`.
 /// `λ_0 = 1` always (τ^0 = identity).
+///
+/// # Errors
+///
+/// [`DlogError::Unsupported`] when `n` exceeds [`TAU_EIGENVALUE_MAX_ORDER`] (the lookup table
+/// holds all `n` multiples of `G`), or when some `τ^k(G)` is not a multiple of `G`: the group
+/// `⟨G⟩` is then not stable under τ and no eigenvalue exists.
 pub fn compute_tau_eigenvalues<F: F2m<1>>(
     curve: &BinaryCurve,
     g: &BinaryAffinePoint<F>,
     m: usize,
     n: u64,
-) -> Vec<u64> {
+) -> Result<Vec<u64>, DlogError> {
+    if n > TAU_EIGENVALUE_MAX_ORDER {
+        return Err(DlogError::Unsupported("group order too large to enumerate for τ eigenvalues"));
+    }
+
     // Build a lookup table: point → scalar (for all multiples of G).
-    // For small n, enumerate all k·G.
     let mut table: Vec<(BinaryAffinePoint<F>, u64)> = Vec::with_capacity(n as usize);
     let mut pt = BinaryAffinePoint::Infinity;
     for k in 0..n {
@@ -327,20 +321,23 @@ pub fn compute_tau_eigenvalues<F: F2m<1>>(
     let mut eigenvalues = Vec::with_capacity(m);
     let mut tau_k_g = g.clone();
 
-    for k in 0..m {
+    for _ in 0..m {
         // Find λ_k such that τ^k(G) = λ_k · G.
         let lam = table
             .iter()
             .find(|(p, _)| *p == tau_k_g)
             .map(|(_, idx)| *idx)
-            .unwrap_or_else(|| panic!("tau eigenvalue not found for k={k}: τ^k(G) not in group"));
+            .ok_or(DlogError::Unsupported("τ^k(G) is outside ⟨G⟩: no τ eigenvalue"))?;
         eigenvalues.push(lam);
         // Advance: τ^(k+1)(G) = τ(τ^k(G)).
         tau_k_g = tau(&tau_k_g, poly);
     }
 
-    eigenvalues
+    Ok(eigenvalues)
 }
+
+/// Largest group order for which [`compute_tau_eigenvalues`] enumerates the multiples of `G`.
+pub const TAU_EIGENVALUE_MAX_ORDER: u64 = 1 << 20;
 
 // ── τ-orbit rho walk ──────────────────────────────────────────────────────────
 
@@ -373,147 +370,97 @@ pub fn compute_tau_eigenvalues<F: F2m<1>>(
 /// * `q` — target point Q (`Q = k·G` for the unknown `k`).
 /// * `n` — group order (prime or composite; 64-bit).
 /// * `m` — field degree (τ has order dividing m).
-/// * `t` — Frobenius trace of the curve (`#E = 2^m + 1 − t`).
 /// * `seed` — RNG seed for reproducibility.
 /// * `max_retries` — maximum number of fresh attempts.
 ///
-/// # Returns
+/// # Evidence
 ///
-/// `Some(k)` such that `k·G = Q`, or `None` if all retries were degenerate.
+/// Every walk state is replaced by its canonical orbit representative before it is compared, and
+/// [`tau_canonical`] folds the orbit map (the τ-power `λ_k`) and the sign of the orbit member into
+/// the tracked scalars. A collision is therefore between identical canonical points, so the
+/// returned [`RhoEvidence::Collision`] satisfies `a1·G + b1·Q = a2·G + b2·Q (mod n)` with no
+/// τ-power or sign left over: `negated` is always `false` and the evidence has no τ-power field.
+/// A wrong eigenvalue corrupts the folded scalars, and the solve then ends in
+/// [`DlogError::Inconsistent`] rather than a wrong answer.
+///
+/// # Errors
+///
+/// * [`DlogError::InvalidInput`] — the instance fails [`check_binary_order_input`].
+/// * [`DlogError::Unsupported`] — [`compute_tau_eigenvalues`] found no eigenvalues (`τ^k(G)`
+///   outside `⟨G⟩`, or `n` above [`TAU_EIGENVALUE_MAX_ORDER`]).
+/// * [`DlogError::BudgetExhausted`] — as for [`crate::binary_ecdlp::solve_brent`].
+/// * [`DlogError::Inconsistent`] — a non-degenerate collision gave a `k` with `k·G ≠ Q`. Besides a
+///   walk bug, this is how a target outside `⟨G⟩` can surface, since the τ-orbit fold assumes
+///   `τ^k(Q) = λ_k·Q`.
 pub fn solve_koblitz<F: F2m<1>>(
     curve: &BinaryCurve,
     g: &BinaryAffinePoint<F>,
     q: &BinaryAffinePoint<F>,
     n: u64,
     m: usize,
-    _t: i64,
     seed: u64,
     max_retries: usize,
-) -> Option<u64> {
-    // Special case: Q = ∞ means k = 0.
-    if q.is_infinity() {
-        return Some(0);
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
+    check_binary_order_input(curve, g, q, n)?;
+    if let Some(trivial) = trivial_solution(curve, g, q) {
+        return trivial;
     }
-
-    // Precompute τ eigenvalues: λ_k such that τ^k(G) = λ_k · G.
-    let tau_eigenvalues = compute_tau_eigenvalues(curve, g, m, n);
-
-    for attempt in 0..max_retries {
-        let mut rng = ChaCha20Rng::seed_from_u64(seed.wrapping_add(attempt as u64));
-
-        let table = BinaryAddendTable::new(curve, g, q, n, &mut rng);
-
-        // Initialise both pointers from the same starting state (standard Brent).
-        let start_raw = BinaryWalkState::<F>::new_random(curve, g, q, n, &mut rng);
-
-        // Collapse the starting point to its τ-orbit canonical representative.
-        let (canon_pt, canon_a, canon_b) = tau_canonical(
-            &start_raw.point,
-            start_raw.a,
-            start_raw.b,
-            curve,
-            m,
-            n,
-            &tau_eigenvalues,
-        );
-        let start = BinaryWalkState { point: canon_pt, a: canon_a, b: canon_b };
-
-        let mut tortoise = start.clone();
-        let mut hare = start;
-
-        let mut r: u64 = 1;
-        let mut count: u64 = 0;
-
-        loop {
-            // Advance hare one step (using the baseline walk step).
-            hare.step(curve, &table, n);
-
-            // Collapse hare to τ-orbit canonical representative.
-            let (canon_pt, canon_a, canon_b) = tau_canonical(
-                &hare.point,
-                hare.a,
-                hare.b,
-                curve,
-                m,
-                n,
-                &tau_eigenvalues,
-            );
-            hare.point = canon_pt;
-            hare.a = canon_a;
-            hare.b = canon_b;
-
-            count += 1;
-
-            // Check for collision: same canonical point.
-            if hare.point == tortoise.point {
-                let ta = tortoise.a;
-                let tb = tortoise.b;
-                let ha = hare.a;
-                let hb = hare.b;
-                if let Some(k) = recover_k(ta, tb, ha, hb, n) {
-                    return Some(k);
-                }
-                break; // degenerate — retry outer attempt loop
-            }
-
-            // Brent's window: snap tortoise to hare and double the window.
-            if count == r {
-                tortoise = hare.clone();
-                count = 0;
-                r <<= 1;
-
-                if r > (1 << 28) {
-                    break;
-                }
-            }
-        }
-    }
-
-    None
+    let tau_eigenvalues = compute_tau_eigenvalues(curve, g, m, n)?;
+    koblitz_search(curve, g, q, n, m, &tau_eigenvalues, seed, max_retries)
 }
 
-/// Recover `k` from a collision between two walk states.
+/// [`solve_koblitz`] with the τ eigenvalues supplied by the caller.
 ///
-/// Given `a₁·G + b₁·Q = a₂·G + b₂·Q`, solves for `k = Q/G`:
-/// `k = (a₁ − a₂) / (b₂ − b₁) mod n`.
-fn recover_k(a1: u64, b1: u64, a2: u64, b2: u64, n: u64) -> Option<u64> {
-    let db = sub_mod_n(b2, b1, n);
-    if db == 0 {
-        return None;
+/// `tau_eigenvalues[k]` must be the `λ_k` of [`compute_tau_eigenvalues`] for the same curve and
+/// `G`, which also lets one table serve many targets. The eigenvalues are not re-checked against
+/// `τ^k(G)`: a wrong table is detected only by the final `k·G == Q` check, so it ends in
+/// [`DlogError::Inconsistent`] (or an exhausted budget if every collision is degenerate), never
+/// in a wrong `Ok`.
+///
+/// # Errors
+///
+/// As [`solve_koblitz`], plus [`DlogError::Unsupported`] when `tau_eigenvalues` has fewer than
+/// `m` entries.
+#[allow(clippy::too_many_arguments)] // mirrors `solve_koblitz` plus the eigenvalue table
+pub fn solve_koblitz_with_eigenvalues<F: F2m<1>>(
+    curve: &BinaryCurve,
+    g: &BinaryAffinePoint<F>,
+    q: &BinaryAffinePoint<F>,
+    n: u64,
+    m: usize,
+    tau_eigenvalues: &[u64],
+    seed: u64,
+    max_retries: usize,
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
+    check_binary_order_input(curve, g, q, n)?;
+    if let Some(trivial) = trivial_solution(curve, g, q) {
+        return trivial;
     }
-    let db_inv = inv_mod_n(db, n)?;
-    let da = sub_mod_n(a1, a2, n);
-    Some(mul_mod_n(da, db_inv, n))
+    if tau_eigenvalues.len() < m {
+        return Err(DlogError::Unsupported("fewer τ eigenvalues than the field degree"));
+    }
+    koblitz_search(curve, g, q, n, m, tau_eigenvalues, seed, max_retries)
 }
 
-/// Modular inverse of `a` modulo `n` via extended GCD.
-fn inv_mod_n(a: u64, n: u64) -> Option<u64> {
-    if a == 0 {
-        return None;
-    }
-    let (g, x) = extended_gcd_iter(a % n, n);
-    if g != 1 {
-        return None;
-    }
-    let result = ((x % n as i128) + n as i128) as u64 % n;
-    Some(result)
-}
-
-/// Extended Euclidean algorithm: returns `(gcd(a, b), x)` such that `a·x ≡ gcd(a,b) (mod b)`.
-fn extended_gcd_iter(a: u64, b: u64) -> (u64, i128) {
-    let (mut old_r, mut r) = (a as i128, b as i128);
-    let (mut old_s, mut s) = (1i128, 0i128);
-
-    while r != 0 {
-        let q = old_r / r;
-        let tmp_r = old_r - q * r;
-        old_r = r;
-        r = tmp_r;
-        let tmp_s = old_s - q * s;
-        old_s = s;
-        s = tmp_s;
-    }
-    (old_r as u64, old_s)
+/// Run the τ-orbit walk, collapsing every state to its canonical orbit representative.
+#[allow(clippy::too_many_arguments)] // the walk's full parameter set; no natural grouping
+fn koblitz_search<F: F2m<1>>(
+    curve: &BinaryCurve,
+    g: &BinaryAffinePoint<F>,
+    q: &BinaryAffinePoint<F>,
+    n: u64,
+    m: usize,
+    tau_eigenvalues: &[u64],
+    seed: u64,
+    max_retries: usize,
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
+    search(curve, g, q, n, seed, max_retries, |walk| {
+        let (point, a, b) =
+            tau_canonical(&walk.point, walk.a, walk.b, curve, m, n, tau_eigenvalues);
+        walk.point = point;
+        walk.a = a;
+        walk.b = b;
+    })
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
@@ -619,11 +566,30 @@ mod tests {
     fn tau_eigenvalues_toy_curve() {
         let c = toy_curve();
         let g = c.generator::<F2mNaive<1>>();
-        let eigenvalues = compute_tau_eigenvalues(&c, &g, 4, 4);
+        let eigenvalues = compute_tau_eigenvalues(&c, &g, 4, 4).expect("toy eigenvalues");
         assert_eq!(eigenvalues[0], 1, "λ_0 should be 1 (τ^0 = identity)");
         assert_eq!(eigenvalues[1], 3, "λ_1 should be 3 (τ(G) = 3G)");
         assert_eq!(eigenvalues[2], 1, "λ_2 should be 1 (τ²(G) = G)");
         assert_eq!(eigenvalues[3], 3, "λ_3 should be 3 (τ³(G) = 3G)");
+    }
+
+    /// A subgroup that τ does not preserve has no eigenvalue: an error, not a panic.
+    ///
+    /// With `n = 3` only `{∞, G, 2G}` is enumerated, but `τ(G) = 3G` lies outside it.
+    #[test]
+    fn tau_eigenvalues_outside_subgroup_are_unsupported() {
+        let c = toy_curve();
+        let g = c.generator::<F2mNaive<1>>();
+        assert!(matches!(compute_tau_eigenvalues(&c, &g, 4, 3), Err(DlogError::Unsupported(_))));
+    }
+
+    /// Enumerating the group is refused above the table limit instead of allocating `n` entries.
+    #[test]
+    fn tau_eigenvalues_refuse_huge_orders() {
+        let c = toy_curve();
+        let g = c.generator::<F2mNaive<1>>();
+        let r = compute_tau_eigenvalues(&c, &g, 4, TAU_EIGENVALUE_MAX_ORDER + 1);
+        assert!(matches!(r, Err(DlogError::Unsupported(_))));
     }
 
     /// tau_canonical returns a point that is in the τ-orbit.
@@ -632,7 +598,7 @@ mod tests {
         let c = toy_curve();
         let poly = poly4();
         let g = c.generator::<F2mNaive<1>>();
-        let eigenvalues = compute_tau_eigenvalues(&c, &g, 4, 4);
+        let eigenvalues = compute_tau_eigenvalues(&c, &g, 4, 4).expect("toy eigenvalues");
 
         let two_g = c.double(&g);
         let three_g = c.add(&two_g, &g);
