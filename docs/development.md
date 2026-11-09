@@ -130,9 +130,11 @@ A solver's return value is evidence. These rules keep it honest.
 5. **A fallback is another published method.** It solves the same problem, returns through the
    same verifier, and has its own fixtures. Exhaustive search over the answer space, or any path
    that bypasses the advertised mechanism, is not a fallback for that mechanism; if kept, it is a
-   separately named baseline that the solver never calls. A size-selected sub-step that is itself
-   the published method's step (Pohlig–Hellman's enumeration of a small prime-order subgroup,
-   Pohlig and Hellman 1978, §IV) is not a fallback.
+   separately named baseline that the solver never calls. A sub-step that the published method
+   itself prescribes, chosen by instance size, is part of that method and not a fallback.
+   Pohlig–Hellman's enumeration of a small prime-order subgroup (Pohlig and Hellman 1978, §IV) is
+   such a step: it searches only a subgroup of prime order p, inside the Chinese-remainder
+   reduction, and the solver's evidence records which method solved each digit (rule 6).
 6. **Success carries provenance** whenever more than one path can produce it: which method ran,
    plus enough intermediate evidence (the measured pair, the relation combination, the
    dependency) for a test to recheck the mechanism's own identities. A self-certifying final

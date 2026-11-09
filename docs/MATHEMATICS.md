@@ -863,8 +863,17 @@ so $(a_i - a_j) \cdot G = (b_j - b_i) \cdot Q = (b_j - b_i) \cdot k \cdot G$, gi
 
 $$k \equiv \frac{a_i - a_j}{b_j - b_i} \pmod{n}$$
 
-provided $b_j \not\equiv b_i \pmod{n}$ (which holds with probability $1 - 1/n$; if it fails, retry
-with a fresh walk).
+provided $b_j \not\equiv b_i \pmod{n}$ (which holds with probability $1 - 1/n$; if it fails, the
+attempt is discarded and a fresh walk is started).
+
+**The quotient is a candidate, not an answer.** The solvers return $k$ only after checking $k \cdot
+G = Q$ directly, so a returned logarithm does not depend on the walk that found it
+(`verify_log_rejects_successor` in `rho/tests/ecdlp_kat.rs`). A candidate that fails the check is
+an invariant failure, reported as `Inconsistent` and never retried
+(`verified_reports_wrong_candidate_as_inconsistent`, a unit test in `rho/src/ecdlp/mod.rs`).
+Spending the attempt or step budget without a usable collision is reported as budget exhaustion
+and proves nothing about $Q$ (`brent_zero_retries_is_budget_exhausted`,
+`dp_tiny_budget_is_budget_exhausted`, both in `rho/tests/ecdlp_kat.rs`).
 
 **The birthday bound.** If $f$ behaves like a random function on $G$, the expected number of steps
 before a collision is $\Theta(\sqrt{n})$ by the birthday paradox (§Prerequisites). This is the
@@ -941,9 +950,34 @@ $x$-coordinate has at least $\theta$ low-order zero bits. The expected number of
 distinguished points is $2^\theta$.
 
 **The parallel architecture.** $N$ walker threads each run an independent $r$-adding walk and emit
-a record $(x, a, b)$ whenever the walk lands on a distinguished point. A coordinator thread
-maintains a hash table keyed on $x$. When two records with the same $x$ but different $(a, b)$
-pairs arrive, the coordinator solves for $k$.
+a record $(x, \varepsilon, a, b)$ whenever the walk lands on a distinguished point, where $x$ is the
+full $x$-coordinate (every word, not only the low bits that decide whether the point is
+distinguished) and $\varepsilon$ is the parity of $y$. A coordinator thread maintains a hash table
+keyed on $x$. When two records with the same $x$ but different $(a, b)$ pairs arrive, the
+coordinator solves for $k$.
+
+**Equal points and opposite points.** $P$ and $-P$ share an $x$-coordinate, so equal $x$ does not
+by itself mean equal points. For odd $p$ and $y \neq 0$ the values $y$ and $p - y$ have opposite
+parity, so the parities $\varepsilon_1, \varepsilon_2$ tell the cases apart. If they agree the two
+points are equal and $a_1 + b_1 k \equiv a_2 + b_2 k$, giving $k \equiv (a_1 - a_2)/(b_2 - b_1)$.
+If they differ the points are negatives and $a_1 + b_1 k \equiv -(a_2 + b_2 k)$, giving $k \equiv
+-(a_1 + a_2)/(b_1 + b_2) \pmod{n}$, which is degenerate exactly when $b_1 + b_2 \equiv 0$. A walk
+without the negation map can reach both $P$ and $-P$, so the second case occurs. Treating every
+$x$-match as an equal-point collision produces a wrong $k$: matching by $x$ alone and reading every
+match as equality, the coordinator produced a candidate that failed $k \cdot G = Q$ in 18 of 100
+recorded seeds (the bounded seed search described on
+`plain_walk_recovers_log_from_negated_collision` in `rho/tests/ecdlp_kat.rs`, one walker,
+$\theta = 2$). With the parity in the record the same runs succeed and report the negated
+relation (that test and
+`plain_walk_never_misreads_the_sign_of_a_collision`). The negation-map and GLV walks canonicalise
+every point before emitting it, so their collisions are always between identical points
+(`dp_collision_evidence_is_rechecked` asserts `negated` is false for them).
+
+**Termination.** All walkers draw from one shared budget of walk steps, claimed before each step,
+so no input can make a search run unboundedly (`step_budget_grants_claims_up_to_the_limit` in
+`rho/src/ecdlp/mod.rs`); a search that spends the budget without a usable collision ends as budget
+exhaustion (`dp_solvers_report_budget_exhaustion` in the same file,
+`dp_tiny_budget_is_budget_exhausted` in `rho/tests/ecdlp_kat.rs`).
 
 **Why it works.** Two walks that ever visit the same point will, from that point on, follow
 identical trajectories (the walk is deterministic). They will therefore hit the same distinguished
@@ -1036,8 +1070,8 @@ The α-substrate algorithms are the *infrastructure* of structure-based escape f
 not themselves escape the generic bound — they provide the tools that other algorithms use to do
 so. Specifically:
 
-- **Miller–Rabin** decides primality, which is needed to build factor bases and to certify that a
-  found factor is prime.
+- **Miller–Rabin** decides primality, which is needed to build factor bases and to classify an
+  input as prime before any factoring is attempted.
 - **Smooth-number detection** identifies the elements that index-calculus algorithms collect; the
   smooth-number density theorem (§Prerequisites) is the mathematical engine of every sieve.
 - **ECM** (Lenstra's elliptic-curve method) factors integers by exploiting the variability of
@@ -1092,18 +1126,40 @@ probability at most $4^{-k}$.
 Miller–Rabin is probabilistic in general, but for bounded $n$ it can be made *deterministic* by
 using a fixed witness set known to have no exceptions below a threshold. The key result is:
 
-**Theorem (deterministic Miller–Rabin).** *The 13-base set $\{2, 3, 5, 7, 11, 13, 17, 19, 23, 29,
-31, 37\}$ is a deterministic primality test for all $n < 3{,}317{,}044{,}064{,}679{,}887{,}385{,}961{,}981
-\approx 2^{81.6}$.*
+**Theorem (deterministic Miller–Rabin).** *The twelve prime bases $\{2, 3, 5, 7, 11, 13, 17, 19, 23,
+29, 31, 37\}$ are a deterministic primality test for all $n < \psi_{12}$, where
+$\psi_{12} = 318{,}665{,}857{,}834{,}031{,}151{,}167{,}461 \approx 2^{78.1}$. Adding the base 41
+(thirteen bases) extends this to all $n < \psi_{13}$, where
+$\psi_{13} = 3{,}317{,}044{,}064{,}679{,}887{,}385{,}961{,}981 \approx 2^{81.5}$.*
 
-*Proof.* Computational verification: no composite below the threshold passes all 13 bases. The
-threshold and the witness set are from Sorenson–Webster (2017), refining earlier tables by
-Pomerance–Selfridge–Wagstaff and Jaeschke. $\square$
+*Proof.* Computational verification: no composite below the threshold passes all the bases. The
+thresholds and witness sets are from Sorenson–Webster (2015), refining earlier tables by
+Pomerance–Selfridge–Wagstaff and Jaeschke; the constants are recalled from that source, not
+re-read, and the exhaustive search behind them is not repeated here. What the tests do compute is
+the boundary case: $\psi_{12} = 399{,}165{,}290{,}221 \times 798{,}330{,}580{,}441$ is composite and
+passes all twelve bases, and base 41 rejects it (`psi_12_is_the_product_it_claims`,
+`twelve_bases_accept_psi_12_but_base_41_rejects_it`, `psi_12_rejected` in
+`shared/numth/src/prime.rs`). A twelve-base verdict is therefore not a proof at $\psi_{12}$ or
+above, which is why `is_prime` applies the thirteenth base from there up. $\square$
+
+**Above the proven bound.** For $n \geq \psi_{13}$ (which still fits in 256 bits) the same thirteen
+bases give only a *probable-prime* verdict with no proven error bound: some composite is a strong
+pseudoprime to every fixed base set, and `is_prime` can return true for one. A *composite* verdict
+is always a proof: a witness is a certificate that $n$ fails the test every prime passes. Callers
+that need a proof of primality must therefore treat a prime verdict at or above $\psi_{13}$ as
+unproven; the public constant `MILLER_RABIN_PROOF_BOUND` in `shared-numth` is $\psi_{13}$.
 
 **Why this matters.** The deterministic Miller–Rabin test is the primality oracle used throughout
-this project. It is used to build factor bases (certifying that each base element is prime), to
-certify that a found factor is prime, and inside ECM (to check that the found factor is not 1 or
-$N$).
+this project. It builds factor bases (each base element is certified prime) and classifies an input
+as prime before any factoring is attempted. The factoring drivers report `Prime` only where the
+verdict is proven, and `Unsupported` for an odd probable prime beyond the proof: rho factoring uses
+the twelve-base bound $\psi_{12}$, so $2^{79} - 67$, a prime between $\psi_{12}$ and $2^{80}$, is
+`Unsupported` (`factor_does_not_certify_primes_beyond_the_primality_proof` in
+`rho/tests/factor_kat.rs`); ECM uses $\psi_{13}$, so $2^{89} - 1$ is `Unsupported` and $\psi_{12}$,
+being composite, is never certified prime (`prime_above_proof_bound_is_unsupported`,
+`composite_psi_12_is_never_prime` in `shared/numth/src/ecm.rs`). ECM does not test the factor it
+finds for primality: it returns a divisor only after checking $1 < d < n$ and $n \bmod d = 0$
+(`divisor_check_rejects_improper_candidates`), and that divisor need not be prime.
 
 #### Strong pseudoprimes and the 2-Sylow structure
 
@@ -1229,6 +1285,15 @@ point has a specific structure that makes stage 1 more likely to succeed.
 **Stage 1.** Compute $Q = kP$ with $k = \prod \{q^{\lfloor \log_q B_1 \rfloor} : q \text{ prime}
 \leq B_1\}$ — every prime power up to $B_1$. After the ladder, test $\gcd(Z, N)$; a non-trivial
 gcd is the factor. Stage 1 succeeds when $|E(\mathbb{F}_p)|$ is fully $B_1$-smooth.
+
+*Implementation limit.* The code multiplies these prime powers into a 256-bit integer with wrapping
+multiplication. The product is $\mathrm{lcm}(1, \ldots, B_1) \approx e^{B_1}$, which exceeds
+$2^{256}$ once $B_1$ passes about $177$ ($256 \ln 2 \approx 177$), so for larger $B_1$ the scalar
+the ladder uses is not the $B_1$-smooth multiple described above. This is arithmetic on the code,
+not something a test exercises; it can only weaken ECM (a factor may be missed), because
+`ecm_factor` returns a divisor only after checking $1 < d < N$ and $N \bmod d = 0$. The tests that
+use $B_1 = 200$ or $300$ (`ecm_factors_28891`, `ecm_factors_small_semiprimes` in
+`shared/numth/src/ecm.rs`) assert that a factor is found, not that the scalar is smooth.
 
 **Stage 2.** The standard refinement for the common case where $|E(\mathbb{F}_p)|$ is $B_1$-smooth
 *except for one* prime factor $q \in (B_1, B_2]$. Rather than raising $B_1$ (which re-does all
@@ -3044,8 +3109,30 @@ $k_i = k \bmod p_i^{e_i}$.
 
 **Prime-power lift.** For $e_i > 1$, recover $k_i = k \bmod p_i^{e_i}$ digit-by-digit in base
 $p_i$. At digit step $j$ (recovering $k_i \bmod p_i^{j+1}$ from $k_i \bmod p_i^j$), project to
-the order-$p_i$ sub-subgroup and solve a single DLP in a group of prime order $p_i$ — one rho
-call.
+the order-$p_i$ sub-subgroup and solve a single DLP in a group of prime order $p_i$.
+
+**The digit step.** The implementation solves that prime-order DLP in one of two ways, chosen by
+the size of $p_i$. For $p_i \leq 64$ it enumerates the subgroup, trying $d = 0, 1, \ldots, p_i - 1$
+until $d \cdot \gamma$ equals the target. This is the digit step of Pohlig and Hellman (1978, §IV),
+where each digit is a function taking one of only $p_i$ values, computed there either by table
+lookup or by trying the $p_i$ candidates in turn; the code takes the second form and stores no
+table. Only this small-subgroup step is taken from the paper. For $p_i > 64$ the code runs Pollard
+rho on the order-$p_i$ subgroup. That is not the paper's own large-prime step, which is a
+time–memory search rather than rho; Pollard (1978) is the rho reference and is cited here from
+memory, not re-read. Both methods receive the prime order $p_i$, never $p_i^{e_i}$. The solution's
+evidence records which method found each digit (`check_pohlig_evidence` in
+`rho/tests/ecdlp_kat.rs`, run by `composite_dlog_every_k`). The fixture `composite_toy`
+($n = 60$) has only primes $\leq 5$, so every digit is enumerated; `composite_rho_dlog_sampled_k`
+runs `composite_rho_toy` ($n = 1068 = 2^2 \cdot 3 \cdot 89$), where the factor $89$ reaches rho.
+
+**Checked input and result.** For a composite $n$, $n \cdot G = \mathcal{O}$ shows only that the
+order of $G$ divides $n$; the solver also requires $(n/p) \cdot G \neq \mathcal{O}$ for every prime
+$p \mid n$, so that $G$ has order exactly $n$ (`composite_wrong_order_is_invalid_input`,
+`composite_rho_wrong_order_is_invalid_input`). A target with $n \cdot Q = \mathcal{O}$ that is
+nevertheless outside $\langle G \rangle$ is rejected as invalid input when a digit enumeration finds
+no match (`composite_target_outside_subgroup_is_invalid_input`). The combined $k$ is checked
+against $k \cdot G = Q$ before it is returned. A rho digit solve that exhausts its budget passes
+that error through unchanged, so exhaustion is never reported as anything else.
 
 **CRT reconstruction.** Given $k_i = k \bmod p_i^{e_i}$ for each $i$, the CRT gives $k \bmod n$
 uniquely.
@@ -3059,14 +3146,15 @@ $\mathcal{O}$ (since $n/p_i^{e_i}$ is the exact cofactor). The projection $Q_i =
 
 The prime-power lift is a standard Hensel-style digit extraction: at step $j$, the known
 $k_i \bmod p_i^j$ is subtracted from $Q_i$ (scaled by the appropriate cofactor), and the
-residue is projected to the order-$p_i$ sub-subgroup for a single rho call.
+residue is projected to the order-$p_i$ sub-subgroup for a single prime-order solve.
 
 #### L-notation
 
-The cost is $O\!\left(\sum_{i=1}^r e_i (\log n + \sqrt{p_i})\right)$. For a group of prime
-order $n$, this is $O(\sqrt{n})$ — the same as rho. The gain is structural, not asymptotic:
-when $n$ has small prime factors, the cost is dominated by $\sqrt{p_{\max}}$ (the largest prime
-factor), which can be exponentially smaller than $\sqrt{n}$.
+The cost is $O\!\left(\sum_{i=1}^r e_i (\log n + \sqrt{p_i})\right)$ when each prime-order solve
+is a rho walk; the implementation's enumeration for $p_i \leq 64$ costs at most 64 point additions,
+a constant. For a group of prime order $n$, this is $O(\sqrt{n})$ — the same as rho. The gain is
+structural, not asymptotic: when $n$ has small prime factors, the cost is dominated by
+$\sqrt{p_{\max}}$ (the largest prime factor), which can be exponentially smaller than $\sqrt{n}$.
 
 In L-notation: Pohlig–Hellman achieves $L_n[1, 1/2]$ in the worst case (prime $n$), but
 $L_{p_{\max}}[1, 1/2]$ when $n$ has a small largest prime factor. The asymptotic gain over rho
@@ -3093,52 +3181,106 @@ admits a polynomial-time ECDLP algorithm via the p-adic formal group.
 
 #### The escape
 
-**The formal group.** The formal group $\hat{E}$ of an elliptic curve over $\mathbb{Z}_p$ is a
-one-dimensional formal group law $\hat{F}(X, Y) \in \mathbb{Z}_p[[X, Y]]$ that encodes the
-group law of $E$ in a neighbourhood of the identity. The formal group logarithm
-$\log_{\hat{E}}: p\mathbb{Z}_p \to p\mathbb{Z}_p$ is a power series that linearises the formal
-group law.
+**The formal group and its filtration.** Lift the curve to $\tilde{E}$ over $\mathbb{Z}_p$ (lift
+the coefficients $a, b$ to $\mathbb{Z}_p$). The points of $\tilde{E}(\mathbb{Q}_p)$ that reduce to
+$\mathcal{O}$ modulo $p$ form a subgroup $E_1$, identified with the formal group
+$\hat{E}(p\mathbb{Z}_p)$ through the formal parameter $t = -x/y$; write $E_n$ for the subgroup with
+$v_p(t) \geq n$. The formal group logarithm $\psi = \log_{\hat{E}}$ is a homomorphism $E_1 \to
+p\mathbb{Z}_p$ with $\psi(E_n) \subseteq p^n\mathbb{Z}_p$ and $\psi(P) \equiv t(P) \pmod{p^2}$.
+These are standard facts about formal groups, stated here without proof.
 
-**The Hensel lift.** Given $G = (x_0, y_0) \in E(\mathbb{F}_p)$, lift to
-$\tilde{G} = (\tilde{x}, \tilde{y}) \in E(\mathbb{Z}/p^2\mathbb{Z})$ via Hensel's lemma: solve
-$y^2 = x^3 + ax + b$ over $\mathbb{Z}/p^2\mathbb{Z}$ with $\tilde{x} \equiv x_0 \pmod{p}$ and
-$\tilde{y} \equiv y_0 \pmod{p}$. The lift exists and is unique when $y_0 \neq 0$ (i.e. $G$ is
-not a 2-torsion point), since $f'(y_0) = 2y_0 \not\equiv 0 \pmod{p}$ for $p > 2$.
+**Lifting the points.** Given $P = (x_0, y_0) \in E(\mathbb{F}_p)$, choose any lift $\tilde{P} \in
+\tilde{E}(\mathbb{Z}_p)$: take $\tilde{x} \equiv x_0 \pmod{p}$ and solve the curve equation for
+$\tilde{y} \equiv y_0$ by Hensel's lemma. The solve exists and is unique when $y_0 \neq 0$ (that
+is, $P$ is not a 2-torsion point), since $f'(y_0) = 2y_0 \not\equiv 0 \pmod{p}$ for $p > 2$.
 
-**The p-adic logarithm.** The formal group logarithm maps $\tilde{G}$ to
-$\log_{\hat{E}}(\tilde{G}) \in p\mathbb{Z}_p$. For the anomalous curve, the key identity is:
+**The anomalous hypothesis.** Because $\#E(\mathbb{F}_p) = p$, $p \cdot P = \mathcal{O}$ in
+$E(\mathbb{F}_p)$, so $p \cdot \tilde{P}$ reduces to $\mathcal{O}$: it lies in $E_1$. It is *not*
+$\mathcal{O}$ in $E(\mathbb{Z}/p^2\mathbb{Z})$ in general, and it must not be: if
+$p \cdot \tilde{P}$ vanished the logarithm would be identically zero and carry no information.
 
-$$p \cdot \tilde{G} = \mathcal{O} \quad \text{in } E(\mathbb{Z}/p^2\mathbb{Z}),$$
+**A lift-independent homomorphism.** Define
+$$\lambda(P) = \psi(p \cdot \tilde{P}) / p \bmod p.$$
+Another lift $\tilde{P}'$ of $P$ differs from $\tilde{P}$ by some $\kappa \in E_1$, so $p\tilde{P}'
+- p\tilde{P} = p\kappa$ and $\psi(p\kappa) = p\,\psi(\kappa) \in p^2\mathbb{Z}_p$: $\lambda(P)$ does
+not depend on the lift. Since $\tilde{P} + \tilde{Q}$ lifts $P + Q$ and $\psi$ is additive on $E_1$,
+$\lambda(P + Q) = \lambda(P) + \lambda(Q)$: $\lambda: E(\mathbb{F}_p) \to \mathbb{F}_p$ is a
+homomorphism.
 
-which holds because $\#E(\mathbb{F}_p) = p$ implies $p \cdot G = \mathcal{O}$ in
-$E(\mathbb{F}_p)$, and the lift preserves this. The formal group logarithm then gives:
+**The DLP recovery.** For $Q = k \cdot G$ this gives $\lambda(Q) = k\,\lambda(G)$, so
+$$k \equiv \frac{\psi(p \cdot \tilde{Q})}{\psi(p \cdot \tilde{G})} \pmod{p}$$
+whenever $\lambda(G) \neq 0$. Because $\psi(P) \equiv t(P) \pmod{p^2}$, that condition says exactly
+that $p \cdot \tilde{G} \in E_1 \setminus E_2$ (its parameter has valuation $1$).
 
-$$\log_{\hat{E}}(p \cdot \tilde{G}) = p \cdot \log_{\hat{E}}(\tilde{G}) = 0 \quad
-\text{in } p\mathbb{Z}_p / p^2\mathbb{Z}_p.$$
-
-**The DLP recovery.** Given $Q = k \cdot G$, lift both to $\tilde{G}$ and $\tilde{Q}$. Then:
-
-$$\log_{\hat{E}}(\tilde{Q}) = k \cdot \log_{\hat{E}}(\tilde{G}) \quad \text{in } p\mathbb{Z}_p,$$
-
-so $k \equiv \log_{\hat{E}}(\tilde{Q}) / \log_{\hat{E}}(\tilde{G}) \pmod{p}$.
+**Which lifts of the curve work.** The condition $\lambda(G) \neq 0$ depends on the lift of the
+*curve* $\tilde{E}$, not on the choice of point lifts. If $p \cdot \tilde{G} \in E_2$ then
+$\psi(p \cdot \tilde{G})$ is divisible by $p^2$, $\lambda(G) = 0$, and the displayed ratio is a
+quotient of second-order terms from which the derivation does not determine $k$. It is commonly
+stated that the attack breaks down on the *canonical* lift of $E$; this text has not checked a
+source for that statement, so treat it as unverified. What is derived above is the precise
+requirement, $p \cdot \tilde{G} \notin E_2$.
 
 #### Proof sketch
 
-The key step is that the formal group logarithm is a group homomorphism from $\hat{E}(p\mathbb{Z}_p)$
-to $(p\mathbb{Z}_p, +)$. For the anomalous curve, the map $E(\mathbb{F}_p) \to \hat{E}(p\mathbb{Z}_p)$
-(via the Hensel lift composed with the reduction-mod-$p$ map) is an isomorphism of groups of order
-$p$. The formal group logarithm then linearises the ECDLP: the ratio of the two logarithms gives
-$k$ directly. The computation requires only $O(\log p)$ arithmetic operations in $\mathbb{Z}/p^2\mathbb{Z}$.
+The two facts doing the work are that $\psi$ is a homomorphism on $E_1$ and that $\psi$ of a
+multiple $p\kappa$ of an element of $E_1$ lies in $p^2\mathbb{Z}_p$, so that dividing $\psi(p
+\tilde{P})$ by $p$ and reducing modulo $p$ forgets the choice of lift. Together with the anomalous
+hypothesis (which puts $p \cdot \tilde{P}$ in the domain of $\psi$) they make $\lambda$ a
+homomorphism $E(\mathbb{F}_p) \to \mathbb{F}_p$, and a homomorphism that is nonzero on the generator
+$G$ of a group of prime order is injective, so $k$ is the ratio $\lambda(Q)/\lambda(G)$.
 
 #### L-notation
 
-$L_p[0]$ — polynomial time. The Hensel lift and formal group logarithm each cost $O(\log p)$
-arithmetic operations. This is the sharpest escape in this chapter: the anomalous structure
-collapses the ECDLP to a linear computation.
+The *algorithm* is polynomial in $\log p$: multiplying a lift by $p$ by double-and-add takes
+$O(\log p)$ group operations in $\tilde{E}(\mathbb{Z}/p^r\mathbb{Z})$ for a small fixed $r$, each of
+polynomial cost, and the logarithm is a truncated power series. This is the sharpest escape in this
+chapter: the anomalous structure collapses the ECDLP to a linear computation. The *implementation*
+is not polynomial in $\log p$. It multiplies by $p$ as $p - 1$ repeated additions and confirms
+anomalousness by an exact point count that sums a Legendre symbol over all $x \in \mathbb{F}_p$;
+both cost $O(p)$ (`verify_anomalous` is exact where $x^3$ overflows 64 bits, as
+`kat_verify_anomalous_exact_where_cube_overflows_u64` checks, but practical only for small $p$).
 
-**Scale note.** The polynomial-time complexity is present at all scales. At toy
-scale ($p = 7$), the constant factors are invisible — the computation is instantaneous. The
-pedagogical content is the mechanism, not the timing.
+**Scale note.** At toy scale ($p = 7$) the constant factors are invisible — the computation is
+instantaneous. The pedagogical content is the mechanism, not the timing.
+
+#### What the implementation does
+
+`ssa_solve` lifts $G$ and $Q$ to precision $p^8$ on the curve as stored (`lift_point`: $x$ exactly,
+$y$ by Hensel's lemma; $a$ and $b$ are used as given, not reduced), multiplies each lift by $p$ in
+projective coordinates, evaluates `elliptic_log_proj` at $t = -X/Y$, and divides the leading units
+in $\mathbb{F}_p$ to obtain a candidate $k_{\mathrm{raw}}$. Despite its name, `elliptic_log_proj`
+computes $\log(1 + t)$, the logarithm of the *multiplicative* formal group; that is a different
+power series from the logarithm $\psi$ of $E$'s formal group used in the derivation above. The
+candidate is therefore not trusted: the solver returns a $k$ only after checking $k \cdot G = Q$.
+
+The failure classes are kept apart. $Q = \mathcal{O}$ is $k = 0$ with no reduction
+(`kat_ssa_solve_infinity_is_zero`). A curve whose exact count differs from $p$ is `NotAnomalous`
+(`kat_ssa_solve_not_anomalous`); a prime that does not fit one 64-bit limb is `Unsupported`, never
+reported as non-anomalous (`kat_large_prime_is_unsupported_not_non_anomalous`). The lift reports a
+2-torsion point as `LiftFailed` (`kat_lift_2torsion_errors_non_simple_root`, which tests
+`lift_point` directly; `ssa_solve` propagates that error by code reading, with no solver-level
+test). If the curve is anomalous and the points lift but no candidate verifies, the result is
+`Inconsistent`, an invariant failure that is never retried
+(`resolve_candidate_rejects_unverifiable_quotients`, a unit test in `rho/src/ssa/reduce.rs`;
+no fixture reaches it through `ssa_solve`). `kat_ssa_solve_recovers_every_k` checks that every
+$k \in 1..p$ on the fixture is recovered.
+
+**Empirical halving: an observation about the fixture, not a derived property.** The fixture
+$y^2 = x^3 + 5$ over $\mathbb{F}_7$ has $a = 0$, and its stored lift is the one with $j = 0$
+(complex multiplication by $\mathbb{Z}[\zeta_3]$). In an exploratory computation recorded in the
+`reduce` module documentation, $p \cdot \tilde{P}$ on that lift had parameter valuation $2$ or more
+for every point, not $1$, so the leading units of the two logarithms are not the lift-independent
+quantity
+$\lambda$ derived above; the quotient $k_{\mathrm{raw}}$ came out as $1, 4, 6, 1, 3, 6$ for
+$k = 1, \ldots, 6$, that is $2k \bmod 7$ for $k = 2, \ldots, 5$. Lifting the same curve with
+$a = 7, 14, 21$ gave valuation $1$ and $k_{\mathrm{raw}} = k$ with no factor 2. No test asserts
+these exploratory values. The solver therefore also tries $k_{\mathrm{raw}} \cdot 2^{-1} \bmod p$,
+an empirical compensation for this fixture with no derivation behind it: this text does not
+attribute the factor $2$ to the formal logarithm or to complex multiplication. It is safe only
+because of the final check — in a group of prime order at most one of the two candidates satisfies
+$k \cdot G = Q$ — and the unit tests `resolve_candidate_accepts_raw_quotient` and
+`resolve_candidate_halves_a_doubled_quotient` exercise the two branches. Correctness of every
+returned value rests on $k \cdot G = Q$, not on the logarithm.
 
 #### Cross-reference
 
@@ -3177,6 +3319,29 @@ is the Jacobian of a hyperelliptic curve $C/\mathbb{F}_{2^l}$ of genus $g = (m/l
 **Log-preservation.** The transfer map $\phi: E(\mathbb{F}_{2^m}) \to \mathrm{Jac}(C)(\mathbb{F}_{2^l})$
 is a group homomorphism. It preserves the discrete logarithm: if $Q = k \cdot G$ in
 $E(\mathbb{F}_{2^m})$, then $\phi(Q) = k \cdot \phi(G)$ in $\mathrm{Jac}(C)(\mathbb{F}_{2^l})$.
+
+**Input guards in the implementation.** The map is a homomorphism only on $E(\mathbb{F}_{2^m})$,
+so `transfer_point` rejects a point that does not satisfy the curve equation as `NotOnCurve`
+(`transfer_rejects_off_curve_point`, `ghs_descend_rejects_off_curve_point` in
+`rho/tests/ghs_kat.rs`), and maps the point at infinity to the identity divisor rather than
+rejecting it (`transfer_infinity_is_zero_divisor`). The image of a point is a point of
+$C(\mathbb{F}_{2^l})$ only when $E$ is defined over $\mathbb{F}_{2^l}$, so a coordinate of the
+conorm image that is not fixed by the relative Frobenius $c \mapsto c^{2^l}$ is rejected as
+`NotInSubfield` (`transfer_rejects_conorm_outside_subfield`, on a curve with coefficient $a =
+\alpha \notin \mathbb{F}_{2^2}$).
+
+*Fixture limit.* After that guard the code reads the bits of a subfield element as an element of
+$\mathbb{F}_{2^l}$ by reducing the raw bit pattern modulo the subfield polynomial. That is valid on
+the toy fixture, where $x^2 + x + 1$ and $x^6 + x + 1$ are the polynomials in use, but it is not a
+field homomorphism in general: $x^2 + x + 1$ does not divide $x^6 + x + 1$, so reducing bits does
+not respect multiplication. On $\mathbb{F}_4 \subset \mathbb{F}_{2^6}$ it sends the elements
+`0x3b` and `0x3a` to `3` and `2`, whereas the field restriction map (`shared_gf2m::restrict`)
+sends them to `2` and `3`, the Frobenius conjugates. The known-answer tests
+`transfer_sample_point_known_answer` and `transfer_g_plus_p_known_answer` pin the raw-bits
+convention: an experiment (not itself a test) found that switching to `restrict` breaks exactly
+those two while the homomorphism and log-preservation tests still pass.
+The identification used here is therefore a property of the fixture and is not claimed for other
+parameters.
 
 #### L-notation
 
@@ -3408,6 +3573,35 @@ is solved by NFS-DL (the `gnfs::dl::solve_dl` entry point; §9). Since $g_0, h_0
 $\mathbb{F}_{p^k}^*$.
 
 **Step 5: Recover $k$.** The NFS-DL solver returns $k \bmod \ell$, which is the ECDLP scalar.
+
+**What `mov_reduce` checks.** The returned value is a candidate until it passes $k \cdot G = Q$,
+which the code evaluates directly in $E[\ell]$, independently of the pairing and of the finite-field
+logarithm engine. A success is a `MovSolution` carrying $k \bmod \ell$, $\ell$, and the two pairing
+values with $g_0^k = h_0$ (`mov_reduce_recovers_k1`, `mov_reduce_recovers_k2` in
+`rho/tests/mov_kat.rs`, which recheck all of it from the fields). $Q = \mathcal{O}$ gives $k = 0$
+with $h_0 = 1$ (`mov_reduce_recovers_k0_for_target_at_infinity`). The failure classes are kept
+apart:
+
+- *Invalid input* (`MovError::InvalidInput`): $\ell$ not prime, $\ell \nmid p^k - 1$,
+  $G = \mathcal{O}$, or any of $G$, $Q$, $R$ off the curve or outside $E[\ell]$
+  (`mov_reduce_rejects_composite_ell`, `mov_reduce_rejects_ell_not_dividing_field_order`,
+  `mov_reduce_rejects_infinite_generator`, `mov_reduce_rejects_off_curve_points`,
+  `mov_reduce_rejects_points_outside_e_ell`).
+- *Degenerate pairing* (`MovError::DegeneratePairing`): $R = \mathcal{O}$, $e(G, R) = 1$, or a
+  Miller evaluation that returns $0$ because the evaluation point meets the divisor of the Miller
+  function, as it does for $R = G$ (the reduced Tate pairing then yields $0$, not $1$). In each case
+  $R$ is not a $\mu_\ell$-generator for $G$ and the finite-field logarithm carries no information
+  about $k$; it is a property of the supplied $R$, not a solver failure
+  (`mov_reduce_degenerate_r_is_degenerate_pairing`, `mov_reduce_infinite_r_is_degenerate_pairing`).
+- *Engine failure* (`MovError::Dl`): the error of `gnfs::dl::solve_dl` is passed through unchanged.
+  The code calls it with extension degree $2$ only.
+- *Invariant failure* (`MovError::Inconsistent`): the engine's value fails $k \cdot G = Q$. No
+  fixture reaches it through `mov_reduce`; only a unit test of the check does
+  (`log_matches_accepts_only_the_true_log` in `rho/src/pairing/mov.rs`).
+
+One domain limit is not enforced as an error: the bridge from a pairing value to the base-$p$
+encoding assumes $p < 2^{64}$ (a single limb), checked only by a debug assertion, so a release
+build would truncate a larger $p$ silently. No test covers this.
 
 #### Why this is a polynomial-time reduction
 
@@ -3831,6 +4025,15 @@ time.
 is needed for the continued-fraction step). Let $n = \lceil \log_2 N \rceil$. The circuit uses
 $t + n$ qubits: the *exponent register* of $t$ qubits and the *work register* of $n$ qubits.
 
+*Register width in the implementation.* The `shor` crate uses $t = \lceil \log_2 N \rceil$, half the
+textbook width above (so $2^t \geq N$, not $2^t > N^2$), with a work register of
+$\lceil \log_2 (N + 1) \rceil$ qubits. The continued-fraction guarantee below is proved for the
+textbook width only. At the narrower width its sufficiency is empirical: the fixtures
+`factor_15_seed0`, `factor_21_seed0`, `factor_35_seed7` and `factor_91_seed1`
+(`shor/tests/factor_kat.rs`) each recover the order and factor $N$ at a recorded seed, and no bound
+on the failure probability is proved. Whatever the width, a recovered order is checked before it is
+used (see the recovery procedure below), and a returned factorisation is checked by division.
+
 **Step 1: Uniform superposition.** Initialise both registers to $|0\rangle$. Apply $H$ to each
 qubit of the exponent register:
 
@@ -3898,14 +4101,36 @@ $|y/M - s/r| \leq 1/(2M) < 1/(2r^2)$, the fraction $s/r$ (in lowest terms) is a 
 $\square$
 
 **The recovery procedure.** For each convergent $p_k/q_k$ of $y/M$ with $q_k < N$, test whether
-$a^{q_k} \equiv 1 \pmod{N}$. If so, $q_k$ is a multiple of $r$; the smallest such $q_k$ is $r$
-itself (or a divisor of $r$, which can be handled by testing $a^{q_k/p} \equiv 1$ for small
-primes $p \mid q_k$). The order $r$ is recovered with probability $\Omega(1/\log \log r)$ from a
-single measurement; repeating $O(\log \log N)$ times gives $r$ with high probability.
+$a^{q_k} \equiv 1 \pmod{N}$. If so, $q_k$ is a *multiple* of $r$, because $r$ divides every
+exponent $e$ with $a^e \equiv 1$. It need not equal $r$: the measured phase approximates $s/r$ for
+some $s$ that may share a factor with $r$, and a convergent of a coarse phase can have a
+denominator that is a proper multiple of $r$. The first such $q_k$ is therefore reduced to the least
+order by dividing out each prime $f \mid q_k$ for as long as $a^{q_k/f} \equiv 1$ still holds
+(the order divides $q_k$, so a failed division never loses a prime power of the order). With that
+reduction `order_from_phase` returns the least $r$ with $a^r \equiv 1$, never a multiple of it
+(`cf_order_from_phase_n15_a7_s32`, where $s = 32$, $t = 8$, $a = 7$, $N = 15$ has first
+denominator $8$ and order $4$; `cf_order_from_phase_is_always_the_least_order`, over every phase
+and every base coprime to $N$ at the four register widths the targets use, both in
+`shor/tests/factor_kat.rs`). The order $r$ is recovered with probability $\Omega(1/\log \log r)$
+from a single measurement; repeating $O(\log \log N)$ times gives $r$ with high probability.
 
-**Code realisation.** The `order_from_phase` function in `shor/src/shor.rs` implements this
-continued-fraction recovery. See `shor/docs/PEDAGOGY.md` §3.2 for the module surface and §3.3
-for the KAT.
+**Code realisation.** The `order_from_phase` function in `shor/src/shor/mod.rs` implements this
+continued-fraction recovery, and `factor` in the same module is the driver. `factor` classifies $N$
+classically in a fixed order: $N \leq 2$ is `NotComposite` ($0$ and $1$ have no factorisation and
+$2$ is prime); an even $N$ is factored by $2$ with no circuit; a prime power $p^e$ is factored by
+$p$ with no circuit; a circuit needing more than `MAX_QUBITS` $= 25$ qubits
+($\lceil \log_2 N \rceil + \lceil \log_2 (N+1) \rceil$, which admits $N \leq 4096$) is
+`Unsupported`; an odd $N$ that passes those is tested for primality by trial division and a prime is
+`NotComposite`; only then does the order-finding loop run, over at most `MAX_BASES` $= 20$ bases
+coprime to $N$ with `SEEDS_PER_BASE` $= 8$ circuit runs each. Because the primality test follows
+the ceiling, a large odd prime is `Unsupported` rather than `NotComposite`. Bases are drawn coprime
+to $N$, so no base ever shares a factor with $N$ and there is no common-factor outcome: the
+shortcut $\gcd(a, N)$ would turn the base scan into trial division, which is not the algorithm. A
+spent budget is `AttemptsExhausted` and says nothing about $N$. The tests are
+`factor_even_short_circuit`, `factor_prime_power_short_circuit`, `factor_prime_is_not_composite`,
+`factor_beyond_the_simulator_is_unsupported` and `factor_15_seed0` (one per outcome), and the
+unit test `spent_budget_is_attempts_exhausted_with_the_runs_made` in `shor/src/shor/mod.rs`. See
+`shor/docs/PEDAGOGY.md` §3.2 for the module surface and §3.3 for the KATs.
 
 #### §11.3.4 Complexity
 
@@ -3924,8 +4149,10 @@ subexponential to polynomial. This is not an incremental improvement — it is t
 the $L$-notation framework. The quantum period-finding structure does not reduce the search cost;
 it eliminates the search entirely.
 
-**Scale note.** The implementation factors $N \in \{15, 21, 35, 91\}$
-using 8–14 qubits on a classical state-vector simulator. The simulator holds $2^n$ complex
+**Scale note.** The tests factor $N \in \{15, 21, 35, 91\}$ using 8–14 qubits on a classical
+state-vector simulator. The driver's qubit ceiling, `MAX_QUBITS` $= 25$, admits $N \leq 4096$ and
+reports a larger $N$ as unsupported; only the four fixtures are run end to end. The simulator holds
+$2^n$ complex
 amplitudes; at $n = 25$ qubits, this is $2^{25} \approx 33\,\mathrm{M}$ entries ($\approx 512\,
 \mathrm{MiB}$), the practical ceiling on a laptop. To factor RSA-2048 ($N$ a 2048-bit integer),
 this project's layout ($2 \cdot n_{\mathrm{bits}}(N)$ qubits) would need about 4100 qubits — an

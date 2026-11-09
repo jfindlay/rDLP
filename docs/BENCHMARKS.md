@@ -35,6 +35,11 @@ at each bit size, c=1, x₀=2.
 | 50-bit    | 666 µs   | 1118 µs  | 239 µs                  | ~2.8×          |
 | 64-bit    | 18.4 ms  | 17.7 ms  | 3.97 ms                 | ~4.6×          |
 
+Each bench passes an explicit step bound of 2²⁸ evaluations, far above what these inputs need
+(`rho/benches/factor.rs`), and unwraps the result, so a run that spent the bound would abort the
+bench rather than be timed. The bench calls the primitives (`floyd`, `brent`, `brent_batched`), not
+`factor`, whose outcomes are typed (`docs/PEDAGOGY.md` §5).
+
 **Brent vs Floyd.** For small semiprimes that terminate in few steps (30- and 50-bit), Brent's
 constant overhead (skip-ahead phase + doubled window bookkeeping) outweighs its asymptotic
 savings, making it appear slower.  At 64-bit the asymptotic advantage (~33% fewer effective
@@ -68,8 +73,11 @@ distinguished-point solver); the deliverable is correctness: 50 tests, 0 failure
 | `generic` | 2^63 − 25 (63-bit) | p − 3 (≡ −3) | 1 | unknown† |
 | `secp_k1_toy` | 4_611_686_018_427_395_203 (63-bit) | 0 | 7 | 4_611_686_022_420_787_627 (prime) |
 
-† The generic curve's group order is not required for curve arithmetic and the rho baseline;
-  tests use small-scalar reference points rather than n·G = ∞.
+† The generic curve's group order is not required for curve arithmetic; tests use small-scalar
+  reference points rather than n·G = ∞. The `rho-dlog` CLI embeds an order for it,
+  9 223 372 037 218 517 353, which is composite (7 · 17 · 77 507 328 043 853 087), so the
+  prime-order rho solvers reject it as `InvalidInput(OrderNotPrime)` rather than search. No KAT
+  runs a solver on this curve (the `generic` tests are group-law checks).
 
 ### secp_k1_toy endomorphism
 
@@ -97,8 +105,8 @@ both p and n are prime, both ≡ 1 (mod 3).
 ## ECDLP rho baseline (single-threaded)
 
 The single-threaded baseline delivers the working DLP solver.  There are no throughput benchmarks
-for it (parallelism arrives with distinguished points); the deliverable is correctness: 67 tests,
-0 failures.
+of it on the KAT curves; the deliverable is correctness. The `ecdlp` bench (see the cross-attack
+section) runs it on the 63-bit `secp_k1_toy` group, where it is not practically runnable.
 
 ### Solver design
 
@@ -110,8 +118,13 @@ for it (parallelism arrives with distinguished points); the deliverable is corre
   Window doubles on no-collision; tortoise snaps forward to hare's position.
 - **(a, b) scalar tracking** throughout: invariant `W = a·G + b·Q` at every step.  On
   collision `(a_t, b_t) = (a_h, b_h)`, solution is `k = (a_t − a_h)·(b_h − b_t)⁻¹ mod n`.
-- **Retry on degeneracy**: if `b_h = b_t mod n` at collision time (probability ~1/n per
-  attempt), the solver restarts with a fresh random table and walk.
+- **Attempts, not retries without bound**: if `b_h = b_t mod n` at collision time (probability
+  ~1/n per attempt), or an attempt reaches its step cap (2²⁹ − 1 steps), that attempt is spent and
+  the solver restarts with a fresh random table and walk, up to `max_retries` attempts. Running out
+  is `BudgetExhausted`, which proves nothing about `Q`.
+- **Verified result**: the solver returns `k` only after checking `k·G == Q`, with the collision
+  scalars as evidence (`brent_collision_evidence_is_rechecked_and_reproducible`,
+  `brent_zero_retries_is_budget_exhausted` in `rho/tests/ecdlp_kat.rs`).
 
 ### Test curves
 
@@ -453,7 +466,13 @@ only on the curve whose precondition it requires.
 
 The Pollard-rho baseline is already benched in `rho/benches/ecdlp.rs` on `secp_k1_toy` (63-bit,
 `k = 12_345_678_901`). That bench is the generic-√n reference column; it is cited here, not
-duplicated.
+duplicated. It is not practically runnable: rho does not exploit that `k` is small, so a collision
+in the 63-bit prime-order group takes about 1.25·√n ≈ 2.7·10⁹ walk steps (arithmetic from the group
+order, not a measurement), and the bench repeats that for every Criterion iteration. The bench
+unwraps each solve, so a failed solve aborts it. The distinguished-point variants run under an
+explicit step budget of 2⁴⁰ ≈ 1.1·10¹², a safety cap a few hundred times the expected cost. The
+Brent variant runs 20 attempts of at most 2²⁹ − 1 steps each, below the expected cost of one
+collision, so by the same arithmetic it would most likely end as budget exhaustion and abort.
 
 The new bench file `rho/benches/attacks.rs` adds five Criterion bench functions, one per
 algebraic attack. Each bench body asserts the solver returns the known correct answer before
@@ -501,8 +520,9 @@ L-notation separations between attacks are observable. At toy scale:
 - **MOV/Frey–Rück** at `k = 2` is not faster than rho at toy scale; the pairing + F_{p^k} DLP
   overhead dominates. At crypto scale, a small embedding degree `k` makes the F_{p^k} DLP
   subexponential (index calculus in F_{p^k}*), breaking the ECDLP.
-- **SSA** is polynomial-time at all scales (the p-adic lift is O(log p)), but the toy fixture
-  (p = 7) makes the constant factors invisible.
+- **SSA** is polynomial in log p as an algorithm, but this implementation is not: it multiplies by
+  p as p − 1 repeated additions and confirms anomalousness by an O(p) point count. At the toy
+  fixture (p = 7) the constant factors are invisible either way.
 - **GHS** is a transfer, not a solve; the asymptotic win comes from the downstream index
   calculus on the Jacobian, which is subexponential for large genus.
 - **Index calculus** over `E(F_p)` is NOT faster than rho — the asymptotic win requires the
@@ -520,11 +540,11 @@ attacks chapter of the textbook (`docs/MATHEMATICS.md` ch. 10).
 | Bench file | Bench functions | Scope |
 |------------|-----------------|-------|
 | `rho/benches/attacks.rs` | `attacks/pohlig_hellman` | Pohlig–Hellman on `composite_toy` (n = 60 = 2²·3·5); asserts k·G = Q before timing |
-| `rho/benches/attacks.rs` | `attacks/mov_frey_ruck` | MOV/Frey–Rück on `pairing_toy` (ℓ = 3, k = 2); asserts `mov_reduce` returns k = 2 before timing |
-| `rho/benches/attacks.rs` | `attacks/ssa` | SSA on `anomalous_toy` (p = 7, #E = 7); asserts `ssa_solve` returns k = 3 before timing |
+| `rho/benches/attacks.rs` | `attacks/mov_frey_ruck` | MOV/Frey–Rück on `pairing_toy` (ℓ = 3, k = 2); asserts the verified solution's `k_mod_ell` is 2 (the log modulo ℓ = 3) before timing |
+| `rho/benches/attacks.rs` | `attacks/ssa` | SSA on `anomalous_toy` (p = 7, #E = 7); asserts `ssa_solve` returns `Ok(3)` before timing |
 | `rho/benches/attacks.rs` | `attacks/ghs_transfer` | GHS transfer on `ghs_toy_curve` (GF(2^6)); asserts log-preservation holds for k = 1 before timing |
 | `rho/benches/attacks.rs` | `attacks/index_calculus` | Index calculus on `IndexCalcStrategy::toy` (ℓ = 5, \|FB\| = 6); asserts x·G_ℓ = Q_ℓ before timing |
-| `rho/benches/ecdlp.rs` | (existing) | Pollard-rho baseline on `secp_k1_toy` (63-bit); cited as the generic-√n reference column |
+| `rho/benches/ecdlp.rs` | (existing) | Pollard-rho baseline on `secp_k1_toy` (63-bit); cited as the generic-√n reference column; not practically runnable (about 2.7·10⁹ steps per solve, see above) |
 
 ## Shor simulator — State-vector quantum-circuit simulator: dense vs sparse, qubit scaling
 
@@ -615,38 +635,46 @@ resource-scale annotation.
 
 ### Qubit-budget-vs-N table
 
-The order-finding circuit for an `n`-bit modulus `N` uses `exp_len + work_len` qubits, where
-`exp_len = n_bits(N)` (the exponent-register width chosen for this circuit) and
+The order-finding circuit for a modulus `N` uses `exp_len + work_len` qubits, where
+`exp_len = n_bits(N) = ⌈log₂ N⌉` (the exponent-register width chosen for this circuit) and
 `work_len = n_bits(N+1)` (the work register holding values in `[0, N)`). The ancilla-free
 implementation (direct permutation synthesis) keeps the total at exactly `exp_len + work_len` —
 no ancilla register.
 
-| N  | n_bits(N) | exp_len (t) | work_len (n) | Total qubits | Within ~25-qubit ceiling? |
-|----|-----------|-------------|--------------|--------------|---------------------------|
-| 15 | 4         | 4           | 4            | 8            | ✓ yes                     |
-| 21 | 5         | 5           | 5            | 10           | ✓ yes                     |
-| 35 | 6         | 6           | 6            | 12           | ✓ yes                     |
-| 91 | 7         | 7           | 7            | 14           | ✓ yes (ceiling-stress)    |
+| N  | n_bits(N) | exp_len (t) | work_len (n) | Total qubits | Within the 25-qubit ceiling? |
+|----|-----------|-------------|--------------|--------------|------------------------------|
+| 15 | 4         | 4           | 4            | 8            | yes                          |
+| 21 | 5         | 5           | 5            | 10           | yes                          |
+| 35 | 6         | 6           | 6            | 12           | yes                          |
+| 91 | 7         | 7           | 7            | 14           | yes                          |
 
-All four targets fit within the ~25-qubit simulator ceiling. N=91 (14 qubits) is the
-ceiling-stress case: it confirms the ancilla-free circuit's budget advantage over the
-standard `~2n+3+ancilla` estimate. The exponent register uses `t = n_bits(N)` bits, which
-provides sufficient phase resolution for continued-fraction recovery of the order `r` for all
-four targets.
+(`qubit_budgets_all_targets` in `shor/tests/factor_kat.rs` checks every row.) The driver's ceiling
+is the constant `MAX_QUBITS = 25`, which admits `N ≤ 4096`; a larger `N` that is not even and not a
+prime power is reported as `Unsupported` before any circuit is built
+(`factor_beyond_the_simulator_is_unsupported`: 4097 needs 13 + 13 = 26 qubits). The four targets
+use 8 to 14 qubits, well inside it. The exponent register uses `t = ⌈log₂ N⌉` bits, half of the
+textbook `2^t ≥ N²` width. Whether that gives enough phase resolution for continued-fraction
+recovery is not proved: it is an empirical observation that the four targets each recover their
+order at a recorded seed, nothing more.
 
 ### End-to-end factoring results
 
-All factoring KATs run with seed=0 and complete in seconds on a laptop (debug, unoptimized).
-The dominant cost is the controlled modular-exponentiation circuit: for N=91 (14 qubits), the
-circuit applies O(2^21) amplitude updates per gate, and the permutation synthesis applies
+The factoring KATs run at the seeds below and complete in seconds on a laptop (debug,
+unoptimized). The dominant cost is the controlled modular-exponentiation circuit: for N=91
+(14 qubits) the state vector holds 2^14 amplitudes, and the permutation synthesis applies
 O(N) transpositions per controlled-mult-mod stage.
 
-| N  | Factors found | Seed | Total qubits | Notes |
-|----|---------------|------|--------------|-------|
-| 15 | 3 × 5         | 0    | 8            | Textbook example |
-| 21 | 3 × 7         | 0    | 10           | |
-| 35 | 5 × 7         | 8    | 12           | Seed 8 gives s=2389 (≈ 7×64/12), recovering ord₂(35)=12 |
-| 91 | 7 × 13        | 1    | 14           | Ceiling-stress case; seed 1 gives s=53 (≈ 5×128/12), recovering ord₂(91)=12 |
+| N  | Factors found | Seed | Total qubits | Evidence `(a, seed, s, r)` | Notes |
+|----|---------------|------|--------------|----------------------------|-------|
+| 15 | 3 × 5         | 0    | 8            | (2, 0, 4, 4)               | Textbook example |
+| 21 | 3 × 7         | 0    | 10           | (2, 0, 27, 6)              | |
+| 35 | 5 × 7         | 7    | 12           | (2, 7, 59, 12)             | s = 59 ≈ 11·64/12 recovers ord₂(35) = 12; seed 8 does not recover an order on its first run |
+| 91 | 7 × 13        | 1    | 14           | (2, 1, 53, 12)             | Largest fixture; s = 53 ≈ 5·128/12 recovers ord₂(91) = 12 |
+
+Each row is asserted by its own test (`factor_15_seed0`, `factor_21_seed0`, `factor_35_seed7`,
+`factor_91_seed1` in `shor/tests/factor_kat.rs`), which rechecks the evidence from its fields:
+`r` is the least order of `a`, is even, and the factor is one of `gcd(a^(r/2) ∓ 1, N)`. The seeds
+are ones that succeed on the first circuit run, so the table records fixtures, not a success rate.
 
 ### Science↔engineering note
 
@@ -657,8 +685,8 @@ fraction recovery converts the measured phase to the order `r`, and the even-ord
 extraction `gcd(a^(r/2) ± 1, N)` produces the nontrivial factors. The algorithm's logic is
 fully exhibited on the classical simulator.
 
-The ceiling is purely engineering: the `2^n`-amplitude array is the resource wall. At n = 21
-(N=91) the array holds 2^21 ≈ 2 M entries (≈ 32 MiB); at n = 25 it requires ≈ 512 MiB. To
+The ceiling is purely engineering: the `2^n`-amplitude array is the resource wall. At n = 14
+(N=91) the array holds 2^14 = 16 384 entries; at n = 25 (the ceiling) it requires ≈ 512 MiB. To
 factor RSA-2048 (a 2048-bit N), this layout (`exp_len + work_len ≈ 2·2048`) would need about
 4100 qubits — arithmetic on the layout, not a published estimate — requiring a `2^4100`-entry
 array, far beyond any classical computer. This is the same posture as the simulator ceiling and
@@ -666,17 +694,17 @@ the index-calculus "asymptotic win not observable at toy scale" annotation: the 
 exhibits the algorithm's logic, not its quantum speedup, which requires real quantum hardware
 out of scope by construction.
 
-N=91 is the ceiling-stress case: it is the largest target that fits within the ~25-qubit wall
-with the ancilla-free circuit. Larger N (e.g., N=143 = 11×13, 8-bit, 24 qubits total)
-would approach the ceiling; N=221 = 13×17 (9-bit, 27 qubits) would exceed it. The BENCHMARKS
-table records this boundary as an engineering annotation, not a mathematical omission.
+N=91 is the largest fixture, not the largest admitted modulus: with this layout the 25-qubit
+ceiling (`MAX_QUBITS`) admits `N ≤ 4096`, and a modulus needing more is reported as `Unsupported`
+(4097 needs 13 + 13 = 26 qubits). Only the four fixtures are run end to end. The boundary is an
+engineering annotation, not a mathematical omission.
 
 ### Test coverage (Shor factoring)
 
 | Test file | Tests | Scope |
 |-----------|-------|-------|
 | `shor/tests/modexp_kat.rs` | 41 | Permutation correctness (controlled-add-mod, controlled-mult-mod), modular exponentiation correctness, reversibility (forward + inverse = identity), ancilla-clean (full state restored), control-off no-op |
-| `shor/tests/factor_kat.rs` | ~30 | Order KATs (ord₂(15)=4, ord₇(15)=4, ord₂(21)=6, ord₂(35)=12, ord₂(91)=12); continued-fraction KATs (known phase → known order, deterministic classical); end-to-end factoring (15→3×5, 21→3×7, 35→5×7 with seed=0); 91 ceiling-stress KAT (91→7×13, 21 qubits, within ceiling) |
+| `shor/tests/factor_kat.rs` | ~30 | Order KATs (ord₂(15)=4, ord₇(15)=4, ord₂(21)=6, ord₂(35)=12, ord₂(91)=12); continued-fraction KATs (known phase → known order, the least order for every phase and coprime base, deterministic classical); end-to-end factoring (15→3×5 and 21→3×7 at seed 0, 35→5×7 at seed 7, 91→7×13 at seed 1, 14 qubits) with the evidence rechecked; the `Even`, `PrimePower`, `NotComposite` and `Unsupported` outcomes |
 
 ## Shor ECDLP — two-register period-finding on the classical simulator
 

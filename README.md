@@ -186,17 +186,23 @@ The bench profile uses `opt-level = 3, lto = "thin"`.
 
 ## CLIs
 
-**Factor an integer** with Pollard rho:
+**Factor an integer** below 2^80 with Pollard rho:
 
 ```sh
 cargo run --release --bin rho-factor -- <N>
 cargo run --release --bin rho-factor -- <N> --threads 4 --batch-size 128
 ```
 
-**Solve an ECDLP** (`Q = k·P`, returns `k`) with Pollard rho:
+On success it prints `N = p × q` (exit 0). A certified prime prints `N is prime` (exit 0). The
+other outcomes go to stderr with exit 1 and are kept distinct: `N ≤ 1` is invalid input; `N ≥ 2^80`,
+or an odd `N` above the proven Miller–Rabin bound that tests prime, is outside the supported range
+and cannot be certified; and spending every `c`-value without a factor is reported as exhaustion,
+which does not show that `N` is prime (`docs/PEDAGOGY.md` §5 lists the tests).
+
+**Solve an ECDLP** (`Q = k·P`, prints `k`) with Pollard rho:
 
 ```sh
-# Single-threaded Brent baseline
+# Single-threaded Brent baseline (--walkers 0, the default)
 cargo run --release --bin rho-dlog -- --curve secp-toy --q <x,y>
 
 # Parallel distinguished-point solver
@@ -213,7 +219,22 @@ cargo run --release --bin rho-dlog -- --curve secp-toy --q <x,y> --walkers 4 --b
 ```
 
 Curves: `secp-toy` (63-bit GLV-friendly secp256k1-style) or `generic` (63-bit Weierstrass).
-Points are given as `x,y` in decimal with no spaces.
+Points are given as `x,y` in decimal with no spaces. `--max-steps S` caps the total walk steps of
+the distinguished-point solvers (default: 64·√n plus a start-up allowance of
+64·walkers·batch·2^θ).
+
+The CLI prints `k` only after the solver has checked `k·P == Q`; it does not recheck. Each failure
+class has its own message and exits with status 1: invalid input (naming the defect: base point at
+infinity or off the curve, target off the curve, group order not prime, `n·P ≠ ∞`, or a target
+outside the subgroup of `P`), unsupported domain (for example `--glv` on a curve other than
+`secp-toy`), budget exhaustion (which proves nothing about whether a logarithm exists), and an
+inconsistent result or solver invariant failure. The `generic` curve's built-in order is composite,
+so `--curve generic` reports `group order is not prime` rather than searching. A collision in the
+63-bit `secp-toy` group takes about 2.7·10⁹ walk steps (arithmetic from the group order, not a
+measurement), so these invocations run for a long time. The Brent baseline caps each attempt at
+2²⁹ − 1 steps, below that figure, so by the same arithmetic it most likely reports budget
+exhaustion. The KATs run the same solvers on 20-bit curves (`docs/PEDAGOGY.md` §2, §6 and §17
+list the tests).
 
 ---
 
@@ -242,20 +263,21 @@ rho/
       cli.rs            # rho-factor binary
     ecdlp/
       mod.rs            # solve_brent, solve_dp, solve_dp_negmap, solve_dp_batch, solve_dp_glv
+      outcome.rs        # DlogSolution, DlogError, RhoEvidence, verify_log, check_prime_order_input
       walk.rs           # r-adding walk, AffineWalkState, BatchedWalker
-      dp.rs             # distinguished-point predicate + DpRecord
-      coordinator.rs    # DP hash table, collision detection
+      dp.rs             # distinguished-point predicate, DpPoint (full x + y parity), DpRecord
+      coordinator.rs    # DP hash table keyed by full x, signed collision detection
       negmap.rs         # canonical representative, FruitlessCycleDetector, BKNS escape
       glv.rs            # GLV endomorphism φ, glv_canonical (6-orbit)
+      pohlig.rs         # Pohlig–Hellman: factor_order, project_to_subgroup, solve_ecdlp_composite
       cli.rs            # rho-dlog binary
     pairing/            # MOV/Frey–Rück pairing reduction
     ssa/                # Smart–Satoh–Araki anomalous-curve attack
     ghs/                # GHS/Weil descent binary-curve transfer
     semaev/             # Semaev summation polynomials
     index_calculus/     # Index-calculus DLP solver
-    pohlig/             # Pohlig–Hellman composite-order reduction
     binary_curve/       # Binary-curve group law for GHS
-    binary_ecdlp/       # Binary-curve ECDLP primitives
+    binary_ecdlp/       # Binary-curve rho and the Koblitz τ-orbit variant
     hyperelliptic/      # Hyperelliptic Jacobian arithmetic (GHS)
     util/
       mod.rs
@@ -266,8 +288,10 @@ rho/
     ecdlp.rs            # baseline → DPs → negmap → batched-inv → GLV
     attacks.rs          # algebraic ECDLP attack harness
   tests/
-    factor_kat.rs       # known semiprimes 15–2^64, all four factor variants
-    ecdlp_kat.rs        # group-law KATs, k256 cross-check, ECDLP solver KATs
+    factor_kat.rs       # known semiprimes 15–2^64, all four factor variants, typed outcomes
+    ecdlp_kat.rs        # group-law KATs, k256 cross-check, rho outcome/budget KATs, Pohlig–Hellman
+    binary_ecdlp_kat.rs # binary-field and Koblitz rho KATs
+    mov_kat.rs          # MOV/Frey–Rück KATs
 ```
 
 ### Optimisation inventory
@@ -291,7 +315,7 @@ rho/
 | Brent's cycle detection             | Single-threaded baseline; DPs supersede it            |
 | Distinguished points (vOW)          | Predicate: low θ bits of x-coord = 0                  |
 | Parallel collision search           | N walkers + 1 coordinator; speedup scales as N        |
-| DP hash table + match-on-insert     | `HashMap<x_low, DpRecord>`                            |
+| DP hash table + match-on-insert     | keyed by full x; a y-parity bit separates P from −P   |
 | Negation map (±P equivalence)       | Canonical rep = point with smaller y (≤ p/2)          |
 | Fruitless-cycle detection + escape  | 16-entry sliding window; BKNS deterministic escape    |
 | Batched field inversion             | Montgomery's trick: B inversions → 1 inv + 3(B−1) mul |

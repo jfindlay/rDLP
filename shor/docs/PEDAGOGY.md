@@ -164,7 +164,16 @@ starts at |1⟩ for the mod-exp circuit (so *y*·*aˣ* mod *N* with *y* = 1 give
 | 35  | 6            | 6            | 6         | 12           |
 | 91  | 7            | 7            | 7         | 14           |
 
-**`shor` — order-finding and factoring driver.**
+Here $n_{\mathrm{bits}}(N) = \lceil \log_2 N \rceil$, the exponent register has
+$t = n_{\mathrm{bits}}(N)$ qubits, and the work register has $n_{\mathrm{bits}}(N + 1)$ qubits
+(`exp_len_for`,
+`ModExpLayout::standard`; checked by `qubit_budgets_all_targets`). The textbook analysis takes
+$2^t \geq N^2$, twice as many qubits, to bound the failure probability of continued-fraction
+recovery; $t = \lceil \log_2 N \rceil$ is half that width, and its sufficiency here is empirical,
+not proved. The only evidence is the fixtures: 15, 21, 35 and 91 each recover the order and factor
+at a recorded seed (`factor_15_seed0`, `factor_21_seed0`, `factor_35_seed7`, `factor_91_seed1`).
+
+**`shor` — order-finding and factoring driver** (`shor/src/shor/mod.rs`).
 The `shor` module orchestrates the complete Shor-factoring algorithm:
 
 1. **`run_order_finding_circuit(a, layout, seed)`** — allocates the register, puts the exponent
@@ -172,18 +181,56 @@ The `shor` module orchestrates the complete Shor-factoring algorithm:
    applies iQFT to the exponent register via `iqft_on_qubits`, measures with `measure_all_seeded`,
    and returns the measured phase numerator *s* (the lower `exp_len` bits of the measurement).
 
-2. **`order_from_phase(s, t, a, N)`** — expands *s*/2^*t* as a continued fraction, takes
-   convergents with denominator < *N*, and returns the smallest denominator *d* such that
-   *a*^*d* ≡ 1 mod *N*. This is the classical post-processing step that recovers the order *r*
-   from the measured phase. See `docs/MATHEMATICS.md` ch. 11 for the continued-fraction
-   approximation argument.
+2. **`order_from_phase(s, t, a, N)`** — expands *s*/2^*t* as a continued fraction, takes the
+   first convergent denominator *d* ≤ *N* with *a*^*d* ≡ 1 mod *N*, and reduces *d* to the
+   multiplicative order *r*. A convergent denominator is a *multiple* of *r* (it can be a proper
+   multiple, because the measured phase need not be in lowest terms), so the reduction divides out
+   each prime *f* | *d* for as long as *a*^(*d*/*f*) ≡ 1 still holds. The result is the least
+   *r* > 0 with *a*^*r* ≡ 1 mod *N*, never a multiple of it (`cf_order_from_phase_n15_a7_s32`:
+   *s* = 32, *t* = 8, *a* = 7, *N* = 15 has first denominator 8 and order 4;
+   `cf_order_from_phase_is_always_the_least_order`: every phase and every coprime base at the four
+   register widths the targets use). It returns `None` when no convergent works, including
+   *s* = 0 (`cf_order_from_phase_zero_phase`). This is the classical post-processing step that
+   recovers the order *r* from the measured phase. See `docs/MATHEMATICS.md` ch. 11 for the
+   continued-fraction approximation argument.
 
-3. **`find_order(a, N, seed)`** — calls `run_order_finding_circuit` then `order_from_phase`.
+3. **`find_order(a, N, seed)`** — calls `run_order_finding_circuit` then `order_from_phase`; it is
+   `None` for a measurement that carries no usable phase
+   (`find_order_none_on_uninformative_measurement`) and otherwise the least order
+   (`find_order_returns_valid_order`).
 
-4. **`factor(N, seed)`** — the end-to-end driver. Classical short-circuits first (even *N*;
-   prime-power *N* = *p*^*k*). Then the quantum order-finding loop: for each candidate base *a*
-   coprime to *N*, run `find_order`; if the order *r* is even and *a*^(*r*/2) ≢ −1 mod *N*,
-   extract factors via gcd(*a*^(*r*/2) ± 1, *N*). Retries with incremented seeds on failure.
+4. **`factor(N, seed)`** — the end-to-end driver, returning
+   `Result<ShorFactorization, ShorFactorError>`. It classifies *N* classically before any circuit
+   runs, in this order:
+
+   | Check | Result | Exercised by |
+   |-------|--------|--------------|
+   | *N* ≤ 2 | `NotComposite` (0 and 1 have no factorisation; 2 is prime) | `factor_prime_is_not_composite` |
+   | *N* even | `Ok`, *p* = 2, evidence `Even` | `factor_even_short_circuit` |
+   | *N* = *p*^*e*, *e* ≥ 2 | `Ok`, *p* = the prime, evidence `PrimePower { prime, exponent }` | `factor_prime_power_short_circuit` |
+   | circuit needs more than `MAX_QUBITS` = 25 qubits (*N* ≥ 4097) | `Unsupported { qubits }`, with `qubits` = *n*_bits(*N*) + *n*_bits(*N* + 1) | `factor_beyond_the_simulator_is_unsupported` |
+   | *N* prime (trial division) | `NotComposite` | `factor_prime_is_not_composite` |
+
+   Because the qubit ceiling is checked before the primality test, a large odd prime is
+   `Unsupported`, not `NotComposite`: an odd *N* beyond the ceiling that is not a prime power is
+   not classified further (`factor_beyond_the_simulator_is_unsupported`, which includes 1000003).
+   Only then does the quantum order-finding loop run: for each of the first `MAX_BASES` = 20 bases
+   *a* coprime to *N* (in increasing order), up to `SEEDS_PER_BASE` = 8 circuit runs at seed
+   `seed + 1000·(base index) + (run index)`; each measurement *s* gives *r* by `order_from_phase`,
+   and if *r* is even and *a*^(*r*/2) ≢ −1 mod *N*, then gcd(*a*^(*r*/2) ± 1, *N*) gives a
+   factor. The first one found is returned with evidence `OrderFinding { a, seed, s, r }`, which
+   a test rechecks from its fields: *r* is the least order of *a*, is even, and *p* is one of the
+   two gcds (`assert_factor`, run by `factor_15_seed0`, `factor_21_seed0`, `factor_35_seed7`,
+   `factor_91_seed1`). The returned *p*·*q* = *N* is checked by division. The bases are drawn
+   coprime to *N*, so no base shares a factor with *N* and there is no common-factor outcome:
+   taking `gcd(a, N)` as a shortcut would turn the base scan into trial division, which is not
+   the algorithm. The loop is bounded: spending the budget is
+   `AttemptsExhausted { attempts }`, with `attempts` the circuit runs actually made (fewer than
+   160 for small *N*, which has fewer than 20 coprime bases), a resource outcome that says
+   nothing about *N* (the unit test `spent_budget_is_attempts_exhausted_with_the_runs_made` in
+   `shor/src/shor/mod.rs` exhausts a budget of one run, succeeds at a budget of two, and makes
+   no run for a budget of zero). The same seed gives the same result, evidence included
+   (`factor_reproducible`).
 
 ### §3.3 Toy KAT
 
@@ -198,16 +245,22 @@ controlled_mod_exp(&mut sv, 2, &layout);
 // work register reads 2^3 mod 15 = 8. Published: ord₂(15) = 4.
 ```
 
-**End-to-end factoring.** The four canonical targets:
+**End-to-end factoring.** The four canonical targets, each at a recorded seed:
 
 ```rust
-factor(15, 0)  // → Some((3, 5))   — 8 qubits
-factor(21, 0)  // → Some((3, 7))   — 10 qubits
-factor(35, 8)  // → Some((5, 7))   — 12 qubits; seed 8 gives s=2389 ≈ 7·64/12
-factor(91, 1)  // → Some((7, 13))  — 14 qubits; seed 1 gives s=53 ≈ 5·128/12
+factor(15, 0)  // → Ok(p: 3, q: 5,  evidence: OrderFinding { a: 2, seed: 0, s: 4,  r: 4 })
+factor(21, 0)  // → Ok(p: 3, q: 7,  evidence: OrderFinding { a: 2, seed: 0, s: 27, r: 6 })
+factor(35, 7)  // → Ok(p: 5, q: 7,  evidence: OrderFinding { a: 2, seed: 7, s: 59, r: 12 })
+factor(91, 1)  // → Ok(p: 7, q: 13, evidence: OrderFinding { a: 2, seed: 1, s: 53, r: 12 })
 ```
 
-N = 91 is the ceiling-stress case: 14 qubits, well within the ~25-qubit simulator ceiling.
+These use 8, 10, 12 and 14 qubits. In each case the evidence shows that the first circuit run for
+base 2 recovered the order (`factor_15_seed0`, `factor_21_seed0`, `factor_35_seed7`,
+`factor_91_seed1`, which recheck the evidence from its fields). The seeds are ones that succeed
+on the first run — a fixture choice, not a success rate: at seed 8, *N* = 35 does not recover an
+order on its first run, and the ignored `find_seed_for_91` is the seed finder for 91. *N* = 91 is
+the largest fixture; the simulator ceiling is `MAX_QUBITS` = 25, which admits *N* ≤ 4096, so 91 is
+not at the ceiling.
 
 ### §3.4 Cross-reference
 
@@ -459,7 +512,10 @@ circuits are built, and they are pure consumers of it.
 (exponent-register superposition → controlled-mod-exp → iQFT → measure), the classical
 continued-fraction period extraction, and the even-order factor extraction via
 gcd(*a*^(*r*/2) ± 1, *N*). The four canonical targets (15, 21, 35, 91) are all factored
-correctly. No step is elided or approximated.
+correctly at recorded seeds, and every returned factorisation is checked by division. No step is
+elided or approximated, with one stated difference from the textbook: the exponent register has
+half the textbook width (§3.2), so the continued-fraction recovery is not covered by the textbook
+failure bound, and its sufficiency is empirical.
 
 **Shor's ECDLP algorithm** is implemented head-on: the full two-register period-finding circuit
 (*a*·*G* + *b*·*Q* in superposition → iQFT on both registers → measure every qubit), the classical
@@ -491,7 +547,10 @@ algorithm's logic, not its engineering optimisation.
 
 **The ~25-qubit ceiling is a resource-scale wall, not a mathematical one.** The dense register
 holds 2^*n* complex amplitudes. At *n* = 25 that is 2^25 ≈ 33 M entries (≈ 512 MiB of f64
-pairs). This is the practical ceiling on a laptop.
+pairs). This is the practical ceiling on a laptop. The factoring driver enforces it as the constant
+`MAX_QUBITS` = 25 (*n*_bits(*N*) + *n*_bits(*N* + 1) qubits, which admits *N* ≤ 4096) and reports a
+larger circuit as `Unsupported` before running anything
+(`factor_beyond_the_simulator_is_unsupported`).
 
 The ceiling is annotated consistently across all three parts:
 
@@ -525,7 +584,7 @@ The crate has six KAT files in `shor/tests/`. The table below summarises the tes
 | `statevec_kat.rs` | 32 | Dense register: unitarity (X, Y, Z, H, S, T, CNOT, controlled-phase, SWAP, Toffoli, multi-controlled-X); Bell state (|00⟩ + |11⟩)/√2; GHZ states (3, 4, 5 qubits); normalization invariant; gate identities (HH=I, XX=I, S²=Z, T²=S) |
 | `qft_kat.rs` | 36 | QFT on |0…0⟩ (*n* = 1,2,3,4): uniform superposition; QFT on basis states (*n* = 3,4): published Fourier amplitudes; QFT∘iQFT = identity; measurement distribution (Born-rule frequencies, seeded sampler); sparse-dense agreement (all gate types + round-trip conversion + the dense-state scale annotation) |
 | `modexp_kat.rs` | 41 | Permutation correctness (controlled-add-mod, controlled-mult-mod, full sweeps); modular exponentiation correctness (2^3 mod 15 = 8, 7^2 mod 15 = 4, etc.); reversibility (forward + inverse = identity); ancilla-clean (full state restored); control-off no-op |
-| `factor_kat.rs` | ~30 | Order KATs (ord₂(15)=4, ord₇(15)=4, ord₂(21)=6, ord₂(35)=12, ord₂(91)=12); continued-fraction KATs (known phase → known order, deterministic classical); end-to-end factoring (15→3×5, 21→3×7, 35→5×7, 91→7×13); qubit-budget verification; `#[ignore]`-gated seed-finder for N=91 |
+| `factor_kat.rs` | ~30 | Order KATs (ord₂(15)=4, ord₇(15)=4, ord₂(21)=6, ord₂(35)=12, ord₂(91)=12); continued-fraction KATs (known phase → known order, the least order for every phase and coprime base, deterministic classical); end-to-end factoring (15→3×5, 21→3×7, 35→5×7, 91→7×13) with the `OrderFinding` evidence rechecked; the `Even`, `PrimePower`, `NotComposite` and `Unsupported` outcomes; qubit-budget verification; `#[ignore]`-gated seed-finder for N=91 |
 | `pointadd_kat.rs` | ~40 | Classical group-law correctness (all 13 scalar multiples, negation, commutativity, associativity, order check 13·G=∞); permutation correctness (full sweeps over all *P* for *cG* = G, 2G, 6G; exceptional cases ∞+G, G+(−G)); reversibility (full sweeps); scratch-clean (λ register = 0 after circuit); control-off no-op |
 | `ecdlp_kat.rs` | 34 (7 `#[ignore]`) | Order/group-law KATs; dual-lattice extraction KATs (exact peak pairs → *k* for every *k* ∈ 0..13 and *j* ∈ 1..13, `None` iff *j* ≡ 0, out-of-range inputs rejected); exact outcome distribution equal to the Fourier-sum formula (*k* = 3, 7 on the default path); positive one-candidate success probability; end-to-end ECDLP (*k* = 3,5,7,9,12 at seed 0 with `Measurement` evidence; trivial cases; invalid generator; exhausted and zero budgets; retry at a fresh seed); qubit budget (17 qubits, within ceiling). `#[ignore]`-gated: `distribution_matches_fourier_formula_all_k`, `primary_success_probability_positive_all_k`, `ecdlp_all_k_values_within_default_budget`, `ecdlp_reproducible` (cost: each runs full circuit simulations), and three `rho_crosscheck_*` tests |
 

@@ -43,8 +43,8 @@ kinds of computation:
 
 Each crate is consumed by multiple tracks. `shared-numth`'s smoothness predicate is Contract C1,
 designed at S0.2 with three consumers in mind: NFS sieving (G.C), NFS-DL relation collection (D.A),
-and ECDLP index calculus (E.K). ECM is used both as a standalone factoring sub-step inside NFS
-large-prime variations and inside Pohlig–Hellman (group-order factoring). The `Fp` trait's square
+and ECDLP index calculus (E.K). ECM is a standalone factoring primitive; no solver in the workspace
+calls it (Pohlig–Hellman's `factor_order` uses trial division instead). The `Fp` trait's square
 root is used by pairing-friendly field constructions (E.B) and anywhere a curve point must be
 recovered from its x-coordinate.
 
@@ -161,29 +161,41 @@ pub fn miller_rabin(n: &Uint<4>, witnesses: &[u64]) -> bool;
 // n−1 = 2^s · d; for each a: x = a^d mod n, square up to s−1 times seeking n−1
 ```
 
-**Code reference:** `shared/numth/src/prime.rs:87`. Modular exponentiation routes through
-`FpNaive::<4>::pow`.
+**Code reference:** `shared/numth/src/prime.rs`, `miller_rabin`. Modular exponentiation routes
+through `FpNaive::<4>::pow`.
 
 ### From probabilistic to deterministic
 
 Miller–Rabin is probabilistic in general, but for bounded n it can be made *deterministic* by using
 a fixed witness set known to have no exceptions below a threshold. The substrate uses the published
-tables (Pomerance–Selfridge–Wagstaff, with refinements by Jaeschke and Sorenson–Webster): the
-13-base set {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37} is a deterministic test for all
-n < 3,317,044,064,679,887,385,961,981 (about 2^81.6). The public entry point `is_prime` selects the
-minimal sufficient witness set for the magnitude of n; for n above the deterministic threshold (but
-still within `Uint<4>`) it falls back to the same set used as a 12-round probabilistic test.
+tables (Pomerance–Selfridge–Wagstaff, with refinements by Jaeschke and Sorenson–Webster, 2015). The
+twelve prime bases {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37} are a deterministic test for all
+n < ψ₁₂ = 318,665,857,834,031,151,167,461 (about 2^78.1); adding the base 41, the thirteen bases are
+a deterministic test for all n < ψ₁₃ = 3,317,044,064,679,887,385,961,981 (about 2^81.5), exported as
+`MILLER_RABIN_PROOF_BOUND`. The constants are recalled from Sorenson–Webster, not re-read; the tests
+verify the boundary, not the exhaustive search behind it: ψ₁₂ = 399,165,290,221 · 798,330,580,441 is
+composite, the twelve bases accept it, and base 41 rejects it (`psi_12_is_the_product_it_claims`,
+`twelve_bases_accept_psi_12_but_base_41_rejects_it`, `psi_12_rejected`).
+
+The public entry point `is_prime` selects the minimal sufficient witness set for the magnitude of n,
+using the thirteen-base set from ψ₁₂ up. For n at or above ψ₁₃ (which still fits in `Uint<4>`) the
+same thirteen bases give only a *probable-prime* verdict with no proven error bound. A "composite"
+verdict is always a proof; a "prime" verdict is a proof only below ψ₁₃. Callers that need a proof
+(rho factoring, ECM) therefore compare against a bound before reporting a prime, and report
+`Unsupported` otherwise (§5).
 
 ```rust
 pub fn is_prime(n: &Uint<4>) -> bool;
 // selects the minimal deterministic witness set for n's magnitude
+pub const MILLER_RABIN_PROOF_BOUND: u128; // ψ₁₃: below this, both verdicts are proofs
 ```
 
-**Code reference:** `shared/numth/src/prime.rs:148`; the witness table `DETERMINISTIC_WITNESSES` at
-line 46.
+**Code reference:** `shared/numth/src/prime.rs`, `is_prime`; the witness table
+`DETERMINISTIC_WITNESSES`.
 
 The KAT coverage cross-checks `is_prime` against brute-force trial division for all n up to 1000
-(no false negatives), recognises the first 100 primes and several Mersenne primes, and rejects the
+(no false negatives), recognises the first 100 primes and several Mersenne primes, accepts the prime
+2^79 − 67 between the two bounds (`prime_above_twelve_base_bound_accepted`), and rejects the
 classic base-2 pseudoprimes (e.g. 2047 = 23·89, which passes base 2 but fails base 23 — a test that
 directly exercises the witness-set logic).
 
@@ -259,8 +271,8 @@ production-scale, and the gap is engineering, not mathematics.
 ECM is the most mathematically substantial component of the α-substrate, and the reason this chapter
 exists. It is a sub-exponential factoring method whose running time depends on the size of the
 *smallest* prime factor rather than the size of N — which makes it the right tool for splitting off
-small-to-medium prime factors, the role it plays inside NFS large-prime variations and inside
-Pohlig–Hellman.
+small-to-medium prime factors. No other solver in the workspace calls it; it is exercised by its own
+tests.
 
 ### The idea: Pollard's p−1, lifted onto a curve
 
@@ -296,12 +308,27 @@ returning early with a factor if any of the constructions hits a non-invertible 
 
 | Item | Location | Role |
 |------|----------|------|
-| `ecm_factor(n, b1, b2, max_curves) -> Option<Uint<4>>` | `ecm.rs:614` | top-level: try up to `max_curves` Suyama curves (σ from 6), return a factor or `None` |
-| `ecm_one_curve(n, sigma, b1, b2) -> EcmResult` | `ecm.rs:532` | one curve; `EcmResult::Factor(p)` or `Inconclusive` |
-| `suyama_param(sigma, n)` | `ecm.rs:303` | Suyama parameterization → A24 and starting point |
-| `montgomery_ladder(p, k, a24, n)` | `ecm.rs:245` | k·P via the (X:Z) ladder |
-| `diff_add` / `point_double` | `ecm.rs:197` / `:225` | Montgomery differential addition and doubling |
-| `run_stage1` / `run_stage2` | `ecm.rs:401` / `:443` | the two stages (below) |
+| `ecm_factor(n, b1, b2, max_curves) -> Result<Uint<4>, EcmError>` | `ecm.rs` | top-level: classify `n`, then try up to `max_curves` Suyama curves (σ from 6), return a checked divisor or an `EcmError` (below) |
+| `ecm_one_curve(n, sigma, b1, b2) -> EcmResult` | `ecm.rs` | one curve; `EcmResult::Factor(p)` or `Inconclusive` |
+| `suyama_param(sigma, n)` | `ecm.rs` | Suyama parameterization → A24 and starting point |
+| `montgomery_ladder(p, k, a24, n)` | `ecm.rs` | k·P via the (X:Z) ladder |
+| `diff_add` / `point_double` | `ecm.rs` | Montgomery differential addition and doubling |
+| `run_stage1` / `run_stage2` | `ecm.rs` | the two stages (below) |
+
+**What `ecm_factor` returns.** `EcmError` is `InvalidInput`, `Prime`, `Unsupported`, or
+`CurvesExhausted { curves }`. `ecm_factor` classifies `n` first, in this order: `n ≤ 1` is
+`InvalidInput` (`zero_and_one_are_invalid_input`); `n = 2` is `Prime` (`two_is_prime`); an even
+`n > 2` yields the divisor 2 with no curve run (`even_n_yields_divisor_two`); an odd `n` is tested
+for primality, and a prime is `Prime` below `MILLER_RABIN_PROOF_BOUND` (`odd_primes_are_prime`) but
+`Unsupported` at or above it, where the verdict is only "probably prime" (`2^89 − 1` in
+`prime_above_proof_bound_is_unsupported`). The composite ψ₁₂ is never certified prime
+(`composite_psi_12_is_never_prime`). Only an odd composite reaches the curves. A divisor is returned
+only after `1 < d < n` and `n mod d = 0` are checked in `Uint` arithmetic, independently of the gcd
+that produced it (`divisor_check_rejects_improper_candidates`); a candidate that fails the check
+counts as a failed curve. `CurvesExhausted { curves }` counts the curves that ran, is a resource
+outcome and proves nothing about `n` (`zero_max_curves_is_exhausted_at_zero`,
+`exhaustion_counts_curves_run`). `ecm_factor` does not test the divisor it finds for primality.
+All of these are unit tests in `shared/numth/src/ecm.rs`.
 
 ### Stage 1 and Stage 2
 
@@ -309,15 +336,24 @@ returning early with a factor if any of the constructions hits a non-invertible 
 B1. After the ladder, gcd(Z-coordinate, N) is tested; a non-trivial gcd is the factor. Stage 1
 succeeds when |E(F_p)| is fully B1-smooth.
 
+*Implementation limit.* The code builds k in a 256-bit integer with wrapping multiplication. The
+product is lcm(1, …, B1) ≈ e^B1, which exceeds 2^256 once B1 passes about 177 (256·ln 2 ≈ 177), so
+for larger B1 the scalar the ladder uses is not the B1-smooth multiple described above. This is
+arithmetic on the code, not something a test exercises; it can only weaken ECM (a factor may be
+missed), because `ecm_factor` checks every divisor it returns. The tests that use B1 = 200 or 300
+(`ecm_factors_28891`, `ecm_factors_small_semiprimes`) assert that a factor is found, not that the
+scalar is smooth.
+
 **Stage 2** is the standard refinement for the common case where |E(F_p)| is B1-smooth *except for
 one* prime factor q in (B1, B2]. Rather than raising B1 (which re-does all the work), stage 2 walks
 the multiples q·Q for primes q ∈ (B1, B2] using differential addition with a fixed step (a
 baby-step/giant-step structure with step size 2), accumulates the product of their Z-coordinates,
 and takes a *single* gcd with N at the end. This catches the one-large-prime case cheaply. The KAT
-`stage2_finds_factor_stage1_misses` (N = 1009·3541, B1 = 20, B2 = 200) demonstrates exactly this:
-stage 1 alone fails, stage 2 succeeds.
+`stage2_finds_factor_stage1_misses` (N = 1009·3541, B1 = 20, B2 = 200) asserts only that stage 1
+plus stage 2 factors N; its own comment notes that stage 1 alone may or may not succeed on the
+curves tried, so the test does not show that stage 1 alone fails.
 
-**Code reference:** `shared/numth/src/ecm.rs` — `ecm_factor` at line 614, `EcmResult` at line 510.
+**Code reference:** `shared/numth/src/ecm.rs` — `ecm_factor`, `EcmError`, `EcmResult`.
 
 **Scale disconnect (principle 4, under-exposed).** The ECM module carries three explicit TODOs:
 the Brent–Suyama parameterization (an improved σ formula that raises the smoothness-hit rate), an
@@ -396,9 +432,14 @@ QR tests are in `shared/field/tests/sqrt_legendre_kat.rs`; the `numth` tests are
 | `matches_brute_force_up_to_1000` | numth/smooth | `trial_smooth` matches a brute-force reference for all n < 1000 |
 | `round_trip_verify`, `product_with_cofactor` | numth/smooth | `SmoothWitness::product` reconstructs the original integer |
 | `ecm_factors_143` … `ecm_factors_near_2_32` | numth/ecm | ECM splits semiprimes from 11·13 up to 211·223 |
-| `stage2_finds_factor_stage1_misses` | numth/ecm | N = 1009·3541, B1 = 20, B2 = 200 — stage 2 is necessary |
-| `stage2_extends_reach` | numth/ecm | stage 2 widens the smoothness window beyond B1 |
-| `ecm_inconclusive_for_prime` | numth/ecm | ECM returns `Inconclusive` (not a spurious factor) on a prime |
+| `stage2_finds_factor_stage1_misses` | numth/ecm | N = 1009·3541, B1 = 20, B2 = 200 — stage 1 plus stage 2 factors N (does not show stage 1 alone fails) |
+| `stage2_extends_reach` | numth/ecm | N = 101·103, B1 = 10, B2 = 200 — a tight B1 with stage 2 still factors N |
+| `zero_and_one_are_invalid_input`, `two_is_prime`, `odd_primes_are_prime` | numth/ecm | `InvalidInput`, and `Prime` for 2 and for odd primes below the proof bound |
+| `even_n_yields_divisor_two` | numth/ecm | an even n > 2 gives the divisor 2 with no curve |
+| `prime_above_proof_bound_is_unsupported`, `composite_psi_12_is_never_prime` | numth/ecm | 2^89 − 1 is `Unsupported`; the composite ψ₁₂ is never certified prime |
+| `zero_max_curves_is_exhausted_at_zero`, `exhaustion_counts_curves_run`, `divisor_check_rejects_improper_candidates` | numth/ecm | `CurvesExhausted` counts the curves run; a divisor is returned only after the `1 < d < n`, `n mod d = 0` check |
+| `psi_12_is_the_product_it_claims`, `twelve_bases_accept_psi_12_but_base_41_rejects_it`, `psi_12_rejected` | numth/prime | ψ₁₂ = 399165290221·798330580441 is accepted by the twelve bases, rejected by base 41 and by `is_prime` |
+| `prime_above_twelve_base_bound_accepted` | numth/prime | the prime 2^79 − 67, between ψ₁₂ and ψ₁₃, is accepted |
 | `batch_inv_matches_individual` | bigint | batched inverse of a 10-element batch matches individual `inv` calls |
 | `batch_inv_empty` | bigint | empty batch is a no-op, not a panic |
 
@@ -412,7 +453,8 @@ QR tests are in `shared/field/tests/sqrt_legendre_kat.rs`; the `numth` tests are
 | `Fp::legendre`, `Fp::sqrt` | E.B (pairing-friendly primes need p ≡ 1 mod 4 square roots), curve point recovery |
 | `is_prime`, `miller_rabin` | `factor_base_up_to`, Pohlig–Hellman group-order analysis (E.A), polynomial-selection screening (G.B) |
 | `trial_smooth`, `SmoothWitness` (Contract C1) | G.C (NFS sieving), D.A (NFS-DL relations), E.K (index calculus) |
-| `ecm_factor` | NFS large-prime cofactor splitting (G.C/D.A), Pohlig–Hellman subgroup-order factoring (E.A) |
+| `ecm_factor` | no caller in the workspace other than its own tests (Pohlig–Hellman's `factor_order` uses trial division) |
+| `MILLER_RABIN_PROOF_BOUND` | the bound `ecm_factor` compares a prime verdict against; rho factoring uses the twelve-base bound ψ₁₂ for the same purpose |
 | `batch_invert` | `rho` affine walks; future sieve/linear-algebra inner loops |
 
 The C1 smoothness witness is the substrate's most load-bearing cross-track contract; the number-field
@@ -439,7 +481,8 @@ chapter (§10) and the ROADMAP (Contract C1) track its evolution. Its current `U
 
 5. **Pomerance, C., Selfridge, J. L., and Wagstaff, S. S. Jr. (1980).** "The pseudoprimes to
    25·10⁹." *Mathematics of Computation*, 35(151), 1003–1026. The witness-set tables behind
-   deterministic Miller–Rabin, with later refinements by Jaeschke (1993) and Sorenson–Webster (2017).
+   deterministic Miller–Rabin, with later refinements by Jaeschke (1993) and Sorenson–Webster
+   (2015; the constants used here are recalled from that work, not re-read).
 
 6. **Bach, E., and Shallit, J. (1996).** *Algorithmic Number Theory, Vol. 1.* MIT Press. The
    quadratic-residue machinery (Legendre/Jacobi symbols, Euler's criterion) and the least-non-residue

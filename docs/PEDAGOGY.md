@@ -72,7 +72,7 @@ sections.**
 | Algorithm | Problem | L-notation complexity | Structure exploited | Notes |
 |-----------|---------|----------------------|---------------------|-------|
 | Pollard rho | ECDLP (generic curve) | $L_n[1,\, 1/2] = \Theta(\sqrt{n})$ | None — generic $\sqrt{n}$ walk | Fully exponential in $\log n$; the baseline all other families escape |
-| ECM (Lenstra) | Integer factoring (sub-step) | $L_p[1/2,\, 1]$ (largest prime factor $p$) | Group-order smoothness | Substrate; used inside NFS large-prime variations |
+| ECM (Lenstra) | Integer factoring (sub-step) | $L_p[1/2,\, 1]$ (largest prime factor $p$) | Group-order smoothness | Substrate primitive; no other solver in the workspace calls it |
 | GNFS | Integer factoring | $L_N[1/3,\, (64/9)^{1/3}]$ | Number-field bridge + smoothness | Exponent $1/3$ from sieve/linear-algebra balance; constant from full analysis [LLMP93] |
 | NFS-DL | DLP in $\mathbb{F}_p^*$ | $L_p[1/3,\, (64/9)^{1/3}]$ | Same number-field bridge | Same exponent and constant as GNFS; descent is asymptotically subdominant (§9.7 delta) |
 | MOV/Frey–Rück | ECDLP (small embedding degree) | $L_{p^k}[1/3,\, (64/9)^{1/3}]$ (via NFS-DL) | Pairing → $\mathbb{F}_{p^k}^*$ DLP | Cross-family bridge: ECDLP → NFS-DL; precondition $\ell \mid p^k - 1$, $k$ small |
@@ -104,11 +104,12 @@ infrastructure that every family sits on.
 **The α-substrate** (`shared/numth/docs/PEDAGOGY.md`). Three crates — `shared-field`,
 `shared-bigint`, and `shared-numth` — provide prime-field arithmetic, number-theoretic primitives,
 and cross-cutting helpers. The key algorithms: Miller–Rabin primality testing (needed to build
-factor bases and certify found factors), B-smoothness detection (the engine of every sieve),
+factor bases and to classify an input as prime before factoring it), B-smoothness detection (the
+engine of every sieve),
 Lenstra's ECM (factoring by group-order smoothness — a direct application of the group-homomorphism
-structure, used inside NFS large-prime variations and Pohlig–Hellman), and Tonelli–Shanks square
-roots (needed for curve-point recovery and the GNFS square-root step). The α-substrate does not
-itself escape the generic bound — it provides the tools that other algorithms use to do so. For
+structure; a standalone primitive that no other solver in the workspace calls), and Tonelli–Shanks
+square roots (needed for curve-point recovery and the GNFS square-root step). The α-substrate does
+not itself escape the generic bound — it provides the tools that other algorithms use to do so. For
 the full code-tour, see `shared/numth/docs/PEDAGOGY.md`; for the mathematical development, see
 `docs/MATHEMATICS.md` §"The α-Substrate: Primality, Smoothness, and ECM".
 
@@ -149,7 +150,7 @@ complexity is $L_p[1/3, (64/9)^{1/3}]$ — the same exponent and constant as GNF
 descent is asymptotically subdominant (the delta proof is in `docs/MATHEMATICS.md` §9.7).
 
 **The shared substrate threading GNFS and NFS-DL.** Both algorithms consume the α-substrate
-(smoothness detection, ECM for large-prime variations) and the number-field substrate (polynomial
+(smoothness detection) and the number-field substrate (polynomial
 arithmetic, norm map, ideal factorisation, Dedekind criterion). The `PolyPair` type is the
 load-bearing interface: it carries the polynomial pair $(f, g)$ with the shared-root invariant
 $f(m) \equiv 0 \pmod{N}$, and is consumed unchanged by the NFS-DL relation collection.
@@ -202,12 +203,13 @@ bridge of the library. Given an elliptic curve with small embedding degree $k$
 ($\ell \mid p^k - 1$), the Weil/Tate pairing
 $e: E[\ell] \times E[\ell] \to \mu_\ell \subset \mathbb{F}_{p^k}^*$ transports the ECDLP to a DLP in
 $\mathbb{F}_{p^k}^*$, where NFS-DL applies. In code: `mov_reduce` evaluates the reduced Tate pairing
-twice, encodes both outputs via the bridge encoder (`fpext_to_bigint`), and calls
-`gnfs::dl::solve_dl` (the `gnfs` crate's discrete-log entry point). The MOV bridge is the one place
+twice, encodes both outputs via the bridge encoder (`fpext_to_bigint`), calls
+`gnfs::dl::solve_dl` (the `gnfs` crate's discrete-log entry point), and returns the result only
+after checking $k \cdot G = Q$ on the curve. The MOV bridge is the one place
 in the library where two families are directly composed at the code level.
 
 **The shared substrate threading GNFS, NFS-DL, and the algebraic ECDLP attacks.** The α-substrate
-(smoothness detection, ECM) and the number-field substrate (polynomial arithmetic, norm map, ideal
+(smoothness detection) and the number-field substrate (polynomial arithmetic, norm map, ideal
 factorisation) are consumed by all three classical-algebraic families. The index-calculus attack
 (§§13–14) uses the same smoothness-detection infrastructure as GNFS and NFS-DL; the Semaev summation
 polynomial is the ECDLP analogue of the NFS factor base. The substrate is specified once, for all
@@ -396,11 +398,36 @@ When a collision is detected at walk states (a_t, b_t) and (a_h, b_h), the DLP i
 k = (a_t − a_h) / (b_h − b_t)  mod n
 ```
 
-The degenerate case b_h = b_t mod n (probability ~1/n) triggers a retry with a fresh random walk
-table and starting point.
+The degenerate case b_h = b_t mod n (probability ~1/n) discards the attempt; the next attempt
+starts from a fresh random walk table and starting point (attempt `i` uses seed `seed + i`).
+
+**What `solve_brent` returns.** The signature is
+
+```rust
+pub fn solve_brent<F: Fp<4>>(curve: &Curve, g: &AffinePoint<F>, q: &AffinePoint<F>, n: u64,
+    seed: u64, max_retries: usize) -> Result<DlogSolution<RhoEvidence>, DlogError>;
+```
+
+The quotient above is only a candidate. The solver validates the instance first, then returns `k`
+only after checking `k·G == Q` (`verify_log`), so a success does not depend on the walk:
+
+| Outcome | Meaning | Exercised by |
+|---------|---------|--------------|
+| `Ok(DlogSolution { k, evidence: Collision { attempt, steps, a1, b1, a2, b2, negated } })` | `k·G == Q`; the evidence identity `a1·G + b1·Q = (−1)^negated · (a2·G + b2·Q)` holds from the fields alone, and a fixed seed reproduces the solution | `brent_collision_evidence_is_rechecked_and_reproducible` (`rho/tests/ecdlp_kat.rs`) |
+| `Ok(.. evidence: Trivial)` | `Q = ∞` (`k = 0`) or `Q = G` (`k = 1`); no walk ran | `brent_trivial_targets` |
+| `Err(InvalidInput(defect))` | `G = ∞`, `G` or `Q` off the curve, `n` not prime, `n·G ≠ ∞`, or `n·Q ≠ ∞`, found before any walk, in that order | `brent_rejects_off_curve_generator`; `solve_brent_rejects_composite_order_before_walking` (unit, `src/ecdlp/mod.rs`) |
+| `Err(BudgetExhausted { attempts, steps })` | all `max_retries` attempts ended degenerate or at the per-attempt step cap; proves nothing about `Q`; `max_retries = 0` gives `{ 0, 0 }` | `brent_zero_retries_is_budget_exhausted` |
+| `Err(Inconsistent { k })` | a non-degenerate collision gave a `k` with `k·G ≠ Q`; an invariant failure, never retried | `verified_reports_wrong_candidate_as_inconsistent` (unit; checks the verifier, no fixture reaches it through the walk) |
+
+Each attempt also stops once Brent's window would double past 2²⁸, after 2²⁹ − 1 steps
+(`BRENT_MAX_WINDOW` in `src/ecdlp/mod.rs`); that consumes an attempt rather than failing at once.
+No test reaches this cap. The input check cannot exclude every bad target: when n² divides the
+curve order, a `Q` in `E[n]` outside ⟨G⟩ passes it and surfaces as `Inconsistent` (documented on
+`check_prime_order_input`; no test constructs such an instance).
 
 **Code reference:** `src/ecdlp/walk.rs::AddendTable`, `src/ecdlp/walk.rs::WalkState::step`,
-`src/ecdlp/mod.rs::solve_brent`.
+`src/ecdlp/mod.rs::solve_brent`, `src/ecdlp/outcome.rs` (`DlogSolution`, `DlogError`,
+`RhoEvidence`, `verify_log`, `check_prime_order_input`).
 
 **Speedup:** O(√n) expected walk steps — this is the theoretical baseline. All subsequent
 optimizations reduce the constant factor.
@@ -418,10 +445,56 @@ checked independently by any walker. The expected number of steps between distin
 2^θ.
 
 The architecture is a client/server design: N walker threads each run an independent r-adding walk
-and emit a `DpRecord` (carrying the current x-coordinate and the accumulated scalars a, b) whenever
-the walk lands on a distinguished point. A single coordinator thread maintains a hash table keyed
-on the x-coordinate. When two DPs with the same x-coordinate but different (a, b) pairs arrive,
-the coordinator solves the linear system for k and signals all walkers to stop.
+and emit a `DpRecord` (carrying the point as a `DpPoint` — the full four-word x-coordinate and the
+parity of y — and the accumulated scalars a, b) whenever the walk lands on a distinguished point.
+A coordinator on the calling thread maintains a hash table keyed on the full x-coordinate (the low
+word that decides whether a point is distinguished is not an identity). When two DPs with the same
+x-coordinate but different (a, b) pairs arrive, the coordinator solves the linear system for k and
+signals all walkers to stop.
+
+Equal x means equal points *or* opposite points, since P and −P share x. For odd p and y ≠ 0, y
+and p − y have opposite parity, so the parity bit tells the cases apart:
+
+```
+equal points     (parities agree):  a1 + b1·k ≡   a2 + b2·k   k = (a1 − a2) / (b2 − b1)
+opposite points  (parities differ): a1 + b1·k ≡ −(a2 + b2·k)  k = −(a1 + a2) / (b1 + b2)
+```
+
+The second case is reported as `negated: true` in the evidence, and a pair with b1 + b2 ≡ 0 (or
+b1 ≡ b2 in the first) is degenerate and skipped. Only the plain walk can meet −P: the negation-map,
+batched and GLV walks canonicalise every point before emitting it, so their collisions are always
+between identical points (`dp_collision_evidence_is_rechecked` asserts `negated` is false for
+them). Matching by x alone and reading every match as equality was a wrong-answer path: on `tiny_a`
+with Q = 1234·G, one walker, θ = 2 and a budget of 2²⁰, 18 of the first 100 seeds ended in a
+candidate that failed `k·G == Q`; with the parity bit those runs succeed with `negated: true`
+(`plain_walk_recovers_log_from_negated_collision`, which fixes seed 0, and
+`plain_walk_never_misreads_the_sign_of_a_collision`, both in `rho/tests/ecdlp_kat.rs`).
+
+**Budget and outcomes.** All four distinguished-point solvers
+(`solve_dp`, `solve_dp_negmap`, `solve_dp_batch`, `solve_dp_glv`) return
+`Result<DlogSolution<RhoEvidence>, DlogError>` and take a final `max_steps` argument, the total
+walk steps across all walkers. Walkers claim steps from one shared counter before taking them, so
+the budget is never exceeded (`step_budget_grants_claims_up_to_the_limit`, unit,
+`src/ecdlp/mod.rs`); the batched and GLV walkers claim a whole batch at a time, so up to
+`batch_size − 1` steps of the budget can go unused. Each solver validates the instance and answers
+the trivial targets without starting a walker, and verifies the `k` a collision implies, exactly as
+`solve_brent` does:
+
+| Outcome | Meaning | Exercised by |
+|---------|---------|--------------|
+| `Ok(.. Collision { attempt: 0, steps, .. })` | verified `k`; `attempt` is always 0 for a single run, `steps` is the shared counter when the collision was accepted | `dp_collision_evidence_is_rechecked` |
+| `Err(BudgetExhausted { attempts: 1, steps })` | `max_steps` spent without a usable collision; proves nothing about `Q`; the batch variant spends whole batches (a budget of 10 with batch 4 spends 8) | `dp_tiny_budget_is_budget_exhausted`, `dp_glv_tiny_budget_is_budget_exhausted` (`rho/tests/ecdlp_kat.rs`); `dp_solvers_report_budget_exhaustion`, `single_negmap_walker_ends_by_budget_when_it_finds_nothing` (unit, `src/ecdlp/mod.rs`) |
+| `Err(InvalidInput(..))` | checked before any walker starts | `dp_trivial_and_invalid_inputs_are_decided_without_a_walk` |
+| `Err(Unsupported(..))` | no walkers, a zero batch size, or (`solve_dp_glv`) a curve other than the `secp_k1_toy` group | `dp_solvers_reject_empty_thread_shapes` (unit); `dp_glv_is_unsupported_off_its_curve` |
+| `Err(InvariantFailure(..))` | a walker thread panicked or lost its channel | `walker_panic_is_an_invariant_failure`, `lost_channel_is_an_invariant_failure` (unit) |
+| `Err(Inconsistent { k })` | a collision gave a `k` with `k·G ≠ Q`; never retried | `verified_reports_wrong_candidate_as_inconsistent` (unit; checks the verifier) |
+
+A search that never finds a collision is bounded by the budget, not by luck: a single walker may
+never see one, and `single_negmap_walker_ends_by_budget_when_it_finds_nothing` pins the bounded
+outcome (θ above the walk length, so no distinguished point is ever emitted). `solve_dp_glv`
+recognises its curve by the parameters p, a, b and the group order, not by name, and returns
+`Unsupported` before checking anything else on any other curve, because it applies the
+`secp_k1_toy` constants β and λ.
 
 The key insight is that two walks that ever visit the same point will, from that point on, follow
 identical trajectories and will therefore hit the same distinguished points. So a collision in the
@@ -431,8 +504,8 @@ The θ parameter trades memory against time: larger θ means fewer DPs stored (l
 steps per walker between DPs (more time before a collision is detected). The textbook choice is
 θ such that 2^θ ≈ √n / (N · target-walks), giving ~1000 DPs at solution time.
 
-**Code reference:** `src/ecdlp/dp.rs::is_distinguished`, `src/ecdlp/dp.rs::DpRecord`,
-`src/ecdlp/coordinator.rs`, `src/ecdlp/mod.rs::solve_dp`.
+**Code reference:** `src/ecdlp/dp.rs::is_distinguished`, `src/ecdlp/dp.rs::DpPoint`,
+`src/ecdlp/dp.rs::DpRecord`, `src/ecdlp/coordinator.rs`, `src/ecdlp/mod.rs::solve_dp`.
 
 **Speedup:** N× (linear in thread count). This is the second pedagogical moment: the speedup from
 parallelism is linear, not √N. Each additional walker independently explores the group, and the
@@ -556,8 +629,60 @@ identically to the negation-map walk.
 
 **Speedup:** ~√3 ≈ 1.73× reduction in expected walk steps vs the negation map alone, or ~√6 ≈
 2.45× vs distinguished points (plain DP walk). The GLV endomorphism is essentially free to evaluate
-— one multiplication by β per orbit member — so the theoretical speedup is nearly fully realised in
-practice.
+— one multiplication by β per orbit member — so the theoretical speedup should be nearly fully
+realised in practice. These are expected ratios, not tested ones: the only comparison in the test
+suite is `glv_fewer_steps_than_negmap` (unit, `src/ecdlp/mod.rs`, on the 1093-element `tiny_glv`
+group), which asserts only that the GLV step total over 20 seeds is at most twice the negation-map
+total. A ratio of about 0.62–0.77 was observed when that test was written; the observation is not
+asserted, and the test calls the private `solve_dp_glv_impl` because the public `solve_dp_glv` is
+`Unsupported` off the `secp_k1_toy` group.
+
+---
+
+### Binary-field and Koblitz variants
+
+**What it adds:** the same rho walk over binary curves y² + xy = x³ + ax² + b on GF(2^m)
+(`rho::binary_ecdlp::{solve_brent, solve}`), and a τ-orbit variant for Koblitz curves
+(`rho::binary_ecdlp::koblitz::solve_koblitz`).
+
+The binary solvers use the same r-adding walk (16 addends) and Brent detection with the invariant
+W = a·G + b·Q, over `BinaryCurve` and `BinaryAffinePoint<F: F2m<1>>` with a `u64` group order, and
+return the same `Result<DlogSolution<RhoEvidence>, DlogError>`. The differences are the ones that
+matter for the outcomes:
+
+- **Composite orders are allowed.** `check_binary_order_input` checks G ≠ ∞, both points on the
+  curve, `n ≠ 0`, `n·G = ∞` and `n·Q = ∞`, and never requires `n` prime (it has no `OrderNotPrime`
+  case): the toy curve has order 4. The modular inverse is by extended gcd, so a collision with
+  gcd(b2 − b1, n) > 1 is degenerate; it discards the attempt and consumes one of the `max_retries`
+  attempts, exactly as for the prime-field solver. With gcd = 1 and `n·G = n·Q = ∞` the unique
+  solution satisfies `k·G = Q`, so a failed verification there is a genuine fault, not bad luck (an
+  argument from the module documentation; no test reaches that branch). Tests, all in
+  `rho/tests/binary_ecdlp_kat.rs`: `input_check_rejects_defective_instances`,
+  `input_check_accepts_composite_orders`, `input_check_rejects_target_outside_subgroup`,
+  `solvers_reject_invalid_input`, `degenerate_collision_consumes_an_attempt`,
+  `zero_retries_exhaust_the_budget_immediately`.
+- **The τ-orbit walk folds the orbit map into the scalars.** The Frobenius τ(x, y) = (x², y²) is an
+  automorphism of the group. `solve_koblitz` replaces each walk state by the canonical member of its
+  τ-orbit and negation, and `tau_canonical` adjusts (a, b) by the eigenvalue λ_j with
+  τ^j(G) = λ_j·G (and by the sign) so that the invariant still holds. A collision is therefore
+  between identical canonical points: the evidence has `negated: false`, and there is no separate
+  τ-power field. A wrong eigenvalue corrupts the scalars and surfaces as `Inconsistent`, never as a
+  wrong `Ok` (`corrupted_eigenvalue_is_inconsistent_not_wrong`).
+- **Eigenvalues come from enumerating the group.** `compute_tau_eigenvalues` gives [1, 3, 1, 3] on
+  the toy curve, where τ(G) = −G (`tau_eigenvalues_satisfy_tau_p_equals_lambda_p`). It enumerates
+  all `n` multiples of G, so it reports `Unsupported`, not a panic, above `TAU_EIGENVALUE_MAX_ORDER`
+  (2²⁰) and when some τ^j(G) lies outside ⟨G⟩ (`tau_eigenvalues_refuse_huge_orders` and
+  `tau_eigenvalues_outside_subgroup_are_unsupported`, unit tests in
+  `rho/src/binary_ecdlp/koblitz.rs`); a table shorter than the field degree is `Unsupported` too
+  (`short_eigenvalue_table_is_unsupported`).
+
+**What the tests do not show.** On the toy curve every orbit of τ together with negation has a
+single x-coordinate, so the canonical tie-break always keeps the k = 0 member and the walk consults
+only λ₀; the corrupted-eigenvalue test therefore corrupts λ₀. τ-powers above 0 are not exercised
+end to end, and the expected √(2m) saving of the orbit collapse is not measured. A target outside
+⟨G⟩ with `n·Q = ∞` is not tested either (there is no non-cyclic binary fixture): the module
+documentation says the baseline walk then ends as budget exhaustion and the τ fold can end as
+`Inconsistent`, and nothing here claims more.
 
 ---
 
@@ -634,6 +759,41 @@ detection, birthday-bound analysis). The specific optimizations diverge: Brent's
 is used in both, but distinguished points are specific to ECDLP (factoring uses Brent's algorithm
 directly), and the negation map and GLV endomorphism have no factoring analogue.
 
+**What `factor` returns.** The entry point is
+
+```rust
+pub fn factor(n: u128, max_c: u64, batch_size: usize) -> Result<Factorization, FactorError>;
+// Factorization { d, evidence } with 1 < d < n and n % d == 0, checked before it is returned
+// FactorEvidence::{ Even, Rho { c } };  FactorError::{ InvalidInput, Prime, Unsupported,
+//                                                     BudgetExhausted { constants } }
+```
+
+`factor` classifies `n` first, in this order: `n ≤ 1` is `InvalidInput`
+(`factor_rejects_zero_and_one`); `n ≥ 2^80`, beyond the exact range of `mulmod`, is `Unsupported`
+(`factor_rejects_sizes_beyond_mulmod`); `n = 2` is `Prime`; an even `n > 2` yields `d = 2` with
+`Even` evidence and no walk (`factor_even_composites_carry_even_evidence`); an odd `n` is tested
+for primality and a prime is reported as `Prime`, never as a factor of itself
+(`factor_reports_primes_and_never_returns_two_as_a_factor_of_two`). The primality verdict is a
+proof only below the Miller–Rabin bound that `rho` uses, `PRIME_PROOF_BOUND` = ψ₁₂ ≈ 2^78.1, so an
+odd probable prime from ψ₁₂ up to 2^80 is `Unsupported`: it can be neither certified nor walked
+(`factor_does_not_certify_primes_beyond_the_primality_proof`, with n = 2^79 − 67). This bound is
+conservative: `shared_numth::is_prime` is itself proven up to ψ₁₃ ≈ 2^81.5. Only an odd composite
+reaches the walks.
+
+Each walk is bounded by `1024 + 64·(⌊n^{1/4}⌋ + 1)` evaluations of f (read from the code,
+`attempt_steps`; no test pins the formula). `max_c` is the number of constants c = 1, …, `max_c`
+tried; c ≡ 0 and c ≡ n − 2 (mod n) are skipped and not counted (by code reading). A spent budget is
+`BudgetExhausted { constants }`, where `constants` counts the walks that ran and failed, and proves
+nothing about `n`: it is not a primality verdict (`factor_with_no_constants_is_budget_exhausted`;
+`factor_counts_the_constants_whose_walks_failed`, where n = 73·163 exhausts four constants and a
+budget of sixteen succeeds). The primitives `floyd`, `brent` and `brent_batched` take an explicit
+`max_steps` and return an `Option` with one meaning, *this attempt failed*
+(`primitives_fail_when_the_step_bound_is_spent`); a batch size of zero is treated as one
+(`brent_batched_zero_batch_size_terminates`). Squares and prime powers need no special case: the
+returned divisor is checked, and `factor_squares_and_prime_powers_give_proper_divisors` covers them.
+All of these tests are in `rho/tests/factor_kat.rs`. The `rho-factor` CLI reports each class
+separately (README, "CLIs").
+
 **Code reference:** `src/factor/rho.rs` — `floyd`, `brent`, `brent_batched`, `factor`.
 
 ---
@@ -663,39 +823,63 @@ trusting benchmark results.
 cargo bench --bench ecdlp
 ```
 
-This runs the full ECDLP benchmark suite, measuring walk throughput (steps/second) and time-to-
-solution for each solver variant: `solve_brent` (single-threaded baseline), `solve_dp`
+This benches each solver variant: `solve_brent` (single-threaded baseline), `solve_dp`
 (distinguished points), `solve_dp_negmap` (negation map), `solve_dp_batch` (batched inversion), and
-`solve_dp_glv` (GLV endomorphism). The benchmark output shows
-the cumulative speedup as each optimization is added.
+`solve_dp_glv` (GLV endomorphism), all on `secp_k1_toy` with `Q = 12_345_678_901·G`. That group has
+a 63-bit prime order, and a collision in it takes about 1.25·√n ≈ 2.7·10⁹ walk steps (arithmetic
+from n, not a measurement), so these benches are not practically runnable: the cumulative speedup
+is demonstrated at test scale by the 20-bit KATs, not by this suite. Each bench body unwraps its
+solver, so a budget-exhausted or otherwise failed solve aborts the bench rather than being
+timed. The distinguished-point benches pass a step budget of 2⁴⁰ ≈ 1.1·10¹², a safety cap a few
+hundred times the expected cost; the Brent bench passes 20 attempts, each capped at 2²⁹ − 1 ≈
+5.4·10⁸ steps, below the expected cost of one collision, so by that arithmetic it would most
+likely end as budget exhaustion and abort. These figures are arithmetic on the code and the group
+order; the benches were not run to produce them.
 
 ### CLI: stepping through the optimization layers
 
-The `rho-dlog` binary exposes the solver variants via command-line flags. The following sequence
-demonstrates the progression from the single-threaded baseline to the fully-optimized solver:
+The `rho-dlog` binary exposes the solver variants via command-line flags. Every invocation needs
+the target `--q <x,y>`. The following sequence demonstrates the progression from the single-threaded
+baseline to the fully-optimized solver:
 
 ```sh
-# Single-threaded Brent baseline
-rho-dlog --curve secp-toy --walkers 1
+# Single-threaded Brent baseline (--walkers 0, the default)
+rho-dlog --curve secp-toy --q <x,y>
 
 # 4 parallel walkers with distinguished points
-rho-dlog --curve secp-toy --walkers 4
+rho-dlog --curve secp-toy --q <x,y> --walkers 4
 
 # 4 walkers with batched inversion (batch size 16)
-rho-dlog --curve secp-toy --walkers 4 --batch-size 16
+rho-dlog --curve secp-toy --q <x,y> --walkers 4 --batch-size 16
 
 # 4 walkers, batch size 16, GLV endomorphism (secp-toy only)
-rho-dlog --curve secp-toy --walkers 4 --batch-size 16 --glv
+rho-dlog --curve secp-toy --q <x,y> --walkers 4 --batch-size 16 --glv
 ```
 
-The `--theta` flag controls the distinguished-point threshold (default: auto-tuned to give ~1000
-DPs at solution time). Increasing θ reduces memory usage at the cost of more steps per walker;
-decreasing it increases memory usage but detects collisions sooner.
+`--walkers N` with `N ≥ 1` selects the distinguished-point solvers; `--walkers 0` (the default)
+selects `solve_brent`, so `--walkers 1` is one distinguished-point walker, not the Brent baseline.
+The `--theta` flag controls the distinguished-point threshold (default: 10). Increasing θ reduces
+memory usage at the cost of more steps per walker; decreasing it increases memory usage but
+detects collisions sooner. `--max-steps S` caps the total walk steps of the distinguished-point
+solvers (default: 64·√n plus a start-up allowance of 64·walkers·batch·2^θ); reaching it prints a
+budget-exhausted message, which says nothing about whether a logarithm exists.
 
 ```sh
 # Explicit theta: 1-in-256 DPs (theta=8)
-rho-dlog --curve secp-toy --walkers 4 --batch-size 16 --glv --theta 8
+rho-dlog --curve secp-toy --q <x,y> --walkers 4 --batch-size 16 --glv --theta 8
 ```
+
+On success the CLI prints `k` and a verification line; the solver has already checked
+`k·G == Q`, so the CLI does not recheck it. Each `DlogError` class gets its own message and exits
+with status 1: invalid input (naming the defect), unsupported domain, budget exhaustion,
+inconsistent result, and solver invariant failure (`describe_error` in `src/ecdlp/cli.rs`). The
+`generic` curve's built-in order, 9 223 372 037 218 517 353, is composite
+(7 · 17 · 77 507 328 043 853 087; the product can be checked by hand), so `--curve generic`
+reports `invalid input: group order is not prime` for the Brent and the distinguished-point
+solvers alike: they all check the input first, and
+`solve_brent_rejects_composite_order_before_walking` (unit, `src/ecdlp/mod.rs`) tests that outcome
+for a composite `n`. No test runs the CLI itself, and it does not project onto a prime-order
+subgroup.
 
 ---
 
@@ -767,8 +951,8 @@ bound. The table below names the structure, the module that realises it, and the
 
 | Attack | Curve structure exploited | Module surface | Toy fixture |
 |--------|--------------------------|----------------|-------------|
-| Pollard rho (baseline) | None — generic group | `rho::ecdlp` (`solve_brent`, `solve_dp`, `solve_dp_negmap`, `solve_dp_batch`, `solve_dp_glv`) | `secp_k1_toy` (63-bit, prime order) |
-| Pohlig–Hellman | Composite group order $n = \prod p_i^{e_i}$ | `rho::ecdlp::pohlig` (`solve_ecdlp_composite`) | `composite_toy()` ($n = 60 = 2^2 \cdot 3 \cdot 5$) |
+| Pollard rho (baseline) | None — generic group | `rho::ecdlp` (`solve_brent`, `solve_dp`, `solve_dp_negmap`, `solve_dp_batch`, `solve_dp_glv`) | `tiny_a`, `tiny_b` (20-bit prime order) in the KATs; `secp_k1_toy` (63-bit, prime order) in the benches and CLI |
+| Pohlig–Hellman | Composite group order $n = \prod p_i^{e_i}$ | `rho::ecdlp::pohlig` (`solve_ecdlp_composite`) | `composite_toy()` ($n = 60 = 2^2 \cdot 3 \cdot 5$); `composite_rho_toy()` ($n = 1068 = 2^2 \cdot 3 \cdot 89$) |
 | MOV/Frey–Rück | Small embedding degree $k$; $\ell \mid p^k - 1$ | `rho::pairing::mov` (`mov_reduce`) | `pairing_toy()` ($\ell = 3$, $k = 2$, $\mathbb{F}_{47^2}$) |
 | Smart–Satoh–Araki (SSA) | Anomalous curve: $\#E(\mathbb{F}_p) = p$ (trace = 1) | `rho::ssa` (`ssa_solve`) | `anomalous_toy()` ($y^2 = x^3 + 5 \bmod 7$, $\#E = 7 = p$) |
 | GHS/Weil descent (**transfer**) | Binary curve $E/\mathbb{F}_{2^m}$ with subfield tower | `rho::ghs` (`ghs_descend`, `verify_log_preservation`, `transfer_point`) | `ghs_toy_curve()` ($\mathbb{F}_{2^6}$, $m = 6$, $l = 2$) |
@@ -793,12 +977,16 @@ modulo a prime $\ell \mid n$.
 
 The group order $n = \#E(\mathbb{F}_p)$ is composite: $n = \prod p_i^{e_i}$. The ECDLP in a
 group of composite order reduces to independent DLPs in each prime-power subgroup via the
-Chinese Remainder Theorem. Each prime-order subgroup DLP is solved by the rho solvers
-(which require prime order). The CRT reassembles the answer.
+Chinese Remainder Theorem. A prime-power subgroup is solved digit by digit in base $p_i$, each
+digit being a DLP in a group of prime order $p_i$. For $p_i \leq 64$ that DLP is solved by
+enumerating the subgroup, which is the digit step of Pohlig and Hellman (1978, §IV); for larger
+$p_i$ it is solved by Pollard rho (`solve_brent`), which requires prime order. Pohlig and Hellman's
+own large-prime step is a time–memory search, not rho, so the paper is cited only for the
+small-subgroup step. The CRT reassembles the answer.
 
-The escape: instead of running rho on the full group of order $n$, run rho on the largest
-prime-power subgroup of order $p_{\max}^{e_{\max}}$. The cost drops from $O(\sqrt{n})$ to
-$O(\sum e_i (\log n + \sqrt{p_i}))$ — a dramatic speedup when $n$ has small prime factors.
+The escape: instead of running rho on the full group of order $n$, solve each prime-order digit
+problem on its own. The cost drops from $O(\sqrt{n})$ to $O(\sum e_i (\log n + \sqrt{p_i}))$ when
+every digit is a rho walk — a dramatic speedup when $n$ has small prime factors.
 
 ### The module surface
 
@@ -809,26 +997,47 @@ $O(\sum e_i (\log n + \sqrt{p_i}))$ — a dramatic speedup when $n$ has small pr
 pub fn factor_order(n: u64) -> Vec<(u64, u32)>;
 
 /// Project (G, Q) to the order-p^e subgroup via [n / p^e]-scalar-multiplication.
-pub fn project_to_subgroup<F: Fp>(
-    curve: &Curve<F>,
+pub fn project_to_subgroup<F: Fp<4>>(
+    curve: &Curve,
     g: &AffinePoint<F>,
     q: &AffinePoint<F>,
     n: u64,
     p_power: u64,
 ) -> (AffinePoint<F>, AffinePoint<F>);
 
-/// Composite-order ECDLP via prime-power lift + CRT combine.
-pub fn solve_ecdlp_composite<F: Fp>(
-    curve: &Curve<F>,
+/// Composite-order ECDLP via prime-power lift + CRT combine, verified k·G == Q.
+pub fn solve_ecdlp_composite<F: Fp<4>>(
+    curve: &Curve,
     g: &AffinePoint<F>,
     q: &AffinePoint<F>,
     n: u64,
-) -> Option<u64>;
+) -> Result<DlogSolution<PohligEvidence>, DlogError>;
+
+pub struct PohligEvidence { pub components: Vec<PrimePowerComponent> }
+pub struct PrimePowerComponent { pub p: u64, pub e: u32, pub residue: u64,
+                                 pub digits: Vec<DigitMethod> }
+pub enum DigitMethod { SubgroupEnumeration, Rho(RhoEvidence) }
 ```
 
-`solve_ecdlp_composite` is the entry point. It calls `factor_order` to decompose $n$, projects
-to each prime-power subgroup via `project_to_subgroup`, solves each subgroup DLP by calling the
-frozen `solve_brent` (which requires prime order), and reassembles via CRT.
+`solve_ecdlp_composite` is the entry point. It checks the instance, calls `factor_order` to
+decompose $n$, projects to each prime-power subgroup via `project_to_subgroup`, recovers
+$k \bmod p^e$ digit by digit (each digit by `SubgroupEnumeration` when $p \leq 64$, otherwise by
+`solve_brent` on the order-$p$ subgroup, with its evidence carried unchanged as `Rho`), reassembles
+via CRT, and checks `k·G == Q` before returning. Every digit solve receives the prime order $p$,
+never $p^e$.
+
+| Outcome | Meaning | Exercised by |
+|---------|---------|--------------|
+| `Ok(DlogSolution { k, evidence })` | verified `k`; each component's `residue` is `k mod p^e`, the sum of its digits, with one `DigitMethod` per digit, `SubgroupEnumeration` only for `p ≤ 64` and `Rho` only above | `composite_dlog_every_k` (all `k` in `0..60`), `composite_rho_dlog_sampled_k` (via `check_pohlig_evidence`, `rho/tests/ecdlp_kat.rs`) |
+| `Err(InvalidInput(ZeroOrder))`, `(WrongGeneratorOrder)` | `n = 0` (no longer a panic); `n·G ≠ ∞`, or `(n/p)·G = ∞` for some prime `p ∣ n` (a multiple of the true order, or a `G` of smaller order) | `composite_wrong_order_is_invalid_input`, `composite_rho_wrong_order_is_invalid_input` |
+| `Err(InvalidInput(TargetOutsideSubgroup))` | `n·Q ≠ ∞` (by code reading; no composite test), or an order-`p` enumeration finds no match, which proves `Q ∉ ⟨G⟩` | `composite_target_outside_subgroup_is_invalid_input` (the enumeration case) |
+| `Err(BudgetExhausted { .. })`, `Err(Inconsistent { .. })` from a rho digit | passed through unchanged, so exhaustion is never reported as anything else | not exercised: no fixture's rho digit exhausts or fails |
+| `Err(Inconsistent { k })` after the CRT step | every digit solved but `k·G ≠ Q`; judged unreachable on a verified instance | not exercised |
+
+`composite_toy()` has only primes up to 5, so no digit reaches rho there; the rho path is exercised
+on `composite_rho_toy()` (below). The `DigitMethod` name follows the source: the order-`p` step in
+Pohlig and Hellman (1978, §IV) is a function with `p` possible values computed by table lookup or
+by trial and error, and the code takes the trial-and-error form, so it stores no table.
 
 ### The toy KAT/fixture
 
@@ -839,13 +1048,21 @@ The generator $G = (10, 3)$. The known scalar is $k = 7$: $Q = 7 \cdot G$.
 let curve = composite_toy();
 let g = curve.generator::<FpMonty>();
 let q = curve.scalar_mul(&g, &Uint::<4>::from(7u64));
-let k = solve_ecdlp_composite(&curve, &g, &q, COMPOSITE_TOY_N)
+let solution = solve_ecdlp_composite(&curve, &g, &q, COMPOSITE_TOY_N)
     .expect("Pohlig–Hellman must succeed on composite_toy");
-assert_eq!(curve.scalar_mul(&g, &Uint::<4>::from(k)), q);
+assert_eq!(curve.scalar_mul(&g, &Uint::<4>::from(solution.k)), q);
 ```
 
 The bench pre-check in `rho/benches/attacks.rs` (`bench_pohlig_hellman`) asserts this before
-timing.
+timing. The Pohlig–Hellman KATs live in `rho/tests/ecdlp_kat.rs` (`composite_dlog_*`,
+`composite_rho_*`, `composite_wrong_order_is_invalid_input`,
+`composite_target_outside_subgroup_is_invalid_input`).
+
+The second fixture, `composite_rho_toy()`, is $y^2 = x^3 + 2x + 3 \bmod 1009$ with
+$G = (10, 425)$ and $n = 1068 = 2^2 \cdot 3 \cdot 89$. The factor $89$ exceeds the enumeration
+limit, so its digit is solved by rho. Each rho solve costs about 0.16 s in a debug build, so
+`composite_rho_dlog_sampled_k` samples every 23rd $k$ plus the edges and the residues 0 and 1
+modulo 89 (whose rho digit is `Trivial`), not all 1068 values.
 
 ### Cross-reference
 
@@ -876,20 +1093,39 @@ This is the cross-crate bridge: the MOV reduction transports the ECDLP to the NF
 /// MOV/Frey–Rück reduction: ECDLP → F_{p^k}* DLP via the Tate pairing.
 ///
 /// Given (curve, G, Q, R, ell) where Q = k·G in the order-ℓ subgroup and R is a
-/// μ_ℓ-generator with e(G, R) ≠ 1, returns k mod ℓ.
+/// μ_ℓ-generator with e(G, R) ≠ 1, returns k mod ℓ with the pairing values behind it,
+/// after checking k·G == Q directly in E[ℓ].
 pub fn mov_reduce<F: Fp<4>>(
-    curve: &Curve<FpNaive4<4>>,
+    curve: &Curve,
     modulus: &IrreducibleModulus<F>,
-    p_point: &PairingPoint<F>,
+    g_point: &PairingPoint<F>,
     q_point: &PairingPoint<F>,
     r_point: &PairingPoint<F>,
     ell: u64,
-) -> Result<u64, MovError>;
+) -> Result<MovSolution<F>, MovError>;
+
+pub struct MovSolution<F> { pub k_mod_ell: u64, pub ell: u64,
+                            pub g_pair: FpExt<F>, pub h_pair: FpExt<F> }  // #[non_exhaustive]
+pub enum MovError { InvalidInput(MovInputDefect), DegeneratePairing,
+                    Dl(gnfs::dl::SolveDlError), Inconsistent { k_mod_ell: u64 } }
 ```
 
-`mov_reduce` evaluates the reduced Tate pairing twice (via `reduced_tate` in `rho::pairing::tate`),
-encodes both outputs through the bridge encoder (`fpext_to_bigint`), and calls `gnfs::dl::solve_dl`
-to recover $k \bmod \ell$.
+`mov_reduce` validates the instance, evaluates the reduced Tate pairing twice (via `reduced_tate`
+in `rho::pairing::tate`), encodes both outputs through the bridge encoder (`fpext_to_bigint`), and
+calls `gnfs::dl::solve_dl` to recover $k \bmod \ell$. It returns the result only after checking
+`k·G == Q` on the curve, independently of the pairing and the log engine, and `g_pair^k == h_pair`
+holds in the returned solution.
+
+| Outcome | Meaning | Exercised by |
+|---------|---------|--------------|
+| `Ok(MovSolution { k_mod_ell, ell, g_pair, h_pair })` | verified `k mod ℓ`; `g_pair^k = h_pair`, `g_pair ≠ 1`, `g_pair^ℓ = 1` | `mov_reduce_recovers_k1`, `mov_reduce_recovers_k2`, `mov_reduce_recovers_k0_for_target_at_infinity` (`rho/tests/mov_kat.rs`) |
+| `Err(InvalidInput(defect))` | `ℓ` not prime, `ℓ ∤ p^k − 1`, `G = ∞`, or `G`, `Q`, `R` off the curve or outside `E[ℓ]` | `mov_reduce_rejects_composite_ell`, `mov_reduce_rejects_ell_not_dividing_field_order`, `mov_reduce_rejects_infinite_generator`, `mov_reduce_rejects_off_curve_points`, `mov_reduce_rejects_points_outside_e_ell` |
+| `Err(DegeneratePairing)` | `R = ∞`, `e(G, R) = 1`, or a Miller evaluation of `0` (as for `R = G`): `R` is not a μ_ℓ-generator for `G` | `mov_reduce_degenerate_r_is_degenerate_pairing`, `mov_reduce_infinite_r_is_degenerate_pairing` |
+| `Err(Dl(..))` | the `solve_dl` error, passed through unchanged | not exercised |
+| `Err(Inconsistent { k_mod_ell })` | the engine's value fails `k·G == Q`; an invariant failure | `log_matches_accepts_only_the_true_log` (unit, `src/pairing/mov.rs`; checks the verifier, no fixture reaches it) |
+
+The single-limb limit `p < 2^64` of the bridge is checked only by a `debug_assert`, so a release
+build would truncate a larger `p` silently; no test covers it.
 
 The pairing infrastructure:
 - `rho::pairing::miller` — Miller's algorithm (the efficient pairing evaluation).
@@ -908,12 +1144,13 @@ subgroup.
 ```rust
 let (curve, modulus, ell, p_point, q_point) = pairing_toy();
 let q_prime = p_point.scalar_mul(2, &a_ext, &modulus, &p);
-let result = mov_reduce::<FpNaive4<4>>(&curve, &modulus, &p_point, &q_prime, &q_point, ell)
+let solution = mov_reduce::<FpNaive4<4>>(&curve, &modulus, &p_point, &q_prime, &q_point, ell)
     .expect("MOV must succeed on pairing_toy");
-assert_eq!(result, 2u64);
+assert_eq!(solution.k_mod_ell, 2u64); // the log modulo ℓ = 3, verified k·G == Q'
 ```
 
-The bench pre-check in `rho/benches/attacks.rs` (`bench_mov`) asserts this before timing.
+The bench pre-check in `rho/benches/attacks.rs` (`bench_mov`) asserts this before timing. The
+`2` here is `k_mod_ell`, the logarithm modulo $\ell = 3$.
 
 ### Cross-reference
 
@@ -927,38 +1164,83 @@ argument — see `docs/MATHEMATICS.md` §10.5 (the designated payoff proof).
 ### What it exploits
 
 The curve is *anomalous*: $\#E(\mathbb{F}_p) = p$ (trace of Frobenius = 1). The p-adic formal
-group logarithm lifts the ECDLP to $\mathbb{Z}_p$ via Hensel's lemma, where it is trivially
-linear. The escape is polynomial time — the sharpest escape among the algebraic attacks.
+group logarithm turns the ECDLP into a division in $\mathbb{F}_p$. The algorithm is polynomial in
+$\log p$ — the sharpest escape among the algebraic attacks — although this implementation is not
+(see below).
 
-The key steps: (1) lift the affine point $G \in E(\mathbb{F}_p)$ to a point $\tilde{G}$ on the
-formal group $\hat{E}(\mathbb{Z}_p)$ via Hensel's lemma; (2) apply the formal group logarithm
-$\log_{\hat{E}}$ to get $\log_{\hat{E}}(\tilde{G}) \in p\mathbb{Z}_p$; (3) the ECDLP scalar
-$k$ is recovered as $\log_{\hat{E}}(\tilde{Q}) / \log_{\hat{E}}(\tilde{G}) \bmod p$.
+The key steps: (1) lift the affine points $G, Q \in E(\mathbb{F}_p)$ to points
+$\tilde{G}, \tilde{Q}$ over $\mathbb{Z}_p$ via Hensel's lemma; (2) multiply each lift by $p$:
+because $\#E(\mathbb{F}_p) = p$, $p \cdot \tilde{G}$ and $p \cdot \tilde{Q}$ reduce to
+$\mathcal{O}$, so they lie in the kernel of reduction $E_1 \cong \hat{E}(p\mathbb{Z}_p)$ (they are
+*not* $\mathcal{O}$ modulo $p^2$ — the logarithm would then carry no information); (3) apply the
+formal group logarithm $\psi$ to both, which lands in $p\mathbb{Z}_p$; (4) recover
+$k \equiv \psi(p \cdot \tilde{Q}) / \psi(p \cdot \tilde{G}) \pmod{p}$ from the quotient of the
+leading terms. Step (4) is justified when $p \cdot \tilde{G} \in E_1 \setminus E_2$ for the lift of
+the curve used; the derivation, and why the requirement is on the lift of the curve, are in
+`docs/MATHEMATICS.md` §10.2.
 
 ### The module surface
 
 ```rust
 // rho::ssa
 
-/// Solve the ECDLP on an anomalous curve via the p-adic formal group logarithm.
+/// Solve the ECDLP on an anomalous curve; the result is checked k·G == Q.
 ///
-/// Requires #E(F_p) = p (anomalous). Returns k mod p such that Q = k·G.
-pub fn ssa_solve<F: Fp>(
-    curve: &Curve<F>,
+/// Requires #E(F_p) = p (anomalous), established by an exact point count.
+/// Returns k mod p such that Q = k·G. The last argument is ignored; p is read from the curve.
+pub fn ssa_solve<F: Fp<4>>(
+    curve: &Curve,
     g: &AffinePoint<F>,
     q: &AffinePoint<F>,
-    p: u64,
+    _n: u64,
 ) -> Result<u64, SsaError>;
+
+pub enum SsaError { NotAnomalous, Inconsistent { k_raw: u64 }, Unsupported(&'static str),
+                    LiftFailed(HenselError), Padic(ZpError) }
 ```
 
 The internal structure:
-- `rho::ssa::lift` — Hensel lift: $F_p$ point → $\mathbb{Z}_p$ point (`hensel_lift_point`).
-- `rho::ssa::formal_log` — formal group logarithm: $\hat{E}(\mathbb{Z}_p) \to p\mathbb{Z}_p$
-  (`formal_group_log`).
-- `rho::ssa::reduce` — the full SSA reduction assembling the three steps (`ssa_solve`).
+- `rho::ssa::lift` — Hensel lift: $F_p$ point → $\mathbb{Z}_p$ point (`lift_point`; $x$ exactly,
+  $y$ by Hensel's lemma, on the curve coefficients as stored).
+- `rho::ssa::formal_log` — the logarithm applied to $p \cdot \tilde{P}$ (`elliptic_log_proj`).
+  Despite the name it evaluates $\log(1 + t)$ at $t = -X/Y$, the logarithm of the multiplicative
+  formal group, not the series $\psi$ of $E$'s formal group.
+- `rho::ssa::reduce` — the full SSA reduction assembling the steps (`ssa_solve`): lift, multiply by
+  $p$ as $p - 1$ repeated projective additions, logarithm, division in $\mathbb{F}_p$, then
+  verification.
 
 The p-adic substrate (arithmetic, Hensel lifting, and the p-adic logarithm) is provided by
 `shared-padic`.
+
+**Cost.** The multiply-by-$p$ loop and the exact anomalous check (`verify_anomalous`, a Legendre
+sum over all $x$) are both $O(p)$, so this implementation is toy-scale; it does not realise the
+polynomial-time bound, which needs double-and-add for the multiplication by $p$ and a point-counting
+method better than summation. The precision is fixed at $p^8$.
+
+**Outcomes.** The quotient is a candidate: `ssa_solve` returns a `k` only after checking
+`k·G == Q`.
+
+| Outcome | Meaning | Exercised by |
+|---------|---------|--------------|
+| `Ok(k)` | verified `k` with `k·G == Q`; `Q = ∞` gives `0` immediately, on any curve | `kat_ssa_solve_recovers_every_k` (every `k` in `1..7`), `kat_ssa_solve_infinity_is_zero` (`rho/tests/ssa_kat.rs`) |
+| `Err(NotAnomalous)` | an exact count gives `#E ≠ p`; a proven negative | `kat_ssa_solve_not_anomalous` |
+| `Err(Unsupported(..))` | `p`, `a` or `b` does not fit one 64-bit limb (or `p < 5`, by code reading); never reported as non-anomalous | `kat_large_prime_is_unsupported_not_non_anomalous` |
+| `Err(LiftFailed(..))` | the point cannot be Hensel-lifted, e.g. a 2-torsion point (`y = 0`); `SsaError` has no input-defect variant, so `G = ∞` and off-curve points also surface here (code reading) | `kat_lift_2torsion_errors_non_simple_root` (tests `lift_point` directly) |
+| `Err(Inconsistent { k_raw })` | the points lifted but neither candidate verified; an invariant failure, never retried; on a degenerate lift it can occur on valid input | `resolve_candidate_rejects_unverifiable_quotients` (unit, `src/ssa/reduce.rs`); no fixture reaches it through `ssa_solve` |
+| `Err(Padic(..))` | an arithmetic error from the p-adic layer | not exercised |
+
+**An empirical compensation, not a derivation.** On the toy fixture the leading-unit quotient comes
+out as $2k \bmod 7$ for $k = 2, \ldots, 5$ (and $\pm 1$ for $k = \pm 1$), so `resolve_candidate`
+also tries $k_{\mathrm{raw}} \cdot 2^{-1} \bmod p$. The fixture has $a = 0$, so its stored lift
+keeps $j = 0$; in an exploratory computation (recorded in the `reduce` module documentation, not
+asserted by a test) $p \cdot \tilde{P}$ then has parameter valuation $2$ or more for every point, a
+case in which the quotient is a lift-dependent second-order quantity and not the homomorphism
+derived in `docs/MATHEMATICS.md` §10.2. The halving is an observation about that fixture and has no
+derivation; it is not claimed to be a property of the formal logarithm or of complex
+multiplication. It is safe only because of the final check: in a group of prime order at most one
+of the two candidates satisfies `k·G == Q`. The unit tests `resolve_candidate_accepts_raw_quotient`
+and `resolve_candidate_halves_a_doubled_quotient` exercise the two branches, and
+`kat_ssa_solve_recovers_every_k` the whole path.
 
 ### The toy KAT/fixture
 
@@ -978,8 +1260,8 @@ The bench pre-check in `rho/benches/attacks.rs` (`bench_ssa`) asserts this befor
 
 ### Cross-reference
 
-For the mathematical development — the formal group logarithm, the Hensel lift, and the
-polynomial-time complexity — see `docs/MATHEMATICS.md` §10.2.
+For the mathematical development — the formal group, the lift-independent homomorphism that makes
+the quotient meaningful, and the complexity of the algorithm — see `docs/MATHEMATICS.md` §10.2.
 
 ---
 
@@ -1005,20 +1287,43 @@ would misrepresent the attack's scope.
 /// Top-level GHS descent: (E, g, h) → (C, D_g, D_h) with log-preservation guarantee.
 pub fn ghs_descend(
     params: &GhsParams,
-    g: &BinaryPoint<F2mNaive<1>>,
-    h: &BinaryPoint<F2mNaive<1>>,
+    g: &BinaryAffinePoint<F2mNaive<1>>,
+    h: &BinaryAffinePoint<F2mNaive<1>>,
 ) -> Result<GhsDescentResult, GhsError>;
 
 /// Verify that the descent preserves the discrete logarithm.
-/// Returns true iff log_{D_g}(D_h) = k (the known scalar).
+/// Returns true iff k·D_g = D_h on Jac(C) for the known scalar k.
 pub fn verify_log_preservation(result: &GhsDescentResult, k: u64) -> bool;
 
 /// Transfer a single point on E to a divisor on Jac(C).
 pub fn transfer_point(
+    p: &BinaryAffinePoint<F2mNaive<1>>,
+    curve_c: &HyperellipticCurve<1>,
     params: &GhsParams,
-    point: &BinaryPoint<F2mNaive<1>>,
-) -> Result<HyperellipticDivisor, GhsError>;
+) -> Result<MumfordDivisor<F2mNaive<1>, 1>, GhsError>;
+
+pub enum GhsError { SubfieldDivisibility, NonDescendable, NotOnCurve, NotInSubfield }
 ```
+
+`transfer_point` guards its input. A point that does not satisfy the curve equation of $E$ is
+`NotOnCurve` (`transfer_rejects_off_curve_point`; `ghs_descend_rejects_off_curve_point` for the
+base point or the target), because the conorm map is a homomorphism only on points of $E$. The
+point at infinity is not an error: it maps to the identity divisor `[1, 0]`
+(`transfer_infinity_is_zero_divisor`). A conorm image with a coordinate not fixed by the relative
+Frobenius $c \mapsto c^{2^l}$ is `NotInSubfield`: the image is a point of $C(\mathbb{F}_{2^l})$ only
+when $E$ is defined over $\mathbb{F}_{2^l}$ (`transfer_rejects_conorm_outside_subfield`, with
+coefficient $a = \alpha \notin \mathbb{F}_{2^2}$). All of these tests are in
+`rho/tests/ghs_kat.rs`.
+
+**The field identification is a fixture property.** After the guard, the code reads the bits of a
+subfield element as an element of $\mathbb{F}_{2^l}$ by reducing the bit pattern modulo the subfield
+polynomial (`restrict_to_subfield`). That is valid on the toy fixture and is not a field
+homomorphism in general ($x^2 + x + 1$ does not divide $x^6 + x + 1$); on $\mathbb{F}_4
+\subset \mathbb{F}_{2^6}$ it differs from `shared_gf2m::restrict` by a Frobenius conjugate. This
+chapter does not claim the identification for other parameters; `docs/MATHEMATICS.md` §10.3 gives
+the detail and the experiment behind it. The homomorphism and log-preservation tests
+(`transfer_homomorphism_*`, `ghs_descend_log_preservation_*`) pass on the fixture under the raw-bits
+reading.
 
 The internal structure:
 - `rho::ghs::descent` — Artin–Schreier extension and Weil restriction of scalars
@@ -1256,11 +1561,11 @@ tested, and reasoned about independently. This section names them in one place.
 
 | Interface | What it exposes | Used by |
 |-----------|-----------------|---------|
-| Pollard rho (`rho::ecdlp`) | `solve_brent`, `solve_dp`, `solve_dp_negmap`, `solve_dp_batch`, `solve_dp_glv` — the generic-$\sqrt{n}$ rho solvers | the benchmark baseline column; Pohlig–Hellman (rho as sub-solver) |
-| Pohlig–Hellman (`rho::ecdlp::pohlig`) | `solve_ecdlp_composite`, `factor_order`, `project_to_subgroup` — composite-order ECDLP via CRT | the Pohlig–Hellman bench and code-tour |
-| MOV (`rho::pairing::mov`) | `mov_reduce` — MOV/Frey–Rück reduction to $\mathbb{F}_{p^k}^*$ DLP | the MOV bench and code-tour; the payoff proof in `docs/MATHEMATICS.md` §10.5 |
-| SSA (`rho::ssa`) | `ssa_solve` — SSA polynomial-time anomalous-curve attack | the SSA bench and code-tour |
-| GHS (`rho::ghs`) | `ghs_descend`, `verify_log_preservation`, `transfer_point` — binary-curve transfer (NOT a solver) | the GHS bench and code-tour, annotated as a transfer |
+| Pollard rho (`rho::ecdlp`) | `solve_brent`, `solve_dp`, `solve_dp_negmap`, `solve_dp_batch`, `solve_dp_glv` — the generic-$\sqrt{n}$ rho solvers, each returning `Result<DlogSolution<RhoEvidence>, DlogError>` | the benchmark baseline column; Pohlig–Hellman (rho for digits above 64) |
+| Pohlig–Hellman (`rho::ecdlp::pohlig`) | `solve_ecdlp_composite` (returning `DlogSolution<PohligEvidence>`), `factor_order`, `project_to_subgroup` — composite-order ECDLP via CRT | the Pohlig–Hellman bench and code-tour |
+| MOV (`rho::pairing::mov`) | `mov_reduce` — MOV/Frey–Rück reduction to $\mathbb{F}_{p^k}^*$ DLP, returning `Result<MovSolution, MovError>` | the MOV bench and code-tour; the payoff proof in `docs/MATHEMATICS.md` §10.5 |
+| SSA (`rho::ssa`) | `ssa_solve` — SSA anomalous-curve attack, returning `Result<u64, SsaError>` | the SSA bench and code-tour |
+| GHS (`rho::ghs`) | `ghs_descend`, `verify_log_preservation`, `transfer_point` (returning `Result<_, GhsError>`) — binary-curve transfer (NOT a solver) | the GHS bench and code-tour, annotated as a transfer |
 | Semaev (`rho::semaev`) | `semaev_poly` + `MultiPoly` operations — the index-calculus primitive | index calculus; the Semaev code-tour |
 | Index calculus (`rho::index_calculus`) | `index_calculus_dlp` returning `IndexCalcSolution`, `collect_relations`, `solve_ek_linalg`, `decompose` — the relation-collection and left-kernel pipeline | the index-calculus bench and code-tour |
 
@@ -1279,24 +1584,35 @@ Every attack — Pollard rho, Pohlig–Hellman, MOV, SSA, GHS, Semaev, and index
 implemented head-on, not stubbed, and exercised by KATs on a toy fixture.
 
 - **Pollard rho.** `solve_brent`, `solve_dp`, `solve_dp_negmap`, `solve_dp_batch`,
-  `solve_dp_glv` — all five solver variants are exercised by KATs on `secp_k1_toy`.
+  `solve_dp_glv` — all five solver variants are exercised by KATs, on the 20-bit `tiny_a` and
+  `tiny_b` curves (and, for GLV, the 1093-element `tiny_glv` group through the private
+  `solve_dp_glv_impl`). On `secp_k1_toy` itself only the budget-exhaustion and unsupported-domain
+  outcomes of the GLV solver are tested (`dp_glv_tiny_budget_is_budget_exhausted`,
+  `dp_glv_is_unsupported_off_its_curve`); a full solve of that 63-bit group is not practically
+  runnable. Every solver returns a verified logarithm with its collision evidence or a typed error
+  that keeps invalid input, unsupported domain, budget exhaustion and invariant failure apart.
 
 - **Pohlig–Hellman.** `solve_ecdlp_composite` with `factor_order` and
   `project_to_subgroup` — composite-order ECDLP via CRT, exercised on `composite_toy()`
-  ($n = 60$).
+  ($n = 60$, every digit by subgroup enumeration) and `composite_rho_toy()` ($n = 1068$, one digit
+  by rho). The result is verified and its evidence records the method of each digit.
 
 - **MOV/Frey–Rück.** `mov_reduce` with the full pairing infrastructure (Miller's
   algorithm, reduced Tate pairing, $\mathbb{F}_{p^k}$ arithmetic, the bridge to
-  `gnfs::dl::solve_dl`) — exercised on `pairing_toy()` ($\ell = 3$, $k = 2$).
+  `gnfs::dl::solve_dl`) — exercised on `pairing_toy()` ($\ell = 3$, $k = 2$). The result is
+  verified `k·G == Q`, and a degenerate pairing is reported as such.
 
-- **Smart–Satoh–Araki.** `ssa_solve` with Hensel lift and formal group logarithm —
-  polynomial-time anomalous-curve attack, exercised on `anomalous_toy()`
-  ($p = 7$, $\#E = 7$).
+- **Smart–Satoh–Araki.** `ssa_solve` with Hensel lift and an evaluation of $\log(1 + t)$ on
+  $p \cdot \tilde{P}$ — anomalous-curve attack, exercised on `anomalous_toy()` ($p = 7$,
+  $\#E = 7$). The algorithm is polynomial in $\log p$; this implementation is $O(p)$. Every
+  returned value is verified, and the solver's second candidate (the quotient times $2^{-1}$) is an
+  empirical compensation for that fixture (§11).
 
 - **GHS/Weil descent.** `ghs_descend`, `verify_log_preservation`, `transfer_point` —
   binary-curve transfer to hyperelliptic Jacobian, exercised on `ghs_toy_curve()`
   ($\mathbb{F}_{2^6}$). It is a transfer only (no `ghs_dlp`); the downstream solve on the
-  Jacobian is not implemented.
+  Jacobian is not implemented. The transfer rejects off-curve points and curves that do not
+  descend, and its identification of subfield elements is valid on the fixture only (§12).
 
 - **Semaev summation polynomials.** `semaev_poly` via the resultant ladder — the
   index-calculus primitive, exercised by `rho/tests/semaev_kat.rs`.
@@ -1358,10 +1674,12 @@ pre-check asserts (no-regression smoke tests).
 
 | Test file | Tests | Scope |
 |-----------|-------|-------|
-| `rho/tests/pohlig_kat.rs` | Pohlig–Hellman KATs | `solve_ecdlp_composite` on `composite_toy()` ($n = 60$); CRT correctness; prime-power lift |
-| `rho/tests/mov_kat.rs` | MOV/Frey–Rück KATs | `mov_reduce` on `pairing_toy()` ($\ell = 3$, $k = 2$); pairing bilinearity; $k = 2$ recovery |
-| `rho/tests/ssa_kat.rs` | SSA KATs | `ssa_solve` on `anomalous_toy()` ($p = 7$); Hensel lift; formal group log; $k = 3$ recovery |
-| `rho/tests/ghs_kat.rs` | GHS KATs | `ghs_descend` + `verify_log_preservation` on `ghs_toy_curve()` ($\mathbb{F}_{2^6}$); log-preservation |
+| `rho/tests/ecdlp_kat.rs` | rho and Pohlig–Hellman KATs | Brent and distinguished-point solvers on `tiny_a`/`tiny_b` (verified `k`, rechecked collision evidence, signed collisions, budget exhaustion, GLV `Unsupported` off its curve); `solve_ecdlp_composite` on `composite_toy()` ($n = 60$) and `composite_rho_toy()` ($n = 1068$); CRT correctness; prime-power lift; wrong-order and outside-subgroup inputs |
+| `rho/tests/binary_ecdlp_kat.rs` | binary-field and Koblitz rho KATs | verified solutions with rechecked evidence on the order-4 toy curve; composite-order input checks; degenerate collisions; τ eigenvalues; a corrupted eigenvalue ending in `Inconsistent` |
+| `rho/tests/factor_kat.rs` | rho factoring KATs | known semiprimes; `Even`/`Rho` evidence; `Prime`, `InvalidInput`, `Unsupported` and `BudgetExhausted` outcomes |
+| `rho/tests/mov_kat.rs` | MOV/Frey–Rück KATs | `mov_reduce` on `pairing_toy()` ($\ell = 3$, $k = 2$); pairing bilinearity; recovery of $k \bmod \ell$ for $k = 0, 1, 2$ with the pairing identity rechecked; input defects and degenerate pairings |
+| `rho/tests/ssa_kat.rs` | SSA KATs | `ssa_solve` on `anomalous_toy()` ($p = 7$); Hensel lift; every $k \in 1..7$ recovered and verified; `NotAnomalous`, `Unsupported`, and $Q = \infty$ |
+| `rho/tests/ghs_kat.rs` | GHS KATs | `ghs_descend` + `verify_log_preservation` on `ghs_toy_curve()` ($\mathbb{F}_{2^6}$); log-preservation; `NotOnCurve` and `NotInSubfield` guards |
 | `rho/tests/semaev_kat.rs` | Semaev KATs | `semaev_poly` correctness; $S_3$ base case; resultant ladder |
 | `rho/tests/index_calculus_kat.rs` | Index-calculus KATs | factor base and relations; Semaev decomposition; the transposed matrix and its complete left kernel (`left_kernel_annihilates_exponents`); recovery of every residue $k \bmod 5$ for $k \in 0..60$ from a relation combination (`recovers_every_residue`); the `Undetermined` and `Inconsistent` outcomes; the fixture constants (`toy_fixture_parameters`) |
 
@@ -1374,8 +1692,8 @@ before timing. These asserts are a no-regression invariant: every benched attack
 | Bench function | Pre-check assert | Known answer |
 |----------------|-----------------|--------------|
 | `attacks/pohlig_hellman` | `k·G = Q` for $k$ returned by `solve_ecdlp_composite` | $k = 7$ on `composite_toy()` |
-| `attacks/mov_frey_ruck` | `mov_reduce` returns $k = 2$ | $k = 2$ on `pairing_toy()` |
-| `attacks/ssa` | `ssa_solve` returns $k = 3$ | $k = 3$ on `anomalous_toy()` |
+| `attacks/mov_frey_ruck` | the verified solution's `k_mod_ell` is $2$ | $k \bmod \ell = 2$ on `pairing_toy()` |
+| `attacks/ssa` | `ssa_solve` returns `Ok(3)` | $k = 3$ on `anomalous_toy()` |
 | `attacks/ghs_transfer` | `verify_log_preservation` returns `true` for $k = 1$ | $k = 1$ on `ghs_toy_curve()` |
 | `attacks/index_calculus` | $x \cdot G_\ell = Q_\ell$ for the $x$ in the `IndexCalcSolution` returned by `index_calculus_dlp` | $x \cdot G_\ell = Q_\ell$ on `IndexCalcStrategy::toy()` |
 
