@@ -29,14 +29,15 @@
 //! # Green path vs msolve sidecar
 //!
 //! The green path uses native enumeration over the factor base (O(|FB|²) for m = 2).
-//! This is the principle-4 boundary: native enumeration does not scale past toy `m`.
+//! Native enumeration does not scale past toy `m`.
 //! An optional msolve cross-check is `#[ignore]`-gated (not implemented here — the
 //! green path is the deliverable).
 //!
-//! # Principle-4 boundary
+//! # Scale limits
 //!
 //! Native enumeration is O(|FB|^m) — acceptable for toy `m = 2` and `|FB| = 6`.
-//! Crypto-scale decomposition requires Gröbner-basis solvers (msolve, F4/F5).
+//! Crypto-scale decomposition requires Gröbner-basis solvers (msolve, F4/F5). Over `E(F_p)` the
+//! mechanism is demonstrated, not the asymptotic advantage.
 
 use shared_field::{Fp, FpNaive4 as FpNaive};
 
@@ -61,7 +62,7 @@ pub fn decompose(q: AffinePoint<FpNaive>, strategy: &IndexCalcStrategy) -> Optio
 
     // Only m = 2 is ratified; the algorithm is specialised for this arity.
     // SCALE: generalising to m > 2 requires an m-nested loop or a Gröbner solver.
-    assert_eq!(strategy.m, 2, "decompose: only m = 2 is implemented (principle-4 boundary)");
+    assert_eq!(strategy.m, 2, "decompose: only m = 2 is implemented (native enumeration does not scale)");
 
     let curve = &strategy.curve;
     let p_uint = &curve.p;

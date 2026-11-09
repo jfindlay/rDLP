@@ -1,10 +1,10 @@
 # Benchmark results
 
-Recorded per-phase as each phase completes. All numbers are wall-clock medians from Criterion
+Results are grouped by component. All numbers are wall-clock medians from Criterion
 on the build machine. Exact numbers will drift with hardware; the ratios are the pedagogical
 signal.
 
-## Phase 1 — Field arithmetic: FpNaive vs FpMonty
+## Field arithmetic: FpNaive vs FpMonty
 
 Prime: secp256k1 (256-bit, `p = 2^256 − 2^32 − 977`).
 
@@ -24,7 +24,7 @@ squarings + ~128 multiplications), so the `inv` ratio approximately tracks the `
 The `square` speedup is slightly larger than `mul` because `FixedMontyForm::square` uses a
 dedicated squaring path that saves ~half the cross-term multiplications.
 
-## Phase 2 — Integer factorization: Floyd vs Brent vs Brent+batched-GCD
+## Integer factorization: Floyd vs Brent vs Brent+batched-GCD
 
 Semiprimes: products of two roughly equal-size primes.  All timings factor the *same* semiprime
 at each bit size, c=1, x₀=2.
@@ -46,11 +46,11 @@ Since GCD (via the Euclidean algorithm on 128-bit values) costs significantly mo
 multiply, the savings are real and consistent.  The expected group-operations count is unchanged;
 only the cost per detection step drops.
 
-## Phase 3 — Curve arithmetic
+## Curve arithmetic
 
-Phase 3 delivers the elliptic-curve group law and two concrete curves.  There are no
-performance benchmarks at this phase (curve operations are not the bottleneck until Phase 5+);
-the deliverable is correctness: 50 tests, 0 failures.
+The curve-arithmetic component delivers the elliptic-curve group law and two concrete curves.  There
+are no performance benchmarks for it (curve operations are not the bottleneck until the parallel
+distinguished-point solver); the deliverable is correctness: 50 tests, 0 failures.
 
 ### Group-law implementation
 
@@ -68,8 +68,8 @@ the deliverable is correctness: 50 tests, 0 failures.
 | `generic` | 2^63 − 25 (63-bit) | p − 3 (≡ −3) | 1 | unknown† |
 | `secp_k1_toy` | 4_611_686_018_427_395_203 (63-bit) | 0 | 7 | 4_611_686_022_420_787_627 (prime) |
 
-† The generic curve's group order is not required for Phases 3–4; tests use small-scalar
-  reference points rather than n·G = ∞.
+† The generic curve's group order is not required for curve arithmetic and the rho baseline;
+  tests use small-scalar reference points rather than n·G = ∞.
 
 ### secp_k1_toy endomorphism
 
@@ -94,10 +94,10 @@ both p and n are prime, both ≡ 1 (mod 3).
 | `src/curve/secp_k1_toy.rs` (unit) | 6 | Reference multiples, n·G=∞, endomorphism, β and λ constants |
 | `tests/ecdlp_kat.rs` (integration) | 8 | Both curves, linearity, endomorphism KAT, k256 cross-check |
 
-## Phase 4 — ECDLP rho baseline (single-threaded)
+## ECDLP rho baseline (single-threaded)
 
-Phase 4 delivers the working single-threaded DLP solver.  There are no throughput benchmarks
-at this phase (parallelism arrives in Phase 5); the deliverable is correctness: 67 tests,
+The single-threaded baseline delivers the working DLP solver.  There are no throughput benchmarks
+for it (parallelism arrives with distinguished points); the deliverable is correctness: 67 tests,
 0 failures.
 
 ### Solver design
@@ -126,7 +126,7 @@ Both have `√n ≈ 1024`, making them fast to solve even in unoptimized debug b
 ### DLP KAT solve times (debug, unoptimized, single-threaded)
 
 Wall times from a single run; the dominant cost is one field inversion per walk step
-(Phase 7 will amortise this with batched inversion).
+(batched inversion amortises this).
 
 | Curve | k | Steps (approx) | Wall time |
 |-------|---|---------------|-----------|
@@ -138,7 +138,7 @@ Wall times from a single run; the dominant cost is one field inversion per walk 
 | tiny_b | 99 991 | ~2 000 | ~2 s |
 
 The ~2 s per solve in debug reflects the cost of `FpMonty::inv` (~11 µs per inversion at
-this prime size, from the Phase 1 benchmark) × ~1000–2000 walk steps.  In release mode
+this prime size, from the field-arithmetic benchmark) × ~1000–2000 walk steps.  In release mode
 the same solves complete in milliseconds.
 
 ### Test coverage added
@@ -150,7 +150,7 @@ the same solves complete in milliseconds.
 | `src/ecdlp/mod.rs` (unit) | 3 | Solver correctness: k=7, 42, 100 on tiny_a |
 | `tests/ecdlp_kat.rs` (integration) | 6 | DLP KATs on tiny_a (k=7, 100, 33333) and tiny_b (k=7, 42, 99991) |
 
-## G.B — Polynomial selection: Murphy-E scoring and root sieve
+## Polynomial selection: Murphy-E scoring and root sieve
 
 Toy semiprime: N = 1022117 = 1009 × 1013 (~20-bit). Degree d = 3. All timings are wall-clock
 from a single run in unoptimized debug builds (`cargo test`, no `--release`). The dominant cost
@@ -177,7 +177,7 @@ the improvement from root sieving are under-exposed. The root sieve KAT uses `�
 for this reason. The Coppersmith multi-poly improvement is < 2× at toy scale (KAT 5 in
 `coppersmith_kat.rs`), consistent with the scale annotation.
 
-### Test coverage added (G.B)
+### Test coverage added (polynomial selection)
 
 | Test file | Tests | Scope |
 |-----------|-------|-------|
@@ -186,7 +186,7 @@ for this reason. The Coppersmith multi-poly improvement is < 2× at toy scale (K
 | `tests/root_sieve_kat.rs` | 8 | Rotation root-preservation, determinism, generator count, score agreement |
 | `tests/coppersmith_kat.rs` | 12 | Verify, count, best-score, generator, scale annotation |
 
-## G.C — Sieving: line sieve, special-q, lattice sieve
+## Sieving: line sieve, special-q, lattice sieve
 
 Toy semiprime: N = 5 (f(x) = x³ − x − 1, m = 2, f(m) = 5). Sieve region: |a| ≤ 10, 1 ≤ b ≤ 3
 (63 pairs total). Factor-base bounds: B_rat = B_alg = 30. All timings are wall-clock from a
@@ -233,7 +233,7 @@ algorithms are mathematically equivalent at toy scale (see scale annotation belo
 The KATs annotate all three disconnects explicitly (scale annotations in `line_sieve_kat.rs`,
 `special_q_kat.rs`, and `lattice_kat.rs`).
 
-### Test coverage added (G.C)
+### Test coverage added (sieving)
 
 | Test file | Tests | Scope |
 |-----------|-------|-------|
@@ -242,7 +242,7 @@ The KATs annotate all three disconnects explicitly (scale annotations in `line_s
 | `tests/special_q_kat.rs` | 13 | q-restriction enforcement, q in algebraic EV, yield annotation, subset check |
 | `tests/lattice_kat.rs` | 15 | Lattice membership, verify, q in algebraic EV, basis reduction, subset check |
 
-## G.D — Filtering: singleton removal, clique pruning, column merging
+## Filtering: singleton removal, clique pruning, column merging
 
 Toy setup: f(x) = x³ − x − 1, B_rat = B_alg = 13. Column layout: rational_size = 6,
 algebraic_size = 3, obstruction_count = 1, matrix_width = 10. All timings are wall-clock from
@@ -287,20 +287,20 @@ at toy scale:
    then weight-3, ties by column index) gives the same result as the full Cavallar heuristic
    because the matrix is small enough that any order is tractable. At cryptographic scale, the
    Cavallar heuristic reduces total matrix weight by 30–50% compared to a naive ordering,
-   directly reducing the cost of structured Gaussian elimination in G.E.
+   directly reducing the cost of structured Gaussian elimination in the linear-algebra stage.
 
 3. **EXCESS_FLOOR calibration.** At toy scale, EXCESS_FLOOR = 20 is never approached in
    practice (the toy corpus is too small to produce excess > 20 after singleton removal). At
    cryptographic scale, the floor is a tuning parameter: too low means too few null-space
-   vectors (fewer factoring attempts); too high means a denser matrix (higher G.E cost).
+   vectors (fewer factoring attempts); too high means a denser matrix (higher linear-algebra cost).
 
-### Test coverage added (G.D)
+### Test coverage added (filtering)
 
 | Test file | Tests | Scope |
 |-----------|-------|-------|
 | `tests/merge_kat.rs` | 4 (+1 ignored) | 2-way merge correctness, determinism, CADO oracle (ignored), end-to-end provenance, excess-floor enforcement |
 
-## G.E — Linear algebra: block Lanczos and block Wiedemann
+## Linear algebra: block Lanczos and block Wiedemann
 
 Toy setup: the shared 6 × 4 KAT matrix (from `gnfs/tests/lanczos_kat.rs` and
 `gnfs/tests/wiedemann_kat.rs`). Matrix dimensions: 6 rows × 4 columns. Kernel dimension: 3
@@ -344,7 +344,7 @@ block Lanczos self-orthogonality winnowing path: the corresponding block columns
 starting vector satisfy A^T·v = 0 and are detected as inactive. The winnowing correctly
 identifies them as kernel candidates. This phenomenon is fully exposed at toy scale.
 
-### Test coverage added (G.E)
+### Test coverage added (linear algebra)
 
 | Test file | Tests | Scope |
 |-----------|-------|-------|
@@ -352,7 +352,7 @@ identifies them as kernel candidates. This phenomenon is fully exposed at toy sc
 | `tests/lanczos_kat.rs` | 6 (+1 ignored) | Self-orthogonality path, single dependency, full-rank, determinism, multiple dependencies; CADO oracle (ignored) |
 | `tests/wiedemann_kat.rs` | 9 | Cross-validation with Lanczos, full-rank, empty matrix, single dependency, determinism, BM Fibonacci, BM period-4, BM all-ones, all-zero rows, multiple dependencies |
 
-## G.F — Square root and assembly: exact rational root, verified algebraic root, checked assembly
+## Square root and assembly: exact rational root, verified algebraic root, checked assembly
 
 Toy semiprime: N = 527 = 17 × 31 (~10-bit). K = ℚ(√2), f(x) = x² − 2, m = 23 (f(23) = 527 = N).
 One relation with nonconstant b: (a, b) = (3, −2). Entry points that produce the algebraic root
@@ -388,7 +388,7 @@ scale:
    semiprime N = p × q, and some candidates have a nonsquare γ. The bounded retry over candidates
    (including XOR combinations of computed kernel vectors) is the safety net.
 
-### Test coverage added (G.F)
+### Test coverage added (square root and assembly)
 
 | Test file | Scope |
 |-----------|-------|
@@ -396,13 +396,13 @@ scale:
 | `tests/sqrt_algebraic_kat.rs` | Verified algebraic root; image is the normalized map, not the norm; totally imaginary field; nonsquare certificate; precision exhaustion; non-monic direct and split-prime roots; cubic cross-method agreement |
 | `tests/factor_end_to_end_kat.rs` | Checked congruence; seam (N = 527) and non-monic (N = 35) factors; nonsquare-to-success retry; factor only in a combination; trivial congruence; incidental provenance; complete vs resource-limited exhaustion; invalid candidates (+1 ignored oracle KAT) |
 
-## G.W — End-to-end pipeline: polynomial selection → sieving → filtering → linear algebra → square root
+## End-to-end pipeline: polynomial selection → sieving → filtering → linear algebra → square root
 
 Toy semiprime: N = 527 = 17 × 31. K = ℚ(√2), f(x) = x² − 2, m = 23 (f(23) = 527). The earlier
 N = 35, m = 6 setup is not used: f(6) = 34 is not ≡ 0 (mod 35), so it violated f(m) ≡ 0 (mod N).
 The end-to-end KAT (`factor_end_to_end_kat.rs`) starts from checked relations and a genuine
-checked matrix (bypassing the sieve; the sieve is exercised separately in G.C), and covers the
-square-root stage only. The run from generated relations to a verified factor is
+checked matrix (bypassing the sieve; the sieve is exercised separately by the sieving KATs), and
+covers the square-root stage only. The run from generated relations to a verified factor is
 `factor_pipeline_kat.rs`, on a different fixture (N = 45113 = 197 · 229); no wall-clock figure is
 recorded for it here. The table below describes the N = 527 square-root stage, and none of its
 rows has been re-measured.
@@ -411,21 +411,21 @@ rows has been re-measured.
 
 | Stage | Input | Output | Wall time (debug) | Notes |
 |-------|-------|--------|-------------------|-------|
-| Polynomial selection (G.B) | N = 527, d = 2 | f(x) = x² − 2, m = 23 | not re-measured | f(23) = 527 = N; KAT uses a hand-built pair |
-| Sieving (G.C) | f, m, FB | 1 relation: (3, −2) | not re-measured | hand-built relation; G.C KAT finds 14 relations for f = x³−x−1 |
-| Filtering (G.D) | 1 relation | SparseMatrix (1 row, empty) | not re-measured | the row is empty, so it is itself a dependency |
-| Linear algebra (G.E) | checked matrix | candidate {0} | not re-measured | |
-| Rational root (G.F) | P = 3 + 46 = 49 | x = 7 (mod 527) | not re-measured | exact isqrt(49) = 7 |
-| Algebraic root (G.F) | γ = 3 + 2α = (1 + α)² | y = 24 (up to sign) | not re-measured | verified reconstruction; y² = 576 ≡ 49 = P |
-| Congruence assembly (G.F) | x = 7, y = 24, N = 527 | factor = **17** | not re-measured | gcd(7 − 24, 527) = 17 |
+| Polynomial selection | N = 527, d = 2 | f(x) = x² − 2, m = 23 | not re-measured | f(23) = 527 = N; KAT uses a hand-built pair |
+| Sieving | f, m, FB | 1 relation: (3, −2) | not re-measured | hand-built relation; the sieving KAT finds 14 relations for f = x³−x−1 |
+| Filtering | 1 relation | SparseMatrix (1 row, empty) | not re-measured | the row is empty, so it is itself a dependency |
+| Linear algebra | checked matrix | candidate {0} | not re-measured | |
+| Rational root | P = 3 + 46 = 49 | x = 7 (mod 527) | not re-measured | exact isqrt(49) = 7 |
+| Algebraic root | γ = 3 + 2α = (1 + α)² | y = 24 (up to sign) | not re-measured | verified reconstruction; y² = 576 ≡ 49 = P |
+| Congruence assembly | x = 7, y = 24, N = 527 | factor = **17** | not re-measured | gcd(7 − 24, 527) = 17 |
 
 **Factor recovered: 17 from N = 527 = 17 × 31. Candidates tried: 1.**
 
 **Timing note.** No end-to-end wall time is recorded: the table rows are not re-measured, and no
 Criterion benchmark exists for the `gnfs` crate. The only per-stage figures in this file are those
-of the earlier sections (G.B–G.E) and were measured on their own fixtures. The end-to-end KAT
-bypasses Murphy-E scoring, whose Dickman-ρ table construction is the one measured cost in G.B
-(~30 ms per `score()` call in debug builds), and uses a hand-built polynomial pair.
+of the earlier sections (polynomial selection through linear algebra) and were measured on
+their own fixtures. The end-to-end KAT bypasses Murphy-E scoring, whose Dickman-ρ table
+construction is the one measured cost in polynomial selection (~30 ms per `score()` call in debug builds), and uses a hand-built polynomial pair.
 
 **Science↔engineering note.** The toy semiprime N = 527 is far below the scale
 at which the GNFS complexity $L_N[1/3, (64/9)^{1/3}]$ is meaningful. At toy scale, the
@@ -433,10 +433,10 @@ pipeline is correct but the asymptotic win is not observable. The end-to-end KAT
 correctness; the L-notation complexity analysis (see `gnfs/docs/PEDAGOGY.md` §60) explains
 why the algorithm is subexponential at cryptographic scale.
 
-### Test coverage added (G.W)
+### Test coverage added (end-to-end pipeline)
 
-No new tests are added by the integrative writeup (G.W is a code-tour chapter, not a new
-implementation). The pipeline-level verification is provided by the existing end-to-end KAT:
+No new tests are added by the integrative writeup (the end-to-end writeup is a code-tour chapter, not a
+new implementation). The pipeline-level verification is provided by the existing end-to-end KAT:
 
 | Test file | Tests | Scope |
 |-----------|-------|-------|

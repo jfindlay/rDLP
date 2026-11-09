@@ -2,7 +2,7 @@
 //!
 //! Measures the wall-clock cost of each algebraic ECDLP attack on its respective toy fixture.
 //! Each bench body asserts the solver returns the known correct answer BEFORE timing, so the
-//! bench doubles as a no-regression smoke test (C-EWBench invariant).
+//! bench doubles as a no-regression smoke test.
 //!
 //! # Attacks benched
 //!
@@ -17,7 +17,7 @@
 //! # Pollard rho baseline
 //!
 //! Pollard rho is already benched in `rho/benches/ecdlp.rs` on `secp_k1_toy` (63-bit).
-//! That bench is the generic-√n baseline column in the E.W table. It is NOT duplicated here.
+//! That bench is the generic-√n baseline column of the cross-attack cost table. It is NOT duplicated here.
 //!
 //! # Scale
 //!
@@ -141,8 +141,8 @@ fn bench_ssa(c: &mut Criterion) {
 ///
 /// The GHS bench measures the **descent reduction + log-preservation verification**,
 /// NOT an end-to-end solve. `rho::ghs` has no `ghs_dlp`; the downstream solve is
-/// index calculus (a deferred re-shard). Reporting GHS as an end-to-end solve time
-/// would be a misrepresentation (C-EWBench invariant: GHS is a transfer).
+/// index calculus (not wired to GHS here). Reporting GHS as an end-to-end solve time
+/// would be a misrepresentation (GHS is a transfer, not a solve).
 ///
 /// Known answer: k = 1 (h = 1·g — the generator maps to itself under the transfer).
 /// The bench asserts `verify_log_preservation` returns `true` before timing.
@@ -236,7 +236,7 @@ fn bench_index_calculus(c: &mut Criterion) {
     });
     group.finish();
 
-    // Print counts for the E.W table (not timed — informational only).
+    // Print counts for the cross-attack cost table (not timed — informational only).
     let _ = (relation_count, decomp_count);
 }
 

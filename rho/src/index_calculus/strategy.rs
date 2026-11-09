@@ -21,11 +21,12 @@
 //! and to divide n. The ratified choice is `ℓ = 5` (the largest prime factor of n = 60).
 //! The ℓ-order subgroup generator is `G_ℓ = (n/ℓ)·G = 12·G`.
 //!
-//! # Principle-4 boundary
+//! # Scale limits
 //!
 //! The toy fixture is `F_47`, `n = 60`, `ℓ = 5`, `m = 2`. The algorithms are
-//! mechanism-correct; the asymptotic index-calculus win (which needs `E(F_{p^n})`) is
-//! not observable at this scale — a deferred re-shard.
+//! mechanism-correct; native enumeration of the factor base does not scale past toy parameters,
+//! and the asymptotic index-calculus win (which needs `E(F_{p^n})`) is not observable over
+//! `E(F_p)` — the mechanism is demonstrated, not the advantage.
 
 use crypto_bigint::Uint;
 
@@ -130,7 +131,7 @@ impl IndexCalcStrategy {
         let p_u64 = p.as_words()[0];
         debug_assert!(
             p.as_words()[1] == 0 && p.as_words()[2] == 0 && p.as_words()[3] == 0,
-            "enumerate_factor_base: p >= 2^64 not supported at toy scale (principle-4 boundary)"
+            "enumerate_factor_base: p >= 2^64 not supported (toy parameters only)"
         );
 
         for x_u64 in 0..p_u64 {
