@@ -544,7 +544,8 @@ fn rho_crosscheck_k3() {
     let q_rho = toy_curve.scalar_mul(&g_rho, &Uint::<4>::from(k_target));
 
     let k = solve_brent(&toy_curve, &g_rho, &q_rho, 13, 0, 20)
-        .expect("rho::solve_brent failed for k=3 on toy curve");
+        .expect("rho::solve_brent failed for k=3 on toy curve")
+        .k;
 
     // Verify relationship-preservation: k'·G = Q.
     let check = toy_curve.scalar_mul(&g_rho, &Uint::<4>::from(k));
@@ -574,7 +575,8 @@ fn rho_crosscheck_k7() {
     let q_rho = toy_curve.scalar_mul(&g_rho, &Uint::<4>::from(k_target));
 
     let k = solve_brent(&toy_curve, &g_rho, &q_rho, 13, 0, 20)
-        .expect("rho::solve_brent failed for k=7 on toy curve");
+        .expect("rho::solve_brent failed for k=7 on toy curve")
+        .k;
 
     let check = toy_curve.scalar_mul(&g_rho, &Uint::<4>::from(k));
     assert_eq!(check, q_rho, "rho cross-check: k'·G ≠ Q (k'={k}, expected k={k_target})");
@@ -608,7 +610,8 @@ fn rho_crosscheck_agrees_with_shor_k5() {
 
     // rho solver.
     let k_rho = solve_brent(&toy_curve, &g_rho, &q_rho, 13, 0, 20)
-        .expect("rho::solve_brent failed for k=5");
+        .expect("rho::solve_brent failed for k=5")
+        .k;
     let check_rho = toy_curve.scalar_mul(&g_rho, &Uint::<4>::from(k_rho));
     assert_eq!(check_rho, q_rho, "rho: k'·G ≠ Q (k'={k_rho})");
 

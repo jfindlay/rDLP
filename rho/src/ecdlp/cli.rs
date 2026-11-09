@@ -37,7 +37,9 @@ use crypto_bigint::Uint;
 use rho::curve::AffinePoint;
 use rho::curve::generic::generic_curve;
 use rho::curve::secp_k1_toy::{secp_k1_toy, N as SECP_N};
-use rho::ecdlp::{solve_brent, solve_dp, solve_dp_batch, solve_dp_glv, solve_dp_negmap};
+use rho::ecdlp::{
+    solve_brent, solve_dp, solve_dp_batch, solve_dp_glv, solve_dp_negmap, DlogError, InputDefect,
+};
 use shared_field::{Fp, FpMonty4 as FpMonty};
 
 #[derive(Parser, Debug)]
@@ -171,25 +173,37 @@ fn main() {
     //   --batch-size>1 → solve_dp_batch (batched inversion)
     //   --negmap       → solve_dp_negmap (negation map)
     //   (default)      → solve_dp (distinguished-point search)
-    let result = if args.walkers > 0 {
-        if args.glv {
-            if args.curve != "secp-toy" {
-                eprintln!("rho-dlog: --glv requires --curve secp-toy");
+    if args.walkers == 0 {
+        // The Brent solver verifies `k·G == Q` itself, so no re-check here.
+        match solve_brent(&curve, &g, &q, n, args.seed, args.retries) {
+            Ok(solution) => {
+                println!("k = {}", solution.k);
+                println!("verified: k·G = Q  ✓");
+            }
+            Err(e) => {
+                eprintln!("rho-dlog: {}", describe_error(&e));
                 std::process::exit(1);
             }
-            let batch = if args.batch_size > 1 { args.batch_size } else { 16 };
-            solve_dp_glv(&curve, &g, &q, n, args.walkers, batch, args.theta, args.seed)
-        } else if args.batch_size > 1 {
-            solve_dp_batch(&curve, &g, &q, n, args.walkers, args.batch_size, args.theta, args.seed)
-        } else if args.negmap {
-            solve_dp_negmap(&curve, &g, &q, n, args.walkers, args.theta, args.seed)
-        } else {
-            solve_dp(&curve, &g, &q, n, args.walkers, args.theta, args.seed)
         }
+        return;
+    }
+
+    let result = if args.glv {
+        if args.curve != "secp-toy" {
+            eprintln!("rho-dlog: --glv requires --curve secp-toy");
+            std::process::exit(1);
+        }
+        let batch = if args.batch_size > 1 { args.batch_size } else { 16 };
+        solve_dp_glv(&curve, &g, &q, n, args.walkers, batch, args.theta, args.seed)
+    } else if args.batch_size > 1 {
+        solve_dp_batch(&curve, &g, &q, n, args.walkers, args.batch_size, args.theta, args.seed)
+    } else if args.negmap {
+        solve_dp_negmap(&curve, &g, &q, n, args.walkers, args.theta, args.seed)
     } else {
-        solve_brent(&curve, &g, &q, n, args.seed, args.retries)
+        solve_dp(&curve, &g, &q, n, args.walkers, args.theta, args.seed)
     };
 
+    // The distinguished-point solvers return an unverified `Option`, so re-check here.
     match result {
         Some(k) => {
             println!("k = {k}");
@@ -203,21 +217,46 @@ fn main() {
             }
         }
         None => {
-            if args.walkers > 0 {
-                let variant = if args.glv {
-                    "glv"
-                } else if args.batch_size > 1 {
-                    "batch"
-                } else if args.negmap {
-                    "negmap"
-                } else {
-                    "plain"
-                };
-                eprintln!("rho-dlog: failed to solve DLP (parallel DP {variant} solver gave up)");
+            let variant = if args.glv {
+                "glv"
+            } else if args.batch_size > 1 {
+                "batch"
+            } else if args.negmap {
+                "negmap"
             } else {
-                eprintln!("rho-dlog: failed to solve DLP after {} retries", args.retries);
-            }
+                "plain"
+            };
+            eprintln!("rho-dlog: failed to solve DLP (parallel DP {variant} solver gave up)");
             std::process::exit(1);
         }
+    }
+}
+
+/// One line describing a Brent solver failure, distinct for every error class.
+fn describe_error(e: &DlogError) -> String {
+    match e {
+        DlogError::InvalidInput(defect) => {
+            let why = match defect {
+                InputDefect::GeneratorAtInfinity => "base point P is the point at infinity",
+                InputDefect::GeneratorNotOnCurve => "base point P is not on the curve",
+                InputDefect::TargetNotOnCurve => "target point Q is not on the curve",
+                InputDefect::ZeroOrder => "group order is zero",
+                InputDefect::OrderNotPrime => "group order is not prime",
+                InputDefect::WrongGeneratorOrder => "n·P is not the point at infinity",
+                InputDefect::TargetOutsideSubgroup => {
+                    "n·Q is not the point at infinity (Q is outside the subgroup of P)"
+                }
+            };
+            format!("invalid input: {why}")
+        }
+        DlogError::Unsupported(what) => format!("unsupported: {what}"),
+        DlogError::BudgetExhausted { attempts, steps } => format!(
+            "retry budget exhausted after {attempts} attempts and {steps} steps \
+             (no answer found; this does not show that none exists)"
+        ),
+        DlogError::Inconsistent { k } => {
+            format!("inconsistent: collision gave k = {k} but k·P ≠ Q (solver invariant failure)")
+        }
+        DlogError::InvariantFailure(what) => format!("solver invariant failure: {what}"),
     }
 }

@@ -16,7 +16,8 @@
 //!
 //! The solver retries with a fresh random walk table and starting point on
 //! degenerate failures (`b_h = b_t mod n`), which occur with probability `~1/n`
-//! per attempt.
+//! per attempt. It validates the instance first and verifies every `k` it returns; the result is
+//! a [`DlogSolution`] carrying [`RhoEvidence`], or a [`DlogError`] (see [`outcome`]).
 //!
 //! # Distinguished-point parallel solver
 //!
@@ -30,8 +31,13 @@ pub mod coordinator;
 pub mod dp;
 pub mod glv;
 pub mod negmap;
+pub mod outcome;
 pub mod pohlig;
 pub mod walk;
+
+pub use outcome::{
+    check_prime_order_input, verify_log, DlogError, DlogSolution, InputDefect, RhoEvidence,
+};
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -60,7 +66,8 @@ fn mulmod64(a: u64, b: u64, n: u64) -> u64 {
 /// Modular subtraction: `(a - b) mod n`, result in `[0, n)`.
 #[inline]
 fn submod64(a: u64, b: u64, n: u64) -> u64 {
-    if a >= b { a - b } else { a + n - b }
+    // `n - (b - a)` rather than `a + n - b`: the sum `a + n` overflows u64 when n > 2^63.
+    if a >= b { a - b } else { n - (b - a) }
 }
 
 /// Modular inverse via Fermat's little theorem: `a^(n-2) mod n`.
@@ -106,11 +113,97 @@ fn extract_k(a_t: u64, b_t: u64, a_h: u64, b_h: u64, n: u64) -> Option<u64> {
 
 // ── Brent's cycle detection ───────────────────────────────────────────────────
 
+/// Largest Brent window an attempt may reach: an attempt that would double past this gives up,
+/// after `2^29 − 1` walk steps.
+const BRENT_MAX_WINDOW: u64 = 1 << 28;
+
+/// How one Brent attempt ended.
+enum BrentAttempt {
+    /// The hare caught the tortoise; the scalars of both states at the collision.
+    Collision { a_t: u64, b_t: u64, a_h: u64, b_h: u64 },
+    /// The window grew past [`BRENT_MAX_WINDOW`] without a collision.
+    StepCap,
+}
+
+/// Run one Brent attempt from the walk seeded by `rng_seed`.
+///
+/// Adds the hare steps taken to `steps`.
+fn brent_attempt<F: Fp<4>>(
+    curve: &Curve,
+    g: &AffinePoint<F>,
+    q: &AffinePoint<F>,
+    n: u64,
+    rng_seed: u64,
+    steps: &mut u64,
+) -> BrentAttempt {
+    // Fresh RNG per attempt so each retry explores a different trajectory.
+    let mut rng = ChaCha20Rng::seed_from_u64(rng_seed);
+
+    let table = AddendTable::new(curve, g, q, n, &mut rng);
+
+    // Initialise both pointers from the same starting state (standard Brent).
+    let start = WalkState::<F>::new_random(curve, g, q, n, &mut rng);
+    let mut tortoise = start.clone();
+    let mut hare = start;
+
+    let mut r: u64 = 1; // current window size (power of 2)
+    let mut count: u64 = 0; // steps taken in the current window
+
+    let mut tortoise_affine = tortoise.to_affine(curve);
+
+    loop {
+        // Advance hare one step.
+        hare.step(curve, &table, n);
+        let hare_affine = hare.to_affine(curve);
+        count += 1;
+        *steps += 1;
+
+        if hare_affine == tortoise_affine {
+            return BrentAttempt::Collision {
+                a_t: tortoise.a,
+                b_t: tortoise.b,
+                a_h: hare.a,
+                b_h: hare.b,
+            };
+        }
+
+        // If hare has taken `r` steps from the last tortoise snapshot:
+        // snap tortoise forward to hare's current position and double the window.
+        if count == r {
+            tortoise = hare.clone();
+            tortoise_affine = hare_affine;
+            count = 0;
+            r <<= 1;
+
+            if r > BRENT_MAX_WINDOW {
+                return BrentAttempt::StepCap;
+            }
+        }
+    }
+}
+
+/// Return `k` as a solution after confirming `k·G == Q`.
+fn verified<F: Fp<4>>(
+    curve: &Curve,
+    g: &AffinePoint<F>,
+    q: &AffinePoint<F>,
+    k: u64,
+    evidence: RhoEvidence,
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
+    if verify_log(curve, g, q, k) {
+        Ok(DlogSolution::new(k, evidence))
+    } else {
+        Err(DlogError::Inconsistent { k })
+    }
+}
+
 /// Solve `Q = k·G` via Pollard rho with Brent's cycle detection.
 ///
-/// Builds an r-adding walk table from `g` and `q`, then runs tortoise and hare
-/// pointers according to Brent's algorithm.  When a collision is detected,
-/// the DLP is extracted from the tracked `(a, b)` scalars.
+/// Validates the instance with [`check_prime_order_input`], answers `Q = ∞` (`k = 0`) and `Q = G`
+/// (`k = 1`) as [`RhoEvidence::Trivial`] without a walk, then builds an r-adding walk table from
+/// `g` and `q` and runs tortoise and hare pointers according to Brent's algorithm. When a
+/// collision is detected, the DLP is extracted from the tracked `(a, b)` scalars and checked with
+/// [`verify_log`] before it is returned.
 ///
 /// Brent's algorithm for a pseudorandom sequence `x₀, x₁, x₂, …`:
 ///
@@ -123,8 +216,9 @@ fn extract_k(a_t: u64, b_t: u64, a_h: u64, b_h: u64, n: u64) -> Option<u64> {
 /// This terminates when the hare catches the tortoise on the cycle, using
 /// ~24% fewer function evaluations than Floyd's algorithm on average.
 ///
-/// The solver retries up to `max_retries` times on degenerate failures (i.e., when
-/// two distinct walk states share the same `b` coefficient at collision time).
+/// A degenerate collision (`b_h ≡ b_t mod n`, no inverse) and an attempt that reaches the
+/// per-attempt step cap (`2^29 − 1` steps) each consume one of the `max_retries` attempts; attempt
+/// `i` uses seed `seed + i` (wrapping).
 ///
 /// # Arguments
 ///
@@ -135,9 +229,14 @@ fn extract_k(a_t: u64, b_t: u64, a_h: u64, b_h: u64, n: u64) -> Option<u64> {
 /// * `seed` — RNG seed for reproducibility.
 /// * `max_retries` — maximum number of fresh attempts (typical: 10).
 ///
-/// # Returns
+/// # Errors
 ///
-/// `Some(k)` such that `Q = k·G`, or `None` if all retries were degenerate.
+/// * [`DlogError::InvalidInput`] — the instance fails [`check_prime_order_input`].
+/// * [`DlogError::BudgetExhausted`] — all `max_retries` attempts ended degenerate or at the step
+///   cap (`max_retries = 0` gives `attempts: 0, steps: 0`). This proves nothing about `Q`.
+/// * [`DlogError::Inconsistent`] — a non-degenerate collision gave a `k` with `k·G ≠ Q`. It is
+///   never retried. Besides a walk bug, the one input that reaches it is a target in `E[n]` but
+///   outside `⟨G⟩`, which the input check cannot exclude when `n²` divides the curve order.
 pub fn solve_brent<F: Fp<4>>(
     curve: &Curve,
     g: &AffinePoint<F>,
@@ -145,58 +244,40 @@ pub fn solve_brent<F: Fp<4>>(
     n: u64,
     seed: u64,
     max_retries: usize,
-) -> Option<u64> {
-    for attempt in 0..max_retries {
-        // Fresh RNG per attempt so each retry explores a different trajectory.
-        let mut rng = ChaCha20Rng::seed_from_u64(seed.wrapping_add(attempt as u64));
+) -> Result<DlogSolution<RhoEvidence>, DlogError> {
+    check_prime_order_input(curve, g, q, n)?;
 
-        let table = AddendTable::new(curve, g, q, n, &mut rng);
-
-        // Initialise both pointers from the same starting state (standard Brent).
-        let start = WalkState::<F>::new_random(curve, g, q, n, &mut rng);
-        let mut tortoise = start.clone();
-        let mut hare     = start;
-
-        let mut r: u64 = 1;   // current window size (power of 2)
-        let mut count: u64 = 0; // steps taken in the current window
-
-        let mut tortoise_affine = tortoise.to_affine(curve);
-
-        loop {
-            // Advance hare one step.
-            hare.step(curve, &table, n);
-            let hare_affine = hare.to_affine(curve);
-            count += 1;
-
-            // Check for collision.
-            if hare_affine == tortoise_affine {
-                let ta = tortoise.a;
-                let tb = tortoise.b;
-                let ha = hare.a;
-                let hb = hare.b;
-                if let Some(k) = extract_k(ta, tb, ha, hb, n) {
-                    return Some(k);
-                }
-                break; // degenerate — retry outer attempt loop
-            }
-
-            // If hare has taken `r` steps from the last tortoise snapshot:
-            // snap tortoise forward to hare's current position and double the window.
-            if count == r {
-                tortoise = hare.clone();
-                tortoise_affine = hare_affine;
-                count = 0;
-                r <<= 1;
-
-                // Safety cap: give up after 2^28 total evaluations on this attempt.
-                if r > (1 << 28) {
-                    break;
-                }
-            }
-        }
+    if q.is_infinity() {
+        return verified(curve, g, q, 0, RhoEvidence::Trivial);
+    }
+    if q == g {
+        return verified(curve, g, q, 1, RhoEvidence::Trivial);
     }
 
-    None
+    let mut steps: u64 = 0;
+    for attempt in 0..max_retries {
+        let rng_seed = seed.wrapping_add(attempt as u64);
+        let BrentAttempt::Collision { a_t, b_t, a_h, b_h } =
+            brent_attempt(curve, g, q, n, rng_seed, &mut steps)
+        else {
+            continue; // step cap reached
+        };
+        let Some(k) = extract_k(a_t, b_t, a_h, b_h, n) else {
+            continue; // degenerate collision
+        };
+        let evidence = RhoEvidence::Collision {
+            attempt,
+            steps,
+            a1: a_t,
+            b1: b_t,
+            a2: a_h,
+            b2: b_h,
+            negated: false,
+        };
+        return verified(curve, g, q, k, evidence);
+    }
+
+    Err(DlogError::BudgetExhausted { attempts: max_retries, steps })
 }
 
 // ── Distinguished-point parallel solver ──────────────────────────────────────
@@ -1064,11 +1145,84 @@ mod tests {
         let g: AffinePoint<FpMonty> = curve.generator();
         let q = curve.scalar_mul(&g, &Uint::<4>::from(k_target));
 
-        let k = solve_brent(&curve, &g, &q, TINY_A_N, 0, 20)
-            .unwrap_or_else(|| panic!("solve_brent failed for k={k_target}"));
+        let solution = solve_brent(&curve, &g, &q, TINY_A_N, 0, 20)
+            .unwrap_or_else(|e| panic!("solve_brent failed for k={k_target}: {e:?}"));
+        let k = solution.k;
 
         let check = curve.scalar_mul(&g, &Uint::<4>::from(k));
         assert_eq!(check, q, "k·G ≠ Q for computed k={k} (expected k={k_target})");
+        assert!(matches!(solution.evidence, RhoEvidence::Collision { .. }));
+    }
+
+    /// `Q = ∞` is the trivial logarithm 0; no walk runs.
+    #[test]
+    fn solve_brent_target_at_infinity_is_trivial_zero() {
+        let curve = tiny_a();
+        let g: AffinePoint<FpMonty> = curve.generator();
+        let q = AffinePoint::<FpMonty>::Infinity;
+
+        let solution = solve_brent(&curve, &g, &q, TINY_A_N, 0, 20).expect("Q = ∞ must solve");
+        assert_eq!((solution.k, solution.evidence), (0, RhoEvidence::Trivial));
+    }
+
+    /// `Q = G` is the trivial logarithm 1; no walk runs, even with no attempts allowed.
+    #[test]
+    fn solve_brent_target_equals_generator_is_trivial_one() {
+        let curve = tiny_a();
+        let g: AffinePoint<FpMonty> = curve.generator();
+
+        let solution = solve_brent(&curve, &g, &g, TINY_A_N, 0, 0).expect("Q = G must solve");
+        assert_eq!((solution.k, solution.evidence), (1, RhoEvidence::Trivial));
+    }
+
+    /// With no attempts allowed the budget is exhausted before any step is taken.
+    #[test]
+    fn solve_brent_zero_retries_exhausts_budget_immediately() {
+        let curve = tiny_a();
+        let g: AffinePoint<FpMonty> = curve.generator();
+        let q = curve.scalar_mul(&g, &Uint::<4>::from(7u64));
+
+        assert_eq!(
+            solve_brent(&curve, &g, &q, TINY_A_N, 0, 0),
+            Err(DlogError::BudgetExhausted { attempts: 0, steps: 0 })
+        );
+    }
+
+    /// An instance that fails validation is rejected before any walk, with its defect named.
+    #[test]
+    fn solve_brent_rejects_composite_order_before_walking() {
+        let curve = tiny_a();
+        let g: AffinePoint<FpMonty> = curve.generator();
+        let q = curve.scalar_mul(&g, &Uint::<4>::from(7u64));
+
+        assert_eq!(
+            solve_brent(&curve, &g, &q, TINY_A_N + 1, 0, 20),
+            Err(DlogError::InvalidInput(InputDefect::OrderNotPrime))
+        );
+    }
+
+    /// A candidate that fails `k·G == Q` is reported as `Inconsistent`, not returned.
+    #[test]
+    fn verified_reports_wrong_candidate_as_inconsistent() {
+        let curve = tiny_a();
+        let g: AffinePoint<FpMonty> = curve.generator();
+        let q = curve.scalar_mul(&g, &Uint::<4>::from(7u64));
+
+        assert!(verified(&curve, &g, &q, 7, RhoEvidence::Trivial).is_ok());
+        assert_eq!(
+            verified(&curve, &g, &q, 8, RhoEvidence::Trivial),
+            Err(DlogError::Inconsistent { k: 8 })
+        );
+    }
+
+    /// `submod64` does not overflow when `a + n` exceeds `u64::MAX`.
+    #[test]
+    fn submod64_handles_moduli_above_two_pow_63() {
+        let n = u64::MAX - 58;
+        assert_eq!(submod64(n - 2, n - 1, n), n - 1);
+        assert_eq!(submod64(0, n - 1, n), 1);
+        assert_eq!(submod64(5, 3, n), 2);
+        assert_eq!(submod64(3, 3, n), 0);
     }
 
     #[test]

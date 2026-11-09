@@ -257,7 +257,8 @@ fn solve_prime_power<F: Fp<4>>(
         } else if p <= 64 {
             solve_small_dlog(curve, &gamma, &rhs, p)?
         } else {
-            solve_brent(curve, &gamma, &rhs, p, 0, 50)?
+            // Interim adaptation: this function still reports a single failure class.
+            solve_brent(curve, &gamma, &rhs, p, 0, 50).ok().map(|s| s.k)?
         };
 
         // Accumulate: x_pe += d_j · p^j.

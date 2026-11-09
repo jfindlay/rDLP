@@ -31,7 +31,7 @@ use rho::curve::generic::generic_curve;
 use rho::curve::secp_k1_toy::{secp_k1_toy, GX, LAMBDA};
 use rho::curve::test_curves::{composite_toy, tiny_a, tiny_b, COMPOSITE_TOY_N, TINY_A_N, TINY_B_N};
 use rho::ecdlp::pohlig::solve_ecdlp_composite;
-use rho::ecdlp::solve_brent;
+use rho::ecdlp::{solve_brent, verify_log, DlogError, InputDefect, RhoEvidence};
 use shared_field::{Fp, FpMonty4 as FpMonty};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -287,13 +287,120 @@ fn check_solver_on_curve(
     let g: AffinePoint<FpMonty> = curve.generator();
     let q = curve.scalar_mul(&g, &Uint::<4>::from(k_target));
 
-    let k = solve_brent(curve, &g, &q, n, 0, 30)
-        .unwrap_or_else(|| panic!("{label}: solve_brent failed for k_target={k_target}"));
+    let solution = solve_brent(curve, &g, &q, n, 0, 30)
+        .unwrap_or_else(|e| panic!("{label}: solve_brent failed for k_target={k_target}: {e:?}"));
+    let k = solution.k;
 
     let check = curve.scalar_mul(&g, &Uint::<4>::from(k));
     assert_eq!(
         check, q,
         "{label}: recovered k={k} gives k·G ≠ Q (k_target={k_target})"
+    );
+    assert!(verify_log(curve, &g, &q, k), "{label}: verify_log rejects k={k}");
+    assert_collision_identity(curve, &g, &q, &solution.evidence, label);
+}
+
+/// `a·G + b·Q` for scalars already reduced mod n.
+fn combine(
+    curve: &rho::curve::Curve,
+    g: &AffinePoint<FpMonty>,
+    q: &AffinePoint<FpMonty>,
+    a: u64,
+    b: u64,
+) -> AffinePoint<FpMonty> {
+    let ag = curve.scalar_mul(g, &Uint::<4>::from(a));
+    let bq = curve.scalar_mul(q, &Uint::<4>::from(b));
+    curve
+        .add_mixed(&JacobianPoint::from_affine(&ag, &curve.p), &bq)
+        .to_affine(&curve.p)
+}
+
+/// Recheck, from the evidence alone, the walk identity
+/// `a1·G + b1·Q = (−1)^negated · (a2·G + b2·Q)`.
+fn assert_collision_identity(
+    curve: &rho::curve::Curve,
+    g: &AffinePoint<FpMonty>,
+    q: &AffinePoint<FpMonty>,
+    evidence: &RhoEvidence,
+    label: &str,
+) {
+    let RhoEvidence::Collision { a1, b1, a2, b2, negated, steps, .. } = *evidence else {
+        panic!("{label}: expected collision evidence, got {evidence:?}");
+    };
+    assert!(steps > 0, "{label}: a collision takes at least one step");
+    let first = combine(curve, g, q, a1, b1);
+    let mut second = combine(curve, g, q, a2, b2);
+    if negated {
+        second = curve.negate(&second);
+    }
+    assert_eq!(first, second, "{label}: collision identity does not hold");
+}
+
+/// Fixed-seed runs on both 20-bit curves return collision evidence whose identity holds, and
+/// replaying the seed reproduces the evidence exactly (the walk is deterministic and single
+/// threaded).
+#[test]
+fn brent_collision_evidence_is_rechecked_and_reproducible() {
+    for (curve, n, label) in [(tiny_a(), TINY_A_N, "tiny_a"), (tiny_b(), TINY_B_N, "tiny_b")] {
+        let g: AffinePoint<FpMonty> = curve.generator();
+        let q = curve.scalar_mul(&g, &Uint::<4>::from(1234u64));
+
+        let first = solve_brent(&curve, &g, &q, n, 42, 30).expect("first run");
+        assert_collision_identity(&curve, &g, &q, &first.evidence, label);
+        let replay = solve_brent(&curve, &g, &q, n, 42, 30).expect("replay");
+        assert_eq!(first, replay, "{label}: same seed must reproduce the solution");
+    }
+}
+
+/// The trivial targets are answered without a walk: Q = ∞ is k = 0 and Q = G is k = 1.
+#[test]
+fn brent_trivial_targets() {
+    let curve = tiny_a();
+    let g: AffinePoint<FpMonty> = curve.generator();
+
+    let zero = solve_brent(&curve, &g, &AffinePoint::Infinity, TINY_A_N, 0, 30).unwrap();
+    assert_eq!((zero.k, zero.evidence), (0, RhoEvidence::Trivial));
+    let one = solve_brent(&curve, &g, &g, TINY_A_N, 0, 30).unwrap();
+    assert_eq!((one.k, one.evidence), (1, RhoEvidence::Trivial));
+}
+
+/// A zero retry budget is exhausted before any walk step.
+#[test]
+fn brent_zero_retries_is_budget_exhausted() {
+    let curve = tiny_a();
+    let g: AffinePoint<FpMonty> = curve.generator();
+    let q = curve.scalar_mul(&g, &Uint::<4>::from(7u64));
+
+    assert_eq!(
+        solve_brent(&curve, &g, &q, TINY_A_N, 0, 0),
+        Err(DlogError::BudgetExhausted { attempts: 0, steps: 0 })
+    );
+}
+
+/// `verify_log` accepts the true logarithm and rejects its successor.
+#[test]
+fn verify_log_rejects_successor() {
+    let curve = tiny_a();
+    let g: AffinePoint<FpMonty> = curve.generator();
+    let q = curve.scalar_mul(&g, &Uint::<4>::from(7u64));
+
+    assert!(verify_log(&curve, &g, &q, 7));
+    assert!(!verify_log(&curve, &g, &q, 8));
+}
+
+/// A generator that is not on the curve is reported as such, not solved.
+#[test]
+fn brent_rejects_off_curve_generator() {
+    let curve = tiny_a();
+    let g: AffinePoint<FpMonty> = curve.generator();
+    let q = curve.scalar_mul(&g, &Uint::<4>::from(7u64));
+    let AffinePoint::Finite { x, y } = &g else { unreachable!() };
+    let one = FpMonty::from_uint(Uint::<4>::ONE, &curve.p);
+    let bad = AffinePoint::new(x.clone(), y.add(&one, &curve.p));
+
+    assert_eq!(
+        solve_brent(&curve, &bad, &q, TINY_A_N, 0, 30),
+        Err(DlogError::InvalidInput(InputDefect::GeneratorNotOnCurve))
     );
 }
 

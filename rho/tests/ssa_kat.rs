@@ -422,7 +422,8 @@ fn kat_ssa_rho_cross_check_k3() {
 
     // Independent rho solver.
     let k_rho = solve_brent::<FpNaive>(&curve, &g, &q, ANOMALOUS_TOY_P, 0, 20)
-        .expect("solve_brent must succeed on the anomalous fixture");
+        .expect("solve_brent must succeed on the anomalous fixture")
+        .k;
 
     // Verify: k_rho·G = Q.
     let check = curve.scalar_mul(&g, &Uint::<4>::from(k_rho));
