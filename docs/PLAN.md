@@ -232,6 +232,28 @@ Prose invariants: relations hold mod ℓ because ℓ ∥ n; x comes only from a 
 | 4 | Correct the Shor ECDLP and index-calculus exposition ◆ | done | e3040c4 | |
 | 5 | Anneal cleanup (skippable) | pending | | |
 
+Boundary note (row 4 ◆, 2026-11-08): `still-on-intent`. Fix-loop budget 2 of 2 spent (anneal-fix
+cf42c3c; correction of seven fork-named statements ec4c5f7). Allowed extras on row 4: `README.md`,
+`shor/src/lib.rs`. Tolerated deviations from contract text (adjudicated contract-consistent; the
+fork recommends a one-line note in C-IndexCalcRecovery at arc close): `NoKernel` removed,
+`Inconsistent` also fires on uᵀb≡0 ∧ uᵀa≢0, `DEFAULT_MAX_ATTEMPTS`, `RelationStream`,
+`recover_log_from_relations` (returns `Undetermined` for a fixed set), anti-diagonal enumeration.
+Unresolved, carried to row 5 (not clean): `docs/PEDAGOGY.md:~780` still says "a relation matrix
+whose solution recovers the discrete log" (same wording the fork corrected in README:87–88). Not
+corrected, additive/out of footprint: SURVEY dangling references and its "768 qubits" claim
+(`docs/SURVEY.md:2139,2148,2189`); "principle-4" survivors in `rho/src/ssa/mod.rs`,
+`rho/src/pairing/mov.rs:198`, `rho/src/ecdlp/pohlig.rs:48`; `shor/docs/PEDAGOGY.md` "~40" vs 45
+tests for `pointadd_kat.rs`; BENCHMARKS N=91 "21 qubits". Row 5 is not skippable: edited lines
+over 100 characters in `docs/PEDAGOGY.md` and `docs/BENCHMARKS.md` are ledgered, and "2D-lattice"
+wording in `shor/src/ecdlp/mod.rs:1,45,113` is a cosmetic naming inconsistency with "dual-lattice".
+Flagged for the user (human sign-off, recommend a ROADMAP entry): `rho/src/ecdlp/pohlig.rs:187`
+(`solve_ecdlp_composite` brute-forces small prime-order subgroups) and `rho/src/pairing/mov.rs:198`
+(k=2 extension-field brute-force solver) are exhaustive searches over the answer space reported as
+success, outside this arc's scope; `docs/development.md` rule 5 forbids that pattern.
+Process note: row 1's commit body (89b0d59) is unwrapped and the row 4 ledger commit be017e9 carries a
+sentence as its subject instead of `Ledger: 4 done` (committer drafting defects; history not
+rewritten by the driver).
+
 ## Action-frame digest
 
 ### 1 — 2026-11-08
@@ -325,6 +347,47 @@ inconsistency in BENCHMARKS (N=91 "21 qubits" vs its own table's 14) was left al
 Texture: the denylist's `Track`/`Phase` patterns hit the repo's own cross-document organising
 labels (shared with README, SURVEY and the gnfs docs), so a coordinated rename is wider than the
 row's footprint.
+
+### 4 ◆ anneal gate — 2026-11-08
+Discovery/flex: The mechanical denylist gate hit in `docs/PEDAGOGY.md` (56), `docs/BENCHMARKS.md`
+(35), `README.md` (30), `shor/src/lib.rs` (7), `rho/benches/attacks.rs` (4) and, in the sibling
+files of the index-calculus module, `decompose.rs`/`strategy.rs` (5). One `@build` anneal-fix
+(commit cf42c3c; Fix-loop budget used 1 of 2) translated all of them to zero hits; `docs/
+MATHEMATICS.md`'s 10 residuals are bibliography keys ([S09] etc., keyword matches, not edited).
+Side effects to know: README's promise "Z.1.2 will extend this into the library-wide synthesis"
+became "A library-wide synthesis … is planned" (mild claim change); "a deferred re-shard" removed
+from `attacks.rs`/`strategy.rs`; two runtime messages containing "principle-4 boundary" (one
+`assert_eq!` in `decompose.rs`, one `debug_assert!` in `strategy.rs`) were reworded and no test
+asserts them; PEDAGOGY's "Track"/"Phase" headings, cumulative speedup table header, and BENCHMARKS'
+section labels were renamed to descriptive names; several edited lines now exceed 100 characters
+(ledgered for the anneal row, not a fix trigger).
+Affected: none (no contract text).
+Deferred: yes — (a) `docs/SURVEY.md` (excluded from the anneal) quotes renamed labels and old
+comments at many lines (310–312, 526–556, 746, 1162–1173, 1317–1320, 1368–1384, 2412, 2501, 2560);
+those references now dangle. (b) Same "principle-4" phrasing survives in files this arc never
+touched: `rho/src/ssa/mod.rs`, `rho/src/pairing/mov.rs`, `rho/src/ecdlp/pohlig.rs:48`; and
+gnfs/semaev/ghs_kat labels. Outside the arc's footprint: additive surface, not absorbed.
+(c) PEDAGOGY.md:83 still carries "~768 qubits for secp256k1" although row 4 removed that claim
+elsewhere (found by the stale-claim search, not yet corrected).
+Texture: three of the four rows' leaks came from older arcs' vocabulary, not from rows 1–3.
+
+### 4 ◆ boundary fork — 2026-11-08
+Discovery/flex: Verdict `still-on-intent`: both solvers succeed by the advertised mechanism or fail
+typed; no exhaustive solver path remains (the only 0..R scan is the `primary_success_probability`
+test oracle); no contract broken. Seven prose contradictions named and fixed in ec4c5f7: PEDAGOGY
+"~768 qubits" (now 1280 = 2·256 + 3·256, labelled layout arithmetic), PEDAGOGY per-round batch
+(`fb_size + 1`, not `fb_size`), README relation-matrix wording (left-kernel combination, log mod ℓ),
+`InvalidSubgroup` rustdoc engine name (`block_wiedemann_fl`), MATHEMATICS [PZ03] section pointer
+(§11.4), MATHEMATICS "correct at all scales" overreach, `DEFAULT_MAX_ATTEMPTS` rustdoc estimate
+label. Classified harmless: hidden-subgroup H statement in MATHEMATICS (correctly framed against
+the dual relation), "right kernel of the transposed matrix" (correct orientation), "2D-lattice"
+naming (cosmetic), historical comparison in `ecdlp_kat.rs`.
+Affected: none (contract text untouched; the fork recommends a one-line contract note at arc close).
+Deferred: yes — row 5 must take `docs/PEDAGOGY.md:~780` (same wording as the corrected README
+line), the over-100-character lines, and optionally the "2D-lattice" → "dual-lattice" naming and
+`k·G_ℓ = Q_ℓ` vs `x` notation in `docs/BENCHMARKS.md:524`, `rho/benches/attacks.rs:185,202,208`.
+Texture: the fork's judgment that a non-solver 0..R scan inside a test oracle is consistent with
+"no code path enumerates candidate exponents" is the reading tolerated for C-ShorSolve.
 
 ## Discoveries & risks
 
