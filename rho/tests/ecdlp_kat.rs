@@ -452,10 +452,67 @@ fn dp_collision_evidence_is_rechecked() {
             let RhoEvidence::Collision { attempt, negated, steps, .. } = solution.evidence else {
                 unreachable!("assert_collision_identity accepted non-collision evidence");
             };
-            assert_eq!((attempt, negated), (0, false), "{label}");
+            assert_eq!(attempt, 0, "{label}");
+            // Only the plain walk can meet `−P`; the canonicalising walks fold the sign away.
+            assert!(variant.starts_with("solve_dp/") || !negated, "{label}: spurious sign");
             assert!(steps <= DP_BUDGET, "{label}: evidence steps exceed the budget");
         }
     }
+}
+
+/// Parameters of the single-walker plain runs below: DP threshold, and a budget about three
+/// orders of magnitude above a collision's cost on the 20-bit curve.
+const SIGNED_THETA: u32 = 2;
+const SIGNED_BUDGET: u64 = 1 << 20;
+/// Discrete logarithm of the target in the signed-collision runs.
+const SIGNED_K: u64 = 1234;
+
+/// A plain walk that lands on a distinguished point and, later, on its negative recovers the
+/// logarithm from `a1·G + b1·Q = −(a2·G + b2·Q)` and reports `negated: true`.
+///
+/// Seed found by a bounded search: `solve_dp` with one walker (so the run is deterministic) on
+/// `tiny_a` with `Q = 1234·G`, θ = 2, budget 2^20, seeds 0..100. Matching distinguished points by
+/// x alone, as the coordinator once did, left 18 of those 100 runs as `Inconsistent` (seed 0
+/// first); with the y-parity in the record the same 18 runs are `Ok` with `negated: true`. The
+/// other 82 are plain collisions and are unchanged.
+#[test]
+fn plain_walk_recovers_log_from_negated_collision() {
+    let curve = tiny_a();
+    let g: AffinePoint<FpMonty> = curve.generator();
+    let q = curve.scalar_mul(&g, &Uint::<4>::from(SIGNED_K));
+
+    let solution = solve_dp(&curve, &g, &q, TINY_A_N, 1, SIGNED_THETA, 0, SIGNED_BUDGET)
+        .expect("a negated collision must solve, not read as inconsistent");
+
+    assert_collision_identity(&curve, &g, &q, &solution.evidence, "seed 0");
+    assert!(verify_log(&curve, &g, &q, solution.k));
+    let RhoEvidence::Collision { attempt, negated, .. } = solution.evidence else {
+        unreachable!("assert_collision_identity accepted non-collision evidence");
+    };
+    assert_eq!((attempt, negated), (0, true));
+}
+
+/// Over the seeds of the search above that are cheap to rerun, no plain run ends `Inconsistent`
+/// and both collision signs occur, each with an identity that holds from the evidence alone.
+#[test]
+fn plain_walk_never_misreads_the_sign_of_a_collision() {
+    let curve = tiny_a();
+    let g: AffinePoint<FpMonty> = curve.generator();
+    let q = curve.scalar_mul(&g, &Uint::<4>::from(SIGNED_K));
+
+    let mut signs = [0usize; 2];
+    for seed in 0..24u64 {
+        let label = format!("seed {seed}");
+        let solution = solve_dp(&curve, &g, &q, TINY_A_N, 1, SIGNED_THETA, seed, SIGNED_BUDGET)
+            .unwrap_or_else(|e| panic!("{label}: {e:?}"));
+        assert_collision_identity(&curve, &g, &q, &solution.evidence, &label);
+        assert!(verify_log(&curve, &g, &q, solution.k), "{label}");
+        let RhoEvidence::Collision { negated, .. } = solution.evidence else {
+            unreachable!("assert_collision_identity accepted non-collision evidence");
+        };
+        signs[usize::from(negated)] += 1;
+    }
+    assert!(signs[0] > 0 && signs[1] > 0, "expected both signs in 24 runs, got {signs:?}");
 }
 
 /// A budget far below a collision's cost ends every variant as budget exhaustion, with the whole

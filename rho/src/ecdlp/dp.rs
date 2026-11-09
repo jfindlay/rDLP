@@ -9,8 +9,12 @@
 //!
 //! Each walker thread emits a [`DpRecord`] whenever it lands on a distinguished
 //! point.  The coordinator collects these records and detects collisions: two
-//! records with the same `x_low` but different `(a, b)` pairs imply that two
-//! walk trajectories have merged, allowing `k` to be recovered.
+//! records with the same full x-coordinate but different `(a, b)` pairs are the same point
+//! (two walk trajectories merged) or opposite points, and either way `k` can be recovered.
+
+use shared_field::Fp;
+
+use crate::curve::AffinePoint;
 
 // ── Distinguished-point predicate ────────────────────────────────────────────
 
@@ -36,23 +40,89 @@ pub fn is_distinguished(x_low_word: u64, theta: u32) -> bool {
 
 // ── Distinguished-point record ────────────────────────────────────────────────
 
+/// Where a distinguished point sits: enough to tell `P` from `−P`.
+///
+/// `x` is the full x-coordinate (all four words, not only the low word that decides whether the
+/// point is distinguished); `y_odd` is the parity of the y-coordinate. For an odd field prime
+/// and `y ≠ 0`, `y` and `p − y` have opposite parity, so two finite points with equal `x` are
+/// equal when their parities agree and negatives of each other when they differ.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DpPoint {
+    /// The point at infinity, its own negative.
+    Infinity,
+    /// A finite point `(x, y)`.
+    Finite {
+        /// Full x-coordinate, least-significant word first.
+        x: [u64; 4],
+        /// Whether the y-coordinate is odd.
+        y_odd: bool,
+    },
+}
+
+impl DpPoint {
+    /// Describe an affine point.
+    pub fn of<F: Fp<4>>(point: &AffinePoint<F>) -> Self {
+        match point {
+            AffinePoint::Infinity => DpPoint::Infinity,
+            AffinePoint::Finite { x, y } => DpPoint::Finite {
+                x: *x.to_uint().as_words(),
+                y_odd: y.to_uint().as_words()[0] & 1 == 1,
+            },
+        }
+    }
+
+    /// The low word of the x-coordinate (`0` at infinity); the word the distinguished-point
+    /// predicate looks at.
+    pub fn x_low(&self) -> u64 {
+        match self {
+            DpPoint::Infinity => 0,
+            DpPoint::Finite { x, .. } => x[0],
+        }
+    }
+
+    /// The identity of the point up to sign: the full x-coordinate, `None` at infinity.
+    pub fn x_key(&self) -> Option<[u64; 4]> {
+        match self {
+            DpPoint::Infinity => None,
+            DpPoint::Finite { x, .. } => Some(*x),
+        }
+    }
+
+    /// Whether `self` and `other` are negatives of each other (`P` and `−P`, `P ≠ −P`).
+    ///
+    /// Callers have already matched [`x_key`](Self::x_key); points at infinity are never opposite.
+    pub fn is_opposite(&self, other: &Self) -> bool {
+        match (self, other) {
+            (DpPoint::Finite { y_odd: p, .. }, DpPoint::Finite { y_odd: q, .. }) => p != q,
+            _ => false,
+        }
+    }
+}
+
 /// A distinguished point emitted by a walker thread.
 ///
-/// Carries the walk's accumulated scalar coefficients `(a, b)` at the moment
-/// the DP was detected, plus the low word of the x-coordinate used as the
-/// hash-table key in the coordinator.
+/// Carries the walk's accumulated scalar coefficients `(a, b)` at the moment the DP was
+/// detected and the point itself, with its full x-coordinate and y-parity, so the coordinator
+/// can match points by x and tell equal points from opposite ones.
 ///
 /// Invariant: the walk point satisfies `W = a·G + b·Q` at the time of emission.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DpRecord {
-    /// Low 64-bit word of the x-coordinate (hash-table key).
-    pub x_low: u64,
+    /// The distinguished point `W`.
+    pub point: DpPoint,
     /// Accumulated scalar coefficient for G: `W = a·G + b·Q`.
     pub a: u64,
     /// Accumulated scalar coefficient for Q: `W = a·G + b·Q`.
     pub b: u64,
     /// Index of the walker thread that produced this record.
     pub walk_id: usize,
+}
+
+impl DpRecord {
+    /// Record the walk state `point = a·G + b·Q` of walker `walk_id`.
+    pub fn new<F: Fp<4>>(point: &AffinePoint<F>, a: u64, b: u64, walk_id: usize) -> Self {
+        DpRecord { point: DpPoint::of(point), a, b, walk_id }
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

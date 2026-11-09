@@ -53,7 +53,7 @@ use shared_field::Fp;
 
 use crate::curve::{AffinePoint, Curve, JacobianPoint};
 use coordinator::{Coordinator, DpCollision};
-use dp::{DpRecord, is_distinguished};
+use dp::{DpPoint, DpRecord, is_distinguished};
 use glv::glv_canonical;
 use negmap::{FruitlessCycleDetector, canonical_rep, negate_scalars};
 use walk::{AddendTable, AffineWalkState, BatchedWalker, WalkState};
@@ -466,17 +466,17 @@ fn check_walk_shape(num_walkers: usize, batch_size: Option<usize>) -> Result<(),
 
 /// Turn a search hit into a solution, verifying the candidate `k` it implies.
 ///
-/// Distinguished-point solvers report `attempt: 0` and `negated: false`; `steps` is the shared
-/// counter when the collision was accepted.
+/// Distinguished-point solvers report `attempt: 0`; `negated` is the collision's own sign (set
+/// only by a plain walk meeting `−P`, since the canonicalising walks never emit both signs) and
+/// `steps` is the shared counter when the collision was accepted.
 fn dp_solution<F: Fp<4>>(
     curve: &Curve,
     g: &AffinePoint<F>,
     q: &AffinePoint<F>,
     (collision, steps): (DpCollision, u64),
 ) -> Result<DlogSolution<RhoEvidence>, DlogError> {
-    let DpCollision { k, a1, b1, a2, b2 } = collision;
-    let evidence =
-        RhoEvidence::Collision { attempt: 0, steps, a1, b1, a2, b2, negated: false };
+    let DpCollision { k, negated, a1, b1, a2, b2 } = collision;
+    let evidence = RhoEvidence::Collision { attempt: 0, steps, a1, b1, a2, b2, negated };
     verified(curve, g, q, k, evidence)
 }
 
@@ -498,9 +498,11 @@ fn dp_solution<F: Fp<4>>(
 /// The walkers share one step budget, `max_steps`, claimed before each step: the call cannot run
 /// longer than that, whatever the input.
 ///
-/// The recorded collision key is the x-coordinate alone, so two DPs `P` and `−P` match and imply
-/// a wrong `k`. This is rare (it needs two DPs at opposite points rather than a merged walk) and
-/// surfaces as [`DlogError::Inconsistent`].
+/// The walk does not fold `P` and `−P` together, so two DPs can sit at opposite points. The
+/// coordinator matches DPs by their full x-coordinate and reads the y-parity of each: equal
+/// points give `a₁ + b₁·k = a₂ + b₂·k`, opposite points give `a₁ + b₁·k = −(a₂ + b₂·k)` and the
+/// evidence is marked `negated: true`. Either way the recovered `k` is verified before it is
+/// returned.
 ///
 /// # Arguments
 ///
@@ -589,13 +591,10 @@ fn run_walker<F: Fp<4>>(
 
         // Check for distinguished point.
         let pt = walk.to_affine(curve);
-        let x_low = match &pt {
-            AffinePoint::Infinity => 0u64,
-            AffinePoint::Finite { x, .. } => x.to_uint().as_words()[0],
-        };
+        let x_low = DpPoint::of(&pt).x_low();
 
         if is_distinguished(x_low, theta) {
-            let dp = DpRecord { x_low, a: walk.a, b: walk.b, walk_id };
+            let dp = DpRecord::new(&pt, walk.a, walk.b, walk_id);
             if let Some(exit) = link.emit(dp) {
                 return exit;
             }
@@ -741,10 +740,7 @@ fn run_walker_negmap<F: Fp<4>>(
         }
 
         // Extract the canonical x-coordinate for DP detection and cycle tracking.
-        let x_low = match &canon {
-            AffinePoint::Infinity => 0u64,
-            AffinePoint::Finite { x, .. } => x.to_uint().as_words()[0],
-        };
+        let x_low = DpPoint::of(&canon).x_low();
 
         // Feed the cycle detector.
         detector.push(x_low);
@@ -776,7 +772,7 @@ fn run_walker_negmap<F: Fp<4>>(
         // Distinguished-point check on the canonical x.
         // Skip DP emission immediately after a BKNS escape.
         if !escaped && is_distinguished(x_low, theta) {
-            let dp = DpRecord { x_low, a: walk.a, b: walk.b, walk_id };
+            let dp = DpRecord::new(&canon, walk.a, walk.b, walk_id);
             if let Some(exit) = link.emit(dp) {
                 return exit;
             }
@@ -937,10 +933,7 @@ fn run_walker_batch<F: Fp<4>>(
                 bw.walks[i].point = canon.clone();
             }
 
-            let x_low = match &canon {
-                AffinePoint::Infinity => 0u64,
-                AffinePoint::Finite { x, .. } => x.to_uint().as_words()[0],
-            };
+            let x_low = DpPoint::of(&canon).x_low();
 
             detectors[i].push(x_low);
 
@@ -972,7 +965,7 @@ fn run_walker_batch<F: Fp<4>>(
             // Distinguished-point check.
             if !escaped && is_distinguished(x_low, theta) {
                 let walk_id = walk_id_base * batch_size + i;
-                let dp = DpRecord { x_low, a: bw.walks[i].a, b: bw.walks[i].b, walk_id };
+                let dp = DpRecord::new(&canon, bw.walks[i].a, bw.walks[i].b, walk_id);
                 if let Some(exit) = link.emit(dp) {
                     return exit;
                 }
@@ -1181,10 +1174,7 @@ fn run_walker_glv<F: Fp<4>>(
             bw.walks[i].a = new_a;
             bw.walks[i].b = new_b;
 
-            let x_low = match &bw.walks[i].point {
-                AffinePoint::Infinity => 0u64,
-                AffinePoint::Finite { x, .. } => x.to_uint().as_words()[0],
-            };
+            let x_low = DpPoint::of(&bw.walks[i].point).x_low();
 
             detectors[i].push(x_low);
 
@@ -1213,7 +1203,10 @@ fn run_walker_glv<F: Fp<4>>(
             // Distinguished-point check on the canonical x.
             if !escaped && is_distinguished(x_low, theta) {
                 let walk_id = walk_id_base * batch_size + i;
-                let dp = DpRecord { x_low, a: bw.walks[i].a, b: bw.walks[i].b, walk_id };
+                // Not escaped, so the canonical point is still the walk's point.
+                let dp = DpRecord::new(
+                    &bw.walks[i].point, bw.walks[i].a, bw.walks[i].b, walk_id,
+                );
                 if let Some(exit) = link.emit(dp) {
                     return exit;
                 }
@@ -1376,25 +1369,28 @@ mod tests {
     }
 
     /// Recheck, from the evidence alone, that a distinguished-point solution is a collision
-    /// `a1·G + b1·Q = a2·G + b2·Q` and that its `k` verifies. Returns the evidence step count.
+    /// `a1·G + b1·Q = (−1)^negated · (a2·G + b2·Q)` and that its `k` verifies. Only the plain
+    /// walk (`may_be_negated`) can meet `−P`; the canonicalising walks never report `negated`.
+    /// Returns the evidence step count.
     fn assert_dp_evidence(
         curve: &Curve,
         g: &AffinePoint<FpMonty>,
         q: &AffinePoint<FpMonty>,
         solution: &DlogSolution<RhoEvidence>,
         label: &str,
+        may_be_negated: bool,
     ) -> u64 {
         let RhoEvidence::Collision { attempt, steps, a1, b1, a2, b2, negated } = solution.evidence
         else {
             panic!("{label}: expected collision evidence, got {:?}", solution.evidence);
         };
-        assert_eq!((attempt, negated), (0, false), "{label}: DP solvers report attempt 0, plain");
+        assert_eq!(attempt, 0, "{label}: DP solvers report attempt 0");
+        assert!(may_be_negated || !negated, "{label}: canonicalising walks never negate");
         assert!(steps > 0, "{label}: a collision takes at least one step");
-        assert_eq!(
-            combine(curve, g, q, a1, b1),
-            combine(curve, g, q, a2, b2),
-            "{label}: collision identity does not hold"
-        );
+        let first = combine(curve, g, q, a1, b1);
+        let second = combine(curve, g, q, a2, b2);
+        let second = if negated { curve.negate(&second) } else { second };
+        assert_eq!(first, second, "{label}: collision identity does not hold");
         assert!(verify_log(curve, g, q, solution.k), "{label}: k={} fails verify_log", solution.k);
         steps
     }
@@ -1418,7 +1414,7 @@ mod tests {
         let solution = solve_dp(&curve, &g, &q, TINY_A_N, 1, 4, 0xDEAD_BEEF, SUCCESS_BUDGET)
             .expect("solve_dp failed on tiny_a");
 
-        let steps = assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_tiny");
+        let steps = assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_tiny", true);
         assert!(steps <= SUCCESS_BUDGET);
     }
 
@@ -1434,7 +1430,7 @@ mod tests {
         let solution = solve_dp(&curve, &g, &q, TINY_A_N, 2, 4, 0xCAFE_BABE, SUCCESS_BUDGET)
             .expect("solve_dp failed on tiny_a with 2 walkers");
 
-        assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_parallel");
+        assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_parallel", true);
     }
 
     /// The trivial targets are answered before any walk, even with no walkers and no budget.
@@ -1725,7 +1721,7 @@ mod tests {
         let solution = solve_dp_negmap(&curve, &g, &q, TINY_A_N, 2, 4, 0xDEAD_BEEF, SUCCESS_BUDGET)
             .expect("solve_dp_negmap failed on tiny_a");
 
-        assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_negmap_tiny");
+        assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_negmap_tiny", false);
     }
 
     /// solve_dp_batch solves a known 20-bit DLP on tiny_a.
@@ -1739,7 +1735,7 @@ mod tests {
             solve_dp_batch(&curve, &g, &q, TINY_A_N, 2, 4, 4, 0xBA7C_5EED, SUCCESS_BUDGET)
                 .expect("solve_dp_batch failed on tiny_a");
 
-        assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_batch_tiny");
+        assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_batch_tiny", false);
     }
 
     // ── GLV endomorphism tests ────────────────────────────────────────────────
@@ -1762,7 +1758,7 @@ mod tests {
             TINY_GLV_BETA, TINY_GLV_LAMBDA,
         ).expect("solve_dp_glv failed on tiny_glv");
 
-        assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_glv_tiny");
+        assert_dp_evidence(&curve, &g, &q, &solution, "solve_dp_glv_tiny", false);
     }
 
     /// The GLV solver spends exactly the whole batches its budget allows and reports exhaustion.
@@ -1828,13 +1824,13 @@ mod tests {
 
             let nm = solve_dp_negmap(&curve, &g, &q, TINY_GLV_N, 2, theta, seed, SUCCESS_BUDGET)
                 .expect("solve_dp_negmap failed in glv_fewer_steps_than_negmap");
-            negmap_steps += assert_dp_evidence(&curve, &g, &q, &nm, "negmap");
+            negmap_steps += assert_dp_evidence(&curve, &g, &q, &nm, "negmap", false);
 
             let glv = solve_dp_glv_impl(
                 &curve, &g, &q, TINY_GLV_N, 2, 4, theta, seed, SUCCESS_BUDGET,
                 TINY_GLV_BETA, TINY_GLV_LAMBDA,
             ).expect("solve_dp_glv failed in glv_fewer_steps_than_negmap");
-            glv_steps += assert_dp_evidence(&curve, &g, &q, &glv, "glv");
+            glv_steps += assert_dp_evidence(&curve, &g, &q, &glv, "glv", false);
         }
 
         assert!(
@@ -1879,12 +1875,12 @@ mod tests {
             // can find cross-walker collisions.
             let negmap = solve_dp_negmap(&curve, &g, &q, TINY_A_N, 2, 4, seed, SUCCESS_BUDGET)
                 .unwrap_or_else(|e| panic!("solve_dp_negmap k={k_target} seed={seed:#x}: {e:?}"));
-            assert_dp_evidence(&curve, &g, &q, &negmap, "negmap stress");
+            assert_dp_evidence(&curve, &g, &q, &negmap, "negmap stress", false);
 
             // Also verify solve_dp for the same instance.
             let plain = solve_dp(&curve, &g, &q, TINY_A_N, 1, 4, seed, SUCCESS_BUDGET)
                 .unwrap_or_else(|e| panic!("solve_dp k={k_target} seed={seed:#x}: {e:?}"));
-            assert_dp_evidence(&curve, &g, &q, &plain, "plain stress");
+            assert_dp_evidence(&curve, &g, &q, &plain, "plain stress", true);
         }
     }
 }

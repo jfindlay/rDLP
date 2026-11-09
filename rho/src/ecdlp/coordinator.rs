@@ -1,18 +1,23 @@
 //! Coordinator: receives distinguished points from walker threads and detects collisions.
 //!
-//! The coordinator owns a hash table keyed by `x_low` (the low 64-bit word of the
-//! distinguished point's x-coordinate).  When two records with the same key but
-//! different `(a, b)` pairs arrive, they represent two walk trajectories that have
-//! passed through the same point — a collision that lets us recover `k`.
+//! The coordinator owns a hash table keyed by the full x-coordinate of the distinguished
+//! point (all four words; the low word alone is not an identity).  When two records with the
+//! same x but different `(a, b)` pairs arrive, the two walk trajectories passed through the
+//! same point or through opposite points `P` and `−P` — a collision that lets us recover `k`.
+//! The y-parity in each record tells the two cases apart.
 //!
 //! # Collision recovery
 //!
-//! If `W = a₁·G + b₁·Q = a₂·G + b₂·Q`, then
+//! Equal points: if `W = a₁·G + b₁·Q = a₂·G + b₂·Q`, then
 //! `(b₂ − b₁)·Q = (a₁ − a₂)·G`, so `k = (a₁ − a₂) / (b₂ − b₁) mod n`
 //! (provided `b₂ ≠ b₁ mod n`).
 //!
-//! A degenerate collision (`b₁ = b₂ mod n`) cannot yield `k`; the coordinator
-//! discards it and waits for the next collision.
+//! Opposite points: if `a₁·G + b₁·Q = −(a₂·G + b₂·Q)`, then
+//! `(b₁ + b₂)·Q = −(a₁ + a₂)·G`, so `k = −(a₁ + a₂) / (b₁ + b₂) mod n`
+//! (provided `b₁ + b₂ ≠ 0 mod n`).
+//!
+//! A degenerate collision (`b₁ = b₂ mod n` for equal points, `b₁ + b₂ = 0 mod n` for opposite
+//! points) cannot yield `k`; the coordinator discards it and waits for the next collision.
 //!
 //! The coordinator reports the colliding scalars together with the candidate `k`
 //! they imply, as a [`DpCollision`]; it never certifies `k`.  The caller checks
@@ -26,12 +31,16 @@ use crate::ecdlp::dp::DpRecord;
 
 /// Two distinguished points that coincide, with the logarithm they imply.
 ///
-/// Invariant: `a1·G + b1·Q = a2·G + b2·Q`, with `b1 ≠ b2 (mod n)`.  `k` is the
-/// candidate `(a1 − a2) / (b2 − b1) mod n`; it is unverified.
+/// Invariant: `a1·G + b1·Q = (−1)^negated · (a2·G + b2·Q)`, with `b1 ≠ b2 (mod n)` when
+/// `negated` is false and `b1 + b2 ≠ 0 (mod n)` when it is true.  `k` is the candidate
+/// `(a1 − a2) / (b2 − b1) mod n` (equal points) or `−(a1 + a2) / (b1 + b2) mod n` (opposite
+/// points); it is unverified.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DpCollision {
     /// Candidate logarithm implied by the collision (unverified).
     pub k: u64,
+    /// Whether the two points are negatives of each other rather than equal.
+    pub negated: bool,
     /// Scalar of `G` in the stored (first) record.
     pub a1: u64,
     /// Scalar of `Q` in the stored (first) record.
@@ -49,8 +58,8 @@ pub struct DpCollision {
 /// Maintains a hash table of seen distinguished points and detects collisions
 /// that allow the discrete logarithm to be recovered.
 pub struct Coordinator {
-    /// Distinguished-point table, keyed by the low word of the x-coordinate.
-    table: HashMap<u64, DpRecord>,
+    /// Distinguished-point table, keyed by the full x-coordinate (`None` at infinity).
+    table: HashMap<Option<[u64; 4]>, DpRecord>,
     /// Prime group order.
     n: u64,
 }
@@ -64,12 +73,14 @@ impl Coordinator {
     /// Insert a distinguished point and report a usable collision with a stored one.
     ///
     /// Returns `Some(collision)` if the incoming record collides with a stored one and
-    /// the `b` coefficients differ mod `n`, so a candidate `k` exists.
+    /// the relevant `b` combination is invertible mod `n`, so a candidate `k` exists.
     ///
-    /// A *collision* is two records with the same `x_low` but different `(a, b)`
-    /// pairs.  Records from the same walker (same `walk_id`) with the same `x_low`
-    /// are a *fruitless cycle* — the walk looped back to a DP it already visited —
-    /// and are discarded without updating the table.
+    /// A *collision* is two records with the same full x-coordinate but different `(a, b)`
+    /// pairs: the same point, or opposite points when their y-parities differ (the collision
+    /// is then `negated`).  Records with equal low words but different full x-coordinates are
+    /// different points and never collide.  Records from the same walker (same `walk_id`) at
+    /// the same point with the same `(a, b)` are a *fruitless cycle* — the walk looped back
+    /// to a DP it already visited — and are discarded without updating the table.
     ///
     /// # Arguments
     ///
@@ -77,9 +88,9 @@ impl Coordinator {
     pub fn insert(&mut self, dp: DpRecord) -> Option<DpCollision> {
         use std::collections::hash_map::Entry;
 
-        match self.table.entry(dp.x_low) {
+        match self.table.entry(dp.point.x_key()) {
             Entry::Vacant(e) => {
-                // First time we see this x_low; store and wait.
+                // First time we see this x-coordinate; store and wait.
                 e.insert(dp);
                 None
             }
@@ -90,19 +101,23 @@ impl Coordinator {
                 // This happens when a walk loops without hitting a new DP.
                 // Discard without updating the table so the stored record
                 // (from a potentially different walker) remains available.
-                if stored.walk_id == dp.walk_id && stored.a == dp.a && stored.b == dp.b {
+                if stored.walk_id == dp.walk_id
+                    && stored.point == dp.point
+                    && stored.a == dp.a
+                    && stored.b == dp.b
+                {
                     return None;
                 }
 
-                // Genuine collision: two distinct (a, b) pairs at the same point.
-                let a1 = stored.a;
-                let b1 = stored.b;
-                let a2 = dp.a;
-                let b2 = dp.b;
-
-                // k = (a1 - a2) / (b2 - b1) mod n
-                let k = recover_k(a1, b1, a2, b2, self.n)?;
-                Some(DpCollision { k, a1, b1, a2, b2 })
+                // Genuine collision: two distinct (a, b) pairs at the same x.
+                let (a1, b1, a2, b2) = (stored.a, stored.b, dp.a, dp.b);
+                let negated = stored.point.is_opposite(&dp.point);
+                let k = if negated {
+                    recover_k_negated(a1, b1, a2, b2, self.n)?
+                } else {
+                    recover_k(a1, b1, a2, b2, self.n)?
+                };
+                Some(DpCollision { k, negated, a1, b1, a2, b2 })
             }
         }
     }
@@ -132,7 +147,29 @@ fn recover_k(a1: u64, b1: u64, a2: u64, b2: u64, n: u64) -> Option<u64> {
     Some(mulmod64(da, db_inv, n))
 }
 
+/// Attempt to recover `k` from a collision between a point and the negative of another.
+///
+/// Given `a₁·G + b₁·Q = −(a₂·G + b₂·Q)`, solves for `k = Q/G`:
+/// `k = −(a₁ + a₂) / (b₁ + b₂) mod n`.
+///
+/// Returns `None` if `b₁ + b₂ = 0 mod n` (degenerate; no information about `k`).
+fn recover_k_negated(a1: u64, b1: u64, a2: u64, b2: u64, n: u64) -> Option<u64> {
+    let db = addmod64(b1, b2, n); // b1 + b2 mod n
+    if db == 0 {
+        return None; // degenerate collision
+    }
+    let neg_da = submod64(0, addmod64(a1, a2, n), n); // −(a1 + a2) mod n
+    let db_inv = inv_mod_prime(db, n);
+    Some(mulmod64(neg_da, db_inv, n))
+}
+
 // ── Modular arithmetic helpers ────────────────────────────────────────────────
+
+#[inline]
+fn addmod64(a: u64, b: u64, n: u64) -> u64 {
+    // Widen so that `a + b` cannot overflow u64 when n > 2^63.
+    ((a as u128 + b as u128) % n as u128) as u64
+}
 
 #[inline]
 fn mulmod64(a: u64, b: u64, n: u64) -> u64 {
@@ -168,14 +205,20 @@ fn inv_mod_prime(a: u64, n: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ecdlp::dp::DpPoint;
 
     /// Small prime for arithmetic tests.
     const N: u64 = 1_048_051; // TINY_A_N
 
+    /// A finite point whose x-coordinate has low word `x_low` and zero upper words.
+    fn at(x_low: u64, y_odd: bool) -> DpPoint {
+        DpPoint::Finite { x: [x_low, 0, 0, 0], y_odd }
+    }
+
     #[test]
     fn no_collision_on_first_insert() {
         let mut coord = Coordinator::new(N);
-        let dp = DpRecord { x_low: 0x100, a: 1, b: 2, walk_id: 0 };
+        let dp = DpRecord { point: at(0x100, false), a: 1, b: 2, walk_id: 0 };
         assert!(coord.insert(dp).is_none());
     }
 
@@ -196,12 +239,13 @@ mod tests {
         let db = submod64(b2, b1, N); // b2 - b1 = 4
         let a2 = submod64(a1, mulmod64(k_expected, db, N), N);
 
-        let dp1 = DpRecord { x_low: 0xABCD, a: a1, b: b1, walk_id: 0 };
-        let dp2 = DpRecord { x_low: 0xABCD, a: a2, b: b2, walk_id: 1 };
+        let dp1 = DpRecord { point: at(0xABCD, false), a: a1, b: b1, walk_id: 0 };
+        let dp2 = DpRecord { point: at(0xABCD, false), a: a2, b: b2, walk_id: 1 };
 
         assert!(coord.insert(dp1).is_none(), "first insert should not collide");
         let collision = coord.insert(dp2).expect("second insert should collide");
         assert_eq!(collision.k, k_expected, "recovered k mismatch");
+        assert!(!collision.negated, "equal points are not a negated collision");
         // The evidence carries the colliding scalars in insertion order.
         assert_eq!(
             (collision.a1, collision.b1, collision.a2, collision.b2),
@@ -221,9 +265,9 @@ mod tests {
         let db = submod64(b2, b1, n);
         let a2 = submod64(a1, mulmod64(k_expected, db, n), n);
 
-        coord.insert(DpRecord { x_low: 0x1, a: a1, b: b1, walk_id: 0 });
+        coord.insert(DpRecord { point: at(0x1, false), a: a1, b: b1, walk_id: 0 });
         let collision = coord
-            .insert(DpRecord { x_low: 0x1, a: a2, b: b2, walk_id: 1 })
+            .insert(DpRecord { point: at(0x1, false), a: a2, b: b2, walk_id: 1 })
             .expect("collision");
         assert_eq!(collision.k, k_expected);
     }
@@ -238,12 +282,98 @@ mod tests {
         assert_eq!(submod64(3, 3, n), 0);
     }
 
+    /// Records for `P` and `−P` (equal x, opposite y-parity) with hand-chosen scalars give the
+    /// `k` of `a1 + b1·k ≡ −(a2 + b2·k)` and are flagged as a negated collision.
+    #[test]
+    fn opposite_points_recover_k_and_are_negated() {
+        let mut coord = Coordinator::new(N);
+        let k_expected: u64 = 42;
+        let (a1, b1, b2) = (100u64, 7u64, 11u64);
+        // a2 = −a1 − (b1 + b2)·k mod n, so that a1 + b1·k = −(a2 + b2·k).
+        let a2 = submod64(
+            submod64(0, a1, N),
+            mulmod64(addmod64(b1, b2, N), k_expected, N),
+            N,
+        );
+
+        let dp1 = DpRecord { point: at(0xABCD, false), a: a1, b: b1, walk_id: 0 };
+        let dp2 = DpRecord { point: at(0xABCD, true), a: a2, b: b2, walk_id: 1 };
+
+        assert!(coord.insert(dp1).is_none());
+        let collision = coord.insert(dp2).expect("opposite points must collide");
+        assert_eq!(
+            collision,
+            DpCollision { k: k_expected, negated: true, a1, b1, a2, b2 }
+        );
+    }
+
+    /// The opposite-point arithmetic does not overflow for a modulus above 2^63.
+    #[test]
+    fn opposite_points_recover_k_for_modulus_above_two_pow_63() {
+        let n = u64::MAX - 58;
+        let mut coord = Coordinator::new(n);
+        let k_expected: u64 = n - 5;
+        let (a1, b1, b2) = (n - 3, n - 2, n - 7);
+        let a2 = submod64(
+            submod64(0, a1, n),
+            mulmod64(addmod64(b1, b2, n), k_expected, n),
+            n,
+        );
+
+        coord.insert(DpRecord { point: at(0x1, true), a: a1, b: b1, walk_id: 0 });
+        let collision = coord
+            .insert(DpRecord { point: at(0x1, false), a: a2, b: b2, walk_id: 1 })
+            .expect("collision");
+        assert_eq!((collision.k, collision.negated), (k_expected, true));
+    }
+
+    /// `b1 + b2 ≡ 0` between opposite points carries no information about `k`.
+    #[test]
+    fn degenerate_opposite_collision_is_not_reported() {
+        let mut coord = Coordinator::new(N);
+        coord.insert(DpRecord { point: at(0x400, false), a: 5, b: 3, walk_id: 0 });
+        let dp2 = DpRecord { point: at(0x400, true), a: 9, b: N - 3, walk_id: 1 };
+        assert!(coord.insert(dp2).is_none());
+    }
+
+    /// Points that share their low x word but differ in the upper words are different points,
+    /// whatever their y-parities.
+    #[test]
+    fn equal_low_word_with_different_full_x_does_not_collide() {
+        let mut coord = Coordinator::new(N);
+        let point = |hi: u64, y_odd| DpPoint::Finite { x: [0xABCD, hi, 0, 0], y_odd };
+
+        assert!(coord
+            .insert(DpRecord { point: point(1, false), a: 1, b: 2, walk_id: 0 })
+            .is_none());
+        // Same low word, different upper word and opposite parity: neither collision kind.
+        assert!(coord
+            .insert(DpRecord { point: point(2, true), a: 7, b: 9, walk_id: 1 })
+            .is_none());
+        assert_eq!(coord.table_len(), 2, "both points are stored separately");
+        // The full x still matches when it is equal.
+        let dp = DpRecord { point: point(1, false), a: 3, b: 5, walk_id: 2 };
+        assert!(coord.insert(dp).is_some());
+    }
+
+    /// Distinguished points at infinity match each other but never a finite point at x = 0.
+    #[test]
+    fn infinity_collides_only_with_infinity() {
+        let mut coord = Coordinator::new(N);
+        coord.insert(DpRecord { point: DpPoint::Infinity, a: 5, b: 3, walk_id: 0 });
+        let finite = DpRecord { point: at(0, false), a: 9, b: 4, walk_id: 1 };
+        assert!(coord.insert(finite).is_none());
+        let inf = DpRecord { point: DpPoint::Infinity, a: 9, b: 4, walk_id: 2 };
+        let collision = coord.insert(inf).expect("infinity matches infinity");
+        assert!(!collision.negated);
+    }
+
     #[test]
     fn degenerate_collision_is_not_reported() {
         // b1 = b2 mod N → no k can be recovered.
         let mut coord = Coordinator::new(N);
-        let dp1 = DpRecord { x_low: 0x200, a: 5, b: 3, walk_id: 0 };
-        let dp2 = DpRecord { x_low: 0x200, a: 9, b: 3, walk_id: 1 };
+        let dp1 = DpRecord { point: at(0x200, false), a: 5, b: 3, walk_id: 0 };
+        let dp2 = DpRecord { point: at(0x200, false), a: 9, b: 3, walk_id: 1 };
         coord.insert(dp1);
         assert!(coord.insert(dp2).is_none(), "degenerate collision should return None");
     }
@@ -252,7 +382,7 @@ mod tests {
     fn fruitless_cycle_ignored() {
         // Same walker, same (a, b) — fruitless cycle; table unchanged.
         let mut coord = Coordinator::new(N);
-        let dp = DpRecord { x_low: 0x300, a: 1, b: 2, walk_id: 0 };
+        let dp = DpRecord { point: at(0x300, false), a: 1, b: 2, walk_id: 0 };
         coord.insert(dp.clone());
         assert_eq!(coord.table_len(), 1);
         // Re-inserting the identical record should not collide.
