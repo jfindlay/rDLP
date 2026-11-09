@@ -7,7 +7,7 @@
 //! # Structure
 //!
 //! - [`mod`] (this file) — `SsaError` enum, the hardcoded anomalous toy curve fixture, and
-//!   `verify_anomalous` (O(p) point-count via Legendre symbol).
+//!   `verify_anomalous` (exact O(p) point-count via Legendre symbol, any prime below 2^64).
 //! - [`lift`] — affine F_p point → Z_p lift via Hensel for the SSA reduction.
 //!
 //! # Anomalous curve fixture
@@ -20,7 +20,9 @@
 //! # Principle-4 boundary
 //!
 //! The fixture is hand-picked (not discovered via Schoof–SEA). The O(p) point-count verify
-//! is a fixture check, not a general point-counting algorithm. Toy precision only.
+//! is a fixture check, not a general point-counting algorithm. Toy precision only. Primes or
+//! coefficients that do not fit one 64-bit limb are reported as [`SsaError::Unsupported`], never
+//! as a non-anomalous curve.
 
 pub mod formal_log;
 pub mod lift;
@@ -42,12 +44,29 @@ use crate::curve::Curve;
 /// Errors from the SSA reduction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SsaError {
-    /// The curve is not anomalous: `#E(F_p) ≠ p` (trace of Frobenius ≠ 1).
+    /// The curve is not anomalous: an exact point count gave `#E(F_p) ≠ p`.
     ///
-    /// The SSA reduction exists only for anomalous curves. Calling `ssa_solve` on a
-    /// non-anomalous curve would compute a meaningless value; this error is the
-    /// precondition guard.
+    /// The SSA reduction exists only for anomalous curves. This is a proven negative, reported
+    /// only after [`verify_anomalous`] counted the points exactly; a curve whose size is outside
+    /// the counting range is [`SsaError::Unsupported`], never `NotAnomalous`.
     NotAnomalous,
+    /// The curve was proven anomalous and the points lifted, but neither candidate for the
+    /// logarithm satisfied `k·G = Q`.
+    ///
+    /// This is not a statement about the curve, and it is surfaced, never retried. On a lift
+    /// where `p·P̃` has valuation exactly 1 the quotient of formal logarithms determines `k`, so
+    /// the failure indicates an invariant failure (internally contradictory data). On the
+    /// canonical lift (for example an `a = 0` curve with complex multiplication, like the
+    /// fixture) `p·P̃` lies deeper in the filtration and the quotient is a lift-dependent
+    /// second-order artefact; the method's derivation does not hold there, so this error can
+    /// occur on valid input. See the `reduce` module documentation for the candidates.
+    Inconsistent {
+        /// The quotient of formal logarithms modulo `p` that no candidate could be derived from.
+        k_raw: u64,
+    },
+    /// The input lies outside the implementation's domain: a prime or curve coefficient that
+    /// does not fit one 64-bit limb, or a prime below 5 (short Weierstrass form needs `p > 3`).
+    Unsupported(&'static str),
     /// Hensel lifting failed (e.g. non-simple root — 2-torsion base point with y = 0).
     LiftFailed(HenselError),
     /// A Z/p^k arithmetic error from the p-adic layer.
@@ -58,6 +77,11 @@ impl std::fmt::Display for SsaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SsaError::NotAnomalous => write!(f, "curve is not anomalous: #E(F_p) ≠ p"),
+            SsaError::Inconsistent { k_raw } => write!(
+                f,
+                "anomalous curve but no candidate for k verified (log quotient {k_raw} mod p)"
+            ),
+            SsaError::Unsupported(why) => write!(f, "outside the supported domain: {why}"),
             SsaError::LiftFailed(e) => write!(f, "Hensel lift failed: {e}"),
             SsaError::Padic(e) => write!(f, "p-adic arithmetic error: {e}"),
         }
@@ -69,7 +93,9 @@ impl std::error::Error for SsaError {
         match self {
             SsaError::LiftFailed(e) => Some(e),
             SsaError::Padic(e) => Some(e),
-            SsaError::NotAnomalous => None,
+            SsaError::NotAnomalous | SsaError::Inconsistent { .. } | SsaError::Unsupported(_) => {
+                None
+            }
         }
     }
 }
@@ -118,39 +144,57 @@ pub fn anomalous_toy() -> Curve {
 
 /// Check whether `curve` is anomalous: `#E(F_p) = p` (trace of Frobenius = 1).
 ///
-/// Counts points via the Legendre symbol (O(p) — a fixture check, not Schoof–SEA). Returns
-/// `true` iff the point count equals `p`.
+/// Counts points exactly via the Legendre symbol:
+/// `#E = 1 + Σ_{x=0}^{p-1} (1 + (x³ + ax + b | p))`. Every intermediate product is reduced
+/// modulo `p` in `u128` arithmetic, so the count is exact for every prime `p < 2^64`; the total
+/// is held in `u128` as well, since `#E ≤ p + 1 + 2√p` can exceed `u64`. The cost is O(p) field
+/// operations — this is a counting check, not Schoof–SEA, and is practical only for small `p`.
 ///
-/// # Principle-4 boundary
+/// `p` is assumed prime, as for every [`Curve`]; the Legendre symbol is not meaningful otherwise.
 ///
-/// This is an O(p) brute-force count. It is correct only for small toy primes; at crypto
-/// scale (p ~ 2^256), Schoof–SEA would be required. The fixture is hand-picked; this
-/// function verifies the hand-picked value, not discovers anomalous curves.
-pub fn verify_anomalous<F: Fp<4>>(curve: &Curve) -> bool {
-    // Extract p as u64.
-    // SCALE: toy-scale only — crypto-scale p would need full Uint<4>→BigInt conversion.
-    let p_words = curve.p.as_words();
-    debug_assert!(
-        p_words[1] == 0 && p_words[2] == 0 && p_words[3] == 0,
-        "verify_anomalous: p >= 2^64 is not supported at toy scale (principle-4 boundary)"
-    );
-    let p = p_words[0];
+/// # Errors
+///
+/// [`SsaError::Unsupported`] if `p`, `a` or `b` does not fit in 64 bits or `p < 5`. A curve
+/// outside that range is never reported as non-anomalous.
+pub fn verify_anomalous<F: Fp<4>>(curve: &Curve) -> Result<bool, SsaError> {
+    let (p, a, b) = curve_params_u64(curve)?;
 
-    // Extract a and b as u64.
-    let a = curve.a.as_words()[0];
-    let b = curve.b.as_words()[0];
-
-    // Count points: #E = 1 (infinity) + Σ_{x=0}^{p-1} (1 + Legendre(x³+ax+b | p))
-    let mut count: u64 = 1; // point at infinity
-    for x in 0..p {
-        let rhs = (x.wrapping_pow(3).wrapping_add(a.wrapping_mul(x)).wrapping_add(b)) % p;
-        let leg = legendre_symbol(rhs, p);
-        // Legendre symbol: -1 (not QR), 0 (rhs=0), +1 (QR).
-        // Number of y solutions: 0, 1, or 2.
-        count = count.wrapping_add((1i64 + leg) as u64);
+    // #E = 1 (infinity) + Σ_x (1 + Legendre(x³ + ax + b | p)); the summand is the number of
+    // y with y² = x³ + ax + b, i.e. 0, 1 or 2.
+    let p128 = u128::from(p);
+    let mut count: u128 = 1;
+    for x in 0..p128 {
+        let x2 = x * x % p128;
+        let x3 = x2 * x % p128;
+        let rhs = (x3 + u128::from(a) * x % p128 + u128::from(b)) % p128;
+        let leg = legendre_symbol(rhs as u64, p);
+        count += (1 + leg) as u128;
     }
 
-    count == p
+    Ok(count == p128)
+}
+
+/// Read `(p, a, b)` from `curve` as `u64`, with `a` and `b` reduced modulo `p`.
+///
+/// # Errors
+///
+/// [`SsaError::Unsupported`] if `p`, `a` or `b` has a non-zero limb above the lowest, or if
+/// `p < 5` (outside short Weierstrass form, and the p-adic reduction needs an odd prime above 3).
+pub(crate) fn curve_params_u64(curve: &Curve) -> Result<(u64, u64, u64), SsaError> {
+    let single_limb = |u: &Uint<4>| {
+        let w = u.as_words();
+        (w[1] == 0 && w[2] == 0 && w[3] == 0).then_some(w[0])
+    };
+    let p = single_limb(&curve.p)
+        .ok_or(SsaError::Unsupported("field prime does not fit in 64 bits"))?;
+    if p < 5 {
+        return Err(SsaError::Unsupported("field prime must exceed 3 for short Weierstrass form"));
+    }
+    let a = single_limb(&curve.a)
+        .ok_or(SsaError::Unsupported("curve coefficient a does not fit in 64 bits"))?;
+    let b = single_limb(&curve.b)
+        .ok_or(SsaError::Unsupported("curve coefficient b does not fit in 64 bits"))?;
+    Ok((p, a % p, b % p))
 }
 
 /// Compute the Legendre symbol (n | p) for odd prime p.

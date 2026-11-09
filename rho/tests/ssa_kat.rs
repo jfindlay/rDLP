@@ -20,13 +20,20 @@
 //! 10. `solve_brent` (independent rho solver) also recovers k=3 — cross-check.
 //! 11. `ssa_solve` returns `SsaError::NotAnomalous` on a non-anomalous curve.
 //! 12. PARI/GP cross-check (`#[ignore]`).
+//! 13. `ssa_solve` recovers every `k` in `1..p` on the fixture.
+//! 14. `Q = ∞` returns `Ok(0)`, on the fixture and on a non-anomalous curve.
+//! 15. A prime that does not fit 64 bits is `Unsupported` for both `verify_anomalous` and
+//!     `ssa_solve`, never `NotAnomalous`.
+//! 16. `verify_anomalous` counts exactly where `x³` overflows `u64` (an anomalous curve over a
+//!     prime above `2^21.4`, and the same curve with a tampered coefficient).
 //!
 //! # Note on the fixture curve's CM structure
 //!
 //! The curve `y² = x³ + 5` over `F_7` has complex multiplication by `Z[ζ₃]` (since `a = 0`
 //! and `p ≡ 1 mod 3`). This causes the SSA formula `k_raw = ψ(p·Q̃)/ψ(p·G̃) mod p` to give
-//! `2k mod p` for `k ∈ {2,3,4,5}`. The `ssa_solve` implementation includes a verification
-//! step that searches for the correct `k` by checking `k·G = Q` in `E(F_p)`.
+//! `2k mod p` for `k ∈ {2,3,4,5}`. The `ssa_solve` implementation checks `k·G = Q` in `E(F_p)`
+//! for the quotient and for its half before returning; the candidate selection itself is
+//! unit-tested in `rho::ssa::reduce`.
 //!
 //! # Hand-computed lift values
 //!
@@ -84,8 +91,9 @@ fn bi(n: i64) -> BigInt {
 #[test]
 fn kat_verify_anomalous_fixture() {
     let curve = anomalous_toy();
-    assert!(
+    assert_eq!(
         verify_anomalous::<FpNaive>(&curve),
+        Ok(true),
         "verify_anomalous must return true on the anomalous toy fixture (y² = x³ + 5 over F_7)"
     );
 }
@@ -107,8 +115,9 @@ fn kat_verify_anomalous_control_false() {
         gx: Uint::<4>::from(0u64),
         gy: Uint::<4>::from(1u64),
     };
-    assert!(
-        !verify_anomalous::<FpNaive>(&control),
+    assert_eq!(
+        verify_anomalous::<FpNaive>(&control),
+        Ok(false),
         "verify_anomalous must return false on the non-anomalous control curve (y² = x³ + 3x + 1 \
          over F_7, #E = 12)"
     );
@@ -361,8 +370,9 @@ fn kat_lift_pari_cross_check() {
 /// # Note on CM artifact
 ///
 /// This curve has CM by `Z[ζ₃]`. The raw SSA formula gives `k_raw = 2k mod p = 6` for `k = 3`.
-/// The `ssa_solve` implementation verifies the candidate and searches for the correct `k`,
-/// returning 3 as required.
+/// The `ssa_solve` implementation computes the quotient of the formal-log leading units and its
+/// half modulo `p`, then accepts whichever candidate satisfies `k·G == Q`, returning 3 as
+/// required.
 #[test]
 fn kat_ssa_solve_recovers_k3() {
     let curve = anomalous_toy();
@@ -502,5 +512,111 @@ fn kat_ssa_pari_cross_check() {
     assert_eq!(
         k_recovered, 3,
         "PARI cross-check: ssa_solve must recover k=3 from Q = 3·G on y² = x³ + 5 over F_7"
+    );
+}
+
+// ─── zero logarithm, unsupported domain, exact count ─────────────────────────
+
+/// `ssa_solve` recovers every `k` in `1..p` on the fixture, each verified by `k·G = Q`.
+#[test]
+fn kat_ssa_solve_recovers_every_k() {
+    let curve = anomalous_toy();
+    let g = toy_point(3, 2);
+
+    for k in 1..ANOMALOUS_TOY_P {
+        let q = curve.scalar_mul(&g, &Uint::<4>::from(k));
+        assert_eq!(
+            ssa_solve::<FpNaive>(&curve, &g, &q, ANOMALOUS_TOY_P),
+            Ok(k),
+            "ssa_solve must recover k = {k}"
+        );
+    }
+}
+
+/// `Q = ∞` is `0·G`: the logarithm is 0, on the anomalous fixture and on any other curve.
+#[test]
+fn kat_ssa_solve_infinity_is_zero() {
+    let curve = anomalous_toy();
+    let g = toy_point(3, 2);
+    assert_eq!(
+        ssa_solve::<FpNaive>(&curve, &g, &AffinePoint::Infinity, ANOMALOUS_TOY_P),
+        Ok(0),
+        "Q = ∞ must give k = 0 on the anomalous fixture"
+    );
+
+    // 0·G = ∞ holds in every group, so the answer does not depend on the curve being anomalous.
+    let control = Curve {
+        p: Uint::<4>::from(7u64),
+        a: Uint::<4>::from(3u64),
+        b: Uint::<4>::from(1u64),
+        n: Uint::<4>::from(12u64),
+        gx: Uint::<4>::from(0u64),
+        gy: Uint::<4>::from(1u64),
+    };
+    assert_eq!(
+        ssa_solve::<FpNaive>(&control, &point_on(0, 1, 7), &AffinePoint::Infinity, 12),
+        Ok(0),
+        "Q = ∞ must give k = 0 on a non-anomalous curve too"
+    );
+}
+
+/// A field prime above 64 bits is outside the counting range: `Unsupported`, never a false
+/// `NotAnomalous` (nor `Ok(false)`).
+///
+/// The prime is `2^64 + 13`, the least prime above `2^64`. Only the range is under test, so the
+/// curve parameters are arbitrary.
+#[test]
+fn kat_large_prime_is_unsupported_not_non_anomalous() {
+    let mut p_words = [0u64; 4];
+    p_words[0] = 13;
+    p_words[1] = 1;
+    let p = Uint::<4>::from_words(p_words);
+    let curve = Curve {
+        p,
+        a: Uint::<4>::from(0u64),
+        b: Uint::<4>::from(5u64),
+        n: p,
+        gx: Uint::<4>::from(1u64),
+        gy: Uint::<4>::from(1u64),
+    };
+    let pt = AffinePoint::Finite { x: FpNaive::from_u64(1, &p), y: FpNaive::from_u64(1, &p) };
+
+    assert!(
+        matches!(verify_anomalous::<FpNaive>(&curve), Err(SsaError::Unsupported(_))),
+        "verify_anomalous must report Unsupported for p ≥ 2^64"
+    );
+    let result = ssa_solve::<FpNaive>(&curve, &pt, &pt, 0);
+    assert!(
+        matches!(result, Err(SsaError::Unsupported(_))),
+        "ssa_solve must report Unsupported for p ≥ 2^64, got: {result:?}"
+    );
+}
+
+/// `verify_anomalous` counts exactly where `x³` no longer fits in `u64`.
+///
+/// `y² = x³ + 2` over `F_2738941` has `4p = 1 + 3·1901²`, so its trace is 1 and `#E = p` (found
+/// by exhaustive counting; `b = 1` is the non-anomalous twist). The prime exceeds `2^(64/3)`, so
+/// `x³` overflows `u64` for the larger `x`; a wrapping count would report a false negative.
+#[test]
+fn kat_verify_anomalous_exact_where_cube_overflows_u64() {
+    let p = 2_738_941u64;
+    let curve_with = |b: u64| Curve {
+        p: Uint::<4>::from(p),
+        a: Uint::<4>::from(0u64),
+        b: Uint::<4>::from(b),
+        n: Uint::<4>::from(p),
+        gx: Uint::<4>::from(0u64),
+        gy: Uint::<4>::from(0u64),
+    };
+
+    assert_eq!(
+        verify_anomalous::<FpNaive>(&curve_with(2)),
+        Ok(true),
+        "y² = x³ + 2 over F_{p} has exactly p points"
+    );
+    assert_eq!(
+        verify_anomalous::<FpNaive>(&curve_with(1)),
+        Ok(false),
+        "y² = x³ + 1 over F_{p} is not anomalous"
     );
 }
