@@ -1,27 +1,23 @@
-# rDLP — Shor ECDLP and elliptic index-calculus fidelity
+# rDLP — Solver-outcome conformance
 
-Execution graph for the ROADMAP scope "Shor and elliptic index-calculus fidelity". The previous
-(completed) Dedekind plan is preserved in git at `517f9a3:docs/PLAN.md`.
+Execution graph for the ROADMAP scope "Solver-outcome audit". The previous (completed) Shor ECDLP
+and index-calculus plan is preserved in git at `01b4df9:docs/PLAN.md`.
 
 ## Purpose (design intent)
 
-Make the two fallback-masked solvers succeed by their advertised mechanism or fail with a typed,
-honest outcome. Today `shor::ecdlp::solve_ecdlp` and `rho::index_calculus::index_calculus_dlp` both
-end in an exhaustive search over the answer space and report the result as ordinary success, so
-every end-to-end test passes whether or not the primary mechanism works. Static reading suggests
-it does not: the Shor extraction applies the subgroup relation a′+b′k≡0 where measured outcomes
-satisfy the dual relation d≡k·c, without rescaling the M=16 register to r=13; the index-calculus
-kernel is a right kernel over factor-base columns whose result is discarded.
+Bring every remaining solver under `docs/development.md`'s "Solver outcomes and fallbacks": success
+returned only after an exact check independent of the method; invalid input, unsupported domain,
+resource exhaustion, invariant failure and mathematical negatives kept distinct; no unbounded
+search; provenance whenever more than one path can succeed. A static audit at sharding found
+nearly every rho solver returning an unchecked `Option<u64>` whose `None` merges several failure
+classes, distinguished-point walks with no budget, and one probable wrong-answer path (plain
+distinguished-point collisions keyed by x alone). The repaired Shor ECDLP
+(`shor::ecdlp::{EcdlpSolution, EcdlpError}`) is the reference shape.
 
-Follow the repository's GNFS failure contract: an alternative is admissible only if it is itself a
-published method through the same exact verifier; resource exhaustion, mechanism negatives,
-invariant failures and verified results are distinct; no unverified answer is success. Here that
-means: remove both exhaustive fallbacks; Shor retries with fresh measurements (Shor 1997 §6), and
-index calculus collects more relations (standard index-calculus practice) within a bound.
-
-Scope boundary: the two solvers, their tests, benches and the exposition of these two mechanisms.
-Shor factoring's register width, `order_from_phase` minimality and tuned seeds are ROADMAP
-findings, not this arc. No new algorithms, no crate edges, no extension-field index calculus.
+Scope boundary: the rho ECDLP family (Brent, distinguished-point variants, binary-field, Koblitz),
+Pohlig–Hellman, MOV, SSA, the GHS transfer's input guard, rho factoring, ECM, Shor factoring, their
+tests, benches, CLIs and exposition. Out of scope: NFS-DL (including MOV's k=2 log engine), Shor
+factoring's register width (documented, not changed), new algorithms, new crate edges.
 
 ## Verify gate
 
@@ -29,127 +25,223 @@ findings, not this arc. No new algorithms, no crate edges, no extension-field in
 - VERIFY_TEST: `cargo test --workspace`
 - Also mandatory: `cargo dep-policy`, `cargo audit`, `cargo coverage` (80% line floor).
 - Not gates: `cargo fmt-check`, `cargo lint` (unadopted; do not fix drive-by).
-- Cost-gated (not oracles): `cargo test -p shor --test ecdlp_kat -- --ignored` runs the all-k
-  sweeps; run it at rows 2 and 4. Circuit runs cost ~10 s each in debug.
+- Cost-gated (not oracles): `cargo test -p shor --test ecdlp_kat -- --ignored` at rows 1–2 (the
+  rho cross-checks call the changed API); `cargo test -p shor --test factor_kat -- --ignored` at
+  row 11.
 
 ## Session list
 
 | # | Session | Cat | Tier | Consumes | Expected files |
 |---|---------|-----|------|----------|----------------|
-| 1 | Recover the ECDLP exponent from finite-precision Fourier outcomes | B | T1 | (existing circuit) | `shor/src/ecdlp/mod.rs`, `shor/tests/ecdlp_kat.rs` |
-| 2 | Report Shor ECDLP measurement evidence without exhaustive fallback | B | T1 | C-ShorExtraction | `shor/src/ecdlp/mod.rs`, `shor/tests/ecdlp_kat.rs` |
-| 3 | Recover the index-calculus log from a relation combination | B | T1 | (existing relations) | `rho/src/index_calculus/{linalg,solve,collect,mod}.rs`, `rho/tests/index_calculus_kat.rs`, `rho/benches/attacks.rs` |
-| 4 ◆ | Correct the Shor ECDLP and index-calculus exposition | I | T1 (◆ fork T0) | C-ShorExtraction, C-ShorSolve, C-IndexCalcRecovery | `docs/MATHEMATICS.md`, `docs/PEDAGOGY.md`, `shor/docs/PEDAGOGY.md`, `docs/BENCHMARKS.md` |
-| 5 | Anneal cleanup (skippable) | I | — | none | durable files touched by rows 1–4 |
+| 1 @architect | Define a verified rho discrete-log outcome and adopt it in Brent rho | A | T1 (juncture T0) | (existing walks) | `rho/src/ecdlp/{outcome.rs (new),mod.rs,cli.rs,pohlig.rs}`, `rho/tests/{ecdlp_kat,ssa_kat}.rs`, `rho/benches/ecdlp.rs`, `shor/tests/ecdlp_kat.rs` |
+| 2 | Bound the distinguished-point rho solvers and verify their results | B | T1 | C-DlogOutcome | `rho/src/ecdlp/{mod.rs,coordinator.rs,dp.rs,cli.rs}`, `rho/tests/ecdlp_kat.rs`, `rho/benches/ecdlp.rs`, `shor/tests/ecdlp_kat.rs` |
+| 3 | Recover the log from negated distinguished-point collisions | B | T1 | C-DlogOutcome, C-DpBudget | `rho/src/ecdlp/{coordinator.rs,dp.rs,mod.rs}`, `rho/tests/ecdlp_kat.rs` |
+| 4 | Verify Pohlig–Hellman results and name the small-subgroup method | B | T1 | C-DlogOutcome | `rho/src/ecdlp/pohlig.rs`, `rho/src/curve/test_curves.rs`, `rho/tests/{ecdlp_kat,index_calculus_kat}.rs`, `rho/benches/attacks.rs`, `docs/development.md` |
+| 5 | Verify binary-field rho and Koblitz results | B | T1 | C-DlogOutcome | `rho/src/binary_ecdlp/{mod.rs,koblitz.rs}`, `rho/tests/binary_ecdlp_kat.rs` |
+| 6 | Verify MOV results and type its failure classes | B | T1 | C-OutcomeShape | `rho/src/pairing/mov.rs`, `rho/tests/mov_kat.rs`, `rho/benches/attacks.rs` |
+| 7 | Separate SSA failure classes and handle zero logs and large primes | B | T1 | C-OutcomeShape | `rho/src/ssa/{mod.rs,reduce.rs}`, `rho/tests/ssa_kat.rs`, `rho/benches/attacks.rs` |
+| 8 | Reject off-curve and non-subfield points in the GHS transfer | B | T1 | C-OutcomeShape | `rho/src/ghs/{transfer.rs,mod.rs,reduce.rs}`, `rho/tests/ghs_kat.rs`, `rho/benches/attacks.rs` |
+| 9 | Type rho factoring outcomes and bound each attempt | B | T1 | C-OutcomeShape | `rho/src/factor/{rho.rs,mod.rs,cli.rs}`, `rho/tests/factor_kat.rs`, `rho/benches/factor.rs` |
+| 10 | Type ECM factoring outcomes | B | T1 | C-OutcomeShape | `shared/numth/src/{ecm.rs,lib.rs}` |
+| 11 | Report Shor factoring provenance and return the minimal order | B | T1 | C-OutcomeShape | `shor/src/shor/mod.rs`, `shor/src/lib.rs`, `shor/tests/factor_kat.rs` |
+| 12 ◆ | Correct the solver-outcome exposition | I | T1 (◆ fork T0) | all | `docs/MATHEMATICS.md`, `docs/PEDAGOGY.md`, `docs/BENCHMARKS.md`, `README.md`, `shor/docs/PEDAGOGY.md`, `docs/development.md` |
+| 13 | Anneal cleanup (skippable) | I | — | none | durable files touched by rows 1–12 |
 
-Rows 1–2 (shor) and 3 (rho) are independent; run in row order. No `@architect` inflection rows:
-the interfaces are frozen below and the only judgment-heavy derivation (row 1) is checked by an
-exact, independent distribution KAT.
+Rows 1→2→3 are sequential (shared walk and coordinator code); 4 and 5 consume row 1's frozen
+contract; 6–11 are mutually independent and follow row order. Row 1 is the inflection point: the
+juncture fork checks the drafted C-DlogOutcome against the walk, coordinator, GLV and Koblitz code
+before row 1 implements it.
 
 ## Session detail
 
-### 1 — Recover the ECDLP exponent from finite-precision Fourier outcomes
+### 1 @architect — Define a verified rho discrete-log outcome and adopt it in Brent rho
 
-Deliverable: replace `extract_k_from_measurement` with the finite-precision dual-lattice rule and
-add the exact outcome distribution, per C-ShorExtraction. Derivation to implement and state in
-rustdoc: after H on both registers the state is Σ_{a,b<M} |a,b⟩|(a+bk mod r)·G⟩; outcome (c,d) has
-probability P(c,d) = Σ_s |M⁻² Σ_{a+bk≡s} ω^{∓(ac+bd)}|², ω=e^{2πi/M}. At c/M=j/r, d/M=l/r the phase
-is constructive iff l≡kj (mod r), independent of the transform's sign. So j=round(r·c/M) mod r,
-l=round(r·d/M) mod r, and k=l·j⁻¹ mod r when j≢0. Exactly one candidate per measurement.
+Deliverable: `rho/src/ecdlp/outcome.rs` with C-DlogOutcome (re-exported from `rho::ecdlp`);
+`solve_brent` returns `Result<DlogSolution<RhoEvidence>, DlogError>`. Validate input first
+(`check_prime_order_input`: G ≠ ∞, G and Q on the curve, n prime via `shared-numth`, n·G = ∞,
+n·Q = ∞), handle Q = ∞ and Q = G as `Trivial`, and verify every collision-derived k with
+`verify_log` (k·G == Q) before returning. Degenerate collisions consume retries; spending all
+retries or hitting the per-attempt step cap is `BudgetExhausted` (fix the rustdoc that calls the
+cap "all retries were degenerate"). A non-degenerate collision that fails verification is
+`Inconsistent`, never retried. The `rho-dlog` CLI drops its own re-check and reports each error
+class distinctly.
 
-`solve_ecdlp` keeps its fallback in this row (row 2 removes it) but uses the new extraction.
-Translate the module's leaked labels (`C-PointAdd`, `C-ECDLPSolve`) into plain prose.
-
-KATs:
-- **Independent distribution check:** `exponent_outcome_distribution` (from circuit amplitudes,
-  marginalised over the point register) equals the classical Fourier-sum formula above within
-  1e-9, sums to 1, for k ∈ {3, 7} on the default path and every k ∈ 2..13 under
-  `#[ignore = "cost: ..."]`. A mismatch that vanishes under bit reversal of c or d is a register
-  convention defect: decide against `qft` module KATs, fix the convention, record in the digest.
-- `primary_success_probability(k)` > 0 for every tested k; record the values in the digest.
-  Compute the old rule's success probability once and record it (do not test it).
-- Synthetic extraction: exact peak pairs recover k; j≡0 → `None`; inputs ≥ M rejected.
-
-Subtleties: never widen the candidate set (neighbouring roundings) to raise success probability.
-At r=13, nine candidates would be almost exhaustive search. If the probabilities look too low for
-a sane retry budget, raising `EXP_BITS` is internal-continue only if `qubit_budget_within_ceiling`
-holds; record the cost change. Cache the distribution per k (e.g. `OnceLock`) in tests.
-
-### 2 — Report Shor ECDLP measurement evidence without exhaustive fallback
-
-Deliverable: `solve_ecdlp`/`solve_ecdlp_with_retries` return `Result<EcdlpSolution, EcdlpError>`
-per C-ShorSolve. Delete the brute-force loop and its comment ("the measurement biases the search").
-Each attempt uses a fresh seed; every accepted k is verified (k·G == Q) and carries the measured pair.
-Correct the module and function rustdoc. Replace the vacuous end-to-end tests: each now asserts
-`Measurement` evidence and `extract_k_from_measurement(a′, b′) == Some(k)`. Adapt the
-`rho_crosscheck_*` tests to the new API. They stay ignored for cost: state the cost reason, and do
-not call them oracle tests.
-
-KATs: k ∈ {3, 5, 7, 9, 12} at fixed seeds → `Measurement` evidence consistent with the extraction;
-Q=∞ and Q=G → `Trivial`; a budget and seed known to fail → `AttemptsExhausted { attempts }`, the
-exact count; G=∞ → `InvalidGenerator`; all-k sweep (ignored, cost) succeeds within the default budget.
-
-Subtleties: choose the default budget from row 1's recorded probabilities. Seeds may need
-re-selection: re-select by a bounded recorded search, never by injecting outcomes.
-
-### 3 — Recover the index-calculus log from a relation combination
-
-Deliverable: per C-IndexCalcRecovery. `solve_ek_linalg` builds the transposed matrix (rows =
-factor-base points, columns = relations) and returns the full left-kernel basis from the existing
-`block_wiedemann_fl` engine: combinations u with Σᵢ uᵢeᵢ ≡ 0. From relations aᵢ+bᵢx ≡ Σⱼ eᵢⱼlⱼ
-(mod ℓ), any u with uᵀb ≢ 0 gives x ≡ −uᵀa/uᵀb.
-
-`index_calculus_dlp` collects relations, finds such a u, and checks the following:
-- **Consistency:** every basis vector with uᵀb ≢ 0 yields the same x.
-- **Verification:** x·G_ℓ == Q_ℓ.
-
-It returns the solution with the u used. If no basis vector has uᵀb ≢ 0, it collects further
-relations deterministically up to the full (a,b) enumeration bound. Then:
-- exhaustion of that bound → `Undetermined`;
-- disagreement or a failed verification → `Inconsistent` (an invariant failure, never retried).
-
-Delete Phase 2 enumeration, the local `gauss_elim_f_ell` and its helpers, the unused
-`RecoveryFailed`. Adapt `rho/benches/attacks.rs` to the new type. Correct the rustdoc ("kernel +
-relation provenance", "consistency check") and translate `Principle-4` labels, including the
-`principle4_annotation` test name, into the stated property: over E(F_p) the mechanism is
-demonstrated, not the asymptotic advantage.
+The footprint is one atomic unit (irreducible floor): the signature change forces every
+`solve_brent` caller in the same commit — `pohlig.rs` (interim adaptation only; row 4 rewrites
+it), `ssa_kat.rs`, `shor/tests/ecdlp_kat.rs`, the bench and the CLI.
 
 KATs:
-- Left-kernel vectors annihilate the exponent matrix (replaces `kernel_correctness`).
-- `adapter_fidelity` holds for the transposed layout.
-- For every k ∈ 0..60, x = k mod 5 with uᵀb ≢ 0 and the identity Σuᵢ(aᵢ+bᵢx) ≡ 0 checked
-  explicitly. This is cheap: keep it on the default path.
-- A hand-built relation set with uᵀb ≡ 0 for all u → `Undetermined`.
-- A corrupted relation → `Inconsistent`.
-- Delete `index_calculus_dlp_smoke` (vacuous).
+- Fixed-seed fixtures return `Collision` evidence whose identity
+  a1·G + b1·Q = ±(a2·G + b2·Q) the test rechecks from the evidence alone.
+- Q = ∞ → `Trivial` with k = 0; Q = G → `Trivial` with k = 1.
+- Each `InputDefect` variant is reachable (off-curve point, composite n, wrong n, G = ∞).
+- `max_retries = 0` → `BudgetExhausted { attempts: 0, .. }`.
+- `verify_log` rejects k + 1.
 
-Subtleties: logs reduce mod ℓ because ℓ ∥ n=60, so the ℓ-Sylow subgroup is cyclic and every point's
-ℓ-component lies in ⟨G_ℓ⟩. State this as the prose invariant. The six-file footprint is one
-mechanism (kernel orientation, recovery formula, outcome type are inseparable): the irreducible
-floor, not a split candidate. If `block_wiedemann_fl` does not return a full basis, the
-`Undetermined` claim is not certified: compute the basis completely or rename the outcome to a
-resource outcome, and record in the digest.
+Subtleties: `check_prime_order_input` costs two scalar multiplications plus a primality test per
+call; fine at these sizes. n·Q = ∞ does not prove Q ∈ ⟨G⟩ when n² divides #E; the residual case
+surfaces as `Inconsistent`, and the rustdoc says so.
 
-### 4 ◆ — Correct the Shor ECDLP and index-calculus exposition
+### 2 — Bound the distinguished-point rho solvers and verify their results
 
-Deliverable: correct the human docs against the frozen contracts.
-- MATHEMATICS's Shor ECDLP section (~3954–4015): finite-precision derivation, the dual relation,
-  all-qubit measurement, the stale `shor/src/ecdlp.rs` path, no general continued-fraction claim.
-- MATHEMATICS's index-calculus section (~3209–3248): left-kernel recovery, the ℓ-Sylow invariant.
-- PEDAGOGY's index-calculus tour (~1088–1167, ~1235–1237; `decompose`'s actual return type).
-- shor PEDAGOGY (~304–308, ~463).
-- BENCHMARKS (~473–514, ~699–733): drop "measurement biases" and success claims that the
-  fallback produced.
+Deliverable per C-DpBudget: `solve_dp`, `solve_dp_negmap`, `solve_dp_batch` and `solve_dp_glv`
+return the C-DlogOutcome types and take an explicit total-step budget. Walkers stop and the call
+returns `BudgetExhausted` when it is spent, so no input can hang the solver. The coordinator
+returns collision evidence, not a bare k; the solver verifies. `solve_dp_glv` returns
+`Unsupported` off the curve its β/λ constants belong to (check the curve parameters, not a name).
+Walker panic or channel loss is an invariant failure reported as such, not `None`. Delete the
+"should not happen" `None` paths. The single-walker negmap limitation becomes a budget outcome.
 
-KAT substitute (the row is prose): every quantitative claim published — success probabilities,
-outcome masses, x-recovery coverage — must cite the test that computes it; a claim no test computes
-is removed or labelled as an estimate. Flagged as the row's contract.
+KATs: the existing fixed-seed success fixtures assert evidence identities; a tiny budget →
+`BudgetExhausted` for each variant; GLV on a non-GLV curve → `Unsupported`; replace the
+wall-clock test `glv_fewer_steps_than_negmap` with a step-count comparison if the evidence
+carries step counts (otherwise leave it and record).
 
-Integrative duty: sweep superseded claims (measurement-biased search, kernel provenance, Phase 2,
-"KAT-verified … Complete", exhaustive-is-honest) across all durable surfaces these two solvers
-touch, including unchanged passages. Anneal the arc's durable files against the denylist.
+Subtleties: pick default-path budgets with headroom so fixed-seed tests cannot become flaky;
+record the chosen values in the digest.
 
-### 5 — Anneal cleanup (skippable)
+### 3 — Recover the log from negated distinguished-point collisions
+
+Deliverable per C-DpSignedCollision. `DpRecord` carries enough to tell P from −P (a y-parity bit)
+and the full x-coordinate (not only the low word). A collision at equal x with opposite sign
+yields k from a1 + b1·k ≡ −(a2 + b2·k) and evidence `negated: true`; unequal full x is not a
+collision.
+
+KATs:
+- Synthetic coordinator test: records for a known P and −P with hand-chosen (a, b) recover the
+  right k (deterministic; the primary evidence).
+- A bounded, recorded seed search on a test curve for a plain `solve_dp` run that hits a negated
+  collision; if found, before the fix it yields `Inconsistent` (record that) and after the fix
+  `Ok` with `negated: true`.
+- Two points sharing their low x word but differing in full x do not collide.
+
+Subtleties: the bug is inferred from reading the code. If the plain walk provably never meets −P,
+keep the synthetic test, record the reason, continue.
+
+### 4 — Verify Pohlig–Hellman results and name the small-subgroup method
+
+Deliverable per C-PohligEvidence. First read the primary source (Pohlig–Hellman 1978; the
+Silver–Pohlig–Hellman table formulation) and record whether the order-p sub-step there is a
+table/enumeration over the order-p subgroup. If yes, name the sub-method after the source, keep
+the `p ≤ 64` size dispatch as the method's declared sub-step, and add one clarifying sentence to
+`docs/development.md` rule 5: a size-selected sub-step that is itself the published method's step
+is not a fallback. Return `DlogSolution<PohligEvidence>` with the per-digit method recorded; verify
+k·G == Q after CRT (`Inconsistent` otherwise); check n·G = ∞ (`InvalidInput`); `n = 0` no longer
+panics. Add a composite-order test curve with a prime factor > 64 so the rho branch runs
+end to end. Adapt `attacks.rs` and the oracle use in `index_calculus_kat.rs`.
+
+KATs: every k on the new fixture (or a sampled set if costly) with evidence showing both
+sub-methods; the identity residue ≡ k (mod p^e) for each component; existing `composite_toy`
+cases; wrong n → `InvalidInput`.
+
+Subtleties: if the literature does not support the claim, HALT (see Discoveries). The fixture's
+order must be factorable by the existing `factor_order` (u64 trial division).
+
+### 5 — Verify binary-field rho and Koblitz results
+
+Deliverable: `binary_ecdlp::{solve_brent, solve}` and `koblitz::solve_koblitz` return
+`Result<DlogSolution<RhoEvidence>, DlogError>`, with binary-curve input checks mirroring row 1 and
+k·G == Q verified. Koblitz evidence carries the τ-power (`lambda_power`) and sign of the class
+equivalence. Remove or use the unused `_t` parameter. Budget and degenerate retries as in row 1.
+
+KATs: existing binary and Koblitz fixtures assert rechecked evidence identities; the τ eigenvalue
+from `compute_tau_eigenvalues` satisfies τ(P) = λ·P on the fixture; a corrupted eigenvalue gives
+`Inconsistent`, not a wrong `Ok`.
+
+### 6 — Verify MOV results and type its failure classes
+
+Deliverable per C-MovOutcome: `mov_reduce` returns `Result<MovSolution, MovError>`; verify
+k·G == Q in E[ℓ] (independent of the pairing) before returning; the degenerate pairing becomes
+`DegeneratePairing` instead of a fabricated `DescentFailed { stuck_prime: 0 }`; check ℓ prime,
+ℓ | p^k − 1 and G, Q ∈ E[ℓ] as `InvalidInput`; carry the pairing values as evidence. The k=2 log
+engine stays as it is (NFS-DL scope); its errors pass through as `MovError::Dl`.
+
+KATs: existing k ∈ {1, 2} fixtures assert evidence (g_pair^k == h_pair) and verification;
+degenerate R → `DegeneratePairing`; a point outside E[ℓ] → `InvalidInput`.
+
+### 7 — Separate SSA failure classes and handle zero logs and large primes
+
+Deliverable per C-SsaOutcome: Q = ∞ returns `Ok(0)`; a verification failure after the curve was
+proven anomalous is `Inconsistent`, not `NotAnomalous`; `verify_anomalous` counts exactly over
+its supported range (u128 arithmetic) and returns `Unsupported` beyond it rather than a false
+negative. State the mathematical source of the k_raw versus k_raw/2 correction in the rustdoc; if
+both candidates can succeed, record which one did (rule 6).
+
+KATs: Q = ∞ → `Ok(0)`; a large-p anomalous curve no longer reports `NotAnomalous` (or reports
+`Unsupported`, per the chosen range); the existing exact-k and non-anomalous cases.
+
+Subtleties: if the factor-2 correction turns out to mask a lifting defect rather than follow from
+the formal-log derivation, surface it (additive), do not absorb it.
+
+### 8 — Reject off-curve and non-subfield points in the GHS transfer
+
+Deliverable per C-GhsTransferGuard: `transfer_point` returns `Result<_, GhsError>`, checks the
+input is on E and that the conorm coordinates lie in GF(2^l) before reinterpreting them; remove
+`GhsError::PointAtInfinity` if it remains unreachable. Adapt `ghs_descend`, `ghs_kat.rs` and the
+bench.
+
+KATs: off-curve input → `NotOnCurve`; a non-Galois-invariant conorm → `NotInSubfield`; existing
+homomorphism and log-preservation KATs unchanged.
+
+### 9 — Type rho factoring outcomes and bound each attempt
+
+Deliverable per C-RhoFactorOutcome: `factor` returns `Result<Factorization, FactorError>`, checks
+1 < d < n and n % d == 0 independently, carries `Even` or `Rho { c }` evidence, reports n ≤ 1 as
+`InvalidInput`, a prime n as `Prime` only where the primality test is proven on the domain,
+n ≥ 2^80 as `Unsupported` (the `mulmod` domain), and spent constants as `BudgetExhausted`.
+`factor(2)` no longer returns 2. The primitives (`floyd`, `brent`, `brent_batched`) take an
+explicit step bound and keep a documented single-failure `Option` ("this attempt failed"). The
+`rho-factor` CLI distinguishes prime from exhaustion.
+
+KATs: existing composites with evidence; n ∈ {0, 1} → `InvalidInput`; n ∈ {2, 3, a large prime} →
+`Prime`; n ≥ 2^80 → `Unsupported`; `max_c = 0` → `BudgetExhausted`.
+
+### 10 — Type ECM factoring outcomes
+
+Deliverable per C-EcmOutcome: `ecm_factor` returns `Result<Uint<4>, EcmError>` with
+`InvalidInput`, `Prime` (only where proven) and `CurvesExhausted { curves }` kept distinct, and
+checks the divisor independently; n = 2 is no longer a trivial-divisor success. Update the
+`shared/numth` re-export. Inline tests live in `ecm.rs`.
+
+KATs: a semiprime factors with a checked divisor; n = 2 → `Prime`; `max_curves = 0` →
+`CurvesExhausted { curves: 0 }`.
+
+### 11 — Report Shor factoring provenance and return the minimal order
+
+Deliverable per C-ShorFactorOutcome: `factor` returns `Result<ShorFactorization, ShorFactorError>`
+with `Even`, `PrimePower`, `CommonFactor` (if the driver takes that path) or
+`OrderFinding { a, seed, s, r }` evidence, p·q == n checked; prime n → `NotComposite` before any
+circuit runs; inputs beyond the simulator ceiling → `Unsupported`; spent budget →
+`AttemptsExhausted`. `order_from_phase` returns the multiplicative order: reduce a convergent
+denominator d with a^d ≡ 1 by dividing out prime factors while the identity holds. Fix its rustdoc
+(`≤ N` bound; it returned multiples). Correct the stale seed comments (s = 2389 cannot occur in a
+6-bit register) and make `find_order_returns_valid_order` non-vacuous. The register width stays
+n_bits(N); the rustdoc states the textbook 2^t ≥ N² bound and that sufficiency here is empirical.
+
+KATs: each fixture asserts `OrderFinding` evidence and rechecks a^r ≡ 1 and the gcd step;
+`cf_order_from_phase_n15_a7_s32` now expects 4; prime n → `NotComposite` without a circuit run;
+even n → `Even`.
+
+Subtleties: circuit runs are slow; keep default-path additions few.
+
+### 12 ◆ — Correct the solver-outcome exposition
+
+Deliverable: correct human docs against the frozen contracts: MATHEMATICS's rho, Pohlig–Hellman,
+MOV, SSA and Shor-factoring passages; PEDAGOGY's rho/Pohlig/attack tours (including the
+nonexistent `rho/tests/pohlig_kat.rs` reference near line 1361); BENCHMARKS success claims;
+README CLI descriptions; shor PEDAGOGY's factoring chapter; check that `docs/development.md`'s
+rule-5 clarification from row 4 reads as a standalone rule.
+
+KAT substitute (the row is prose): every published behaviour claim (failure classes, budgets,
+verification) cites the test that exercises it; a claim no test computes is removed or labelled.
+Flagged as the row's contract.
+
+Integrative duty: sweep superseded claims ("should not happen", "None if all retries were
+degenerate", unverified "`Some(k)` with k·G = Q", "sufficient … verified for all four targets")
+across all durable surfaces these solvers touch, including unchanged passages. Anneal the arc's
+durable files against the denylist.
+
+### 13 — Anneal cleanup (skippable)
 
 `/plan-anneal` over the arc's durable files: translate leaked plan coordinates and rewrap ledgered
 line-length overruns. The driver may mark it `skipped` if the ◆ anneal ran clean and no overruns
@@ -157,295 +249,207 @@ were ledgered.
 
 ## Cross-session contracts
 
-### C-ShorExtraction
+### C-OutcomeShape
 
-Compiler + test-enforced. Defined in 1. Consumed by 2, 4.
+Prose + test-enforced. Defined here. Consumed by 1–11. Every repaired solver follows
+`docs/development.md` rules 1–6 in the shape of `shor::ecdlp::{EcdlpSolution, EcdlpError}`: a
+solution struct (answer plus evidence wherever more than one path can succeed) returned only after
+an exact check independent of the method; a typed error whose variants separate invalid input,
+unsupported domain, resource exhaustion, invariant failure (`Inconsistent`, never retried) and
+proven negatives. A documented single-failure `Option` remains acceptable for primitives. No
+crate edges are added to share types: rho, shor and shared-numth each own theirs.
 
-```rust
-/// Candidate k from one measured exponent pair (c, d) ∈ [0, 2^EXP_BITS)²:
-/// j = round(r·c/M) mod r, l = round(r·d/M) mod r, k = l·j⁻¹ mod r; `None` iff j ≡ 0.
-pub fn extract_k_from_measurement(c: u64, d: u64, r: u64) -> Option<u64>;
-/// Exact P(c, d) from circuit amplitudes, marginalised over the point register;
-/// index `c + (d << EXP_BITS)`, length 2^(2·EXP_BITS).
-pub fn exponent_outcome_distribution(g: Point, q: Point) -> Vec<f64>;
-/// Σ P(c, d) over outcomes whose extraction returns log_g(q).
-pub fn primary_success_probability(g: Point, q: Point) -> f64;
-```
+### C-DlogOutcome
 
-Prose invariant: one candidate per measurement; no widening of the candidate set.
-
-### C-ShorSolve
-
-Compiler + test-enforced. Defined in 2. Consumed by 4.
+Compiler + test-enforced. *To be frozen at 1 (inflection juncture checks this draft against the
+code).* Consumed by 2, 3, 4, 5, 12.
 
 ```rust
-pub fn solve_ecdlp(g: Point, q: Point, seed: u64) -> Result<EcdlpSolution, EcdlpError>;
-pub fn solve_ecdlp_with_retries(g: Point, q: Point, seed: u64, max_attempts: usize)
-    -> Result<EcdlpSolution, EcdlpError>;
+// rho/src/ecdlp/outcome.rs, re-exported from rho::ecdlp
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DlogSolution<E> { pub k: u64, pub evidence: E }  // k·G == Q checked by the solver
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EcdlpSolution { pub k: u64, pub evidence: EcdlpEvidence }
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EcdlpEvidence {
-    Trivial,                                                   // Q = ∞ or Q = G
-    Measurement { seed: u64, attempt: usize, c: u64, d: u64 }, // extraction(c, d) == Some(k)
+pub enum DlogError {
+    InvalidInput(InputDefect),
+    Unsupported(&'static str),                         // outside the implementation's domain
+    BudgetExhausted { attempts: usize, steps: u64 },   // resource outcome; proves nothing
+    Inconsistent { k: u64 },                           // non-degenerate collision, k·G ≠ Q
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputDefect {
+    GeneratorAtInfinity, PointNotOnCurve, OrderNotPrime, WrongGeneratorOrder,
+    TargetOutsideSubgroup,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EcdlpError {
-    InvalidGenerator,                     // G = ∞
-    AttemptsExhausted { attempts: usize } // resource outcome, not a mathematical negative
+pub enum RhoEvidence {
+    Trivial,  // Q = ∞ (k = 0) or Q = G (k = 1)
+    // a1·G + b1·Q = (−1)^negated · λ^lambda_power · (a2·G + b2·Q); λ is the endomorphism
+    // eigenvalue (GLV, Koblitz τ), lambda_power = 0 for plain walks.
+    Collision { attempt: usize, a1: u64, b1: u64, a2: u64, b2: u64,
+                negated: bool, lambda_power: u32 },
 }
+
+pub fn verify_log<F: Fp<4>>(curve: &Curve, g: &AffinePoint<F>, q: &AffinePoint<F>, k: u64) -> bool;
+pub fn check_prime_order_input<F: Fp<4>>(curve: &Curve, g: &AffinePoint<F>,
+    q: &AffinePoint<F>, n: u64) -> Result<(), DlogError>;
+pub fn solve_brent<F: Fp<4>>(curve: &Curve, g: &AffinePoint<F>, q: &AffinePoint<F>, n: u64,
+    seed: u64, max_retries: usize) -> Result<DlogSolution<RhoEvidence>, DlogError>;
 ```
 
-Prose invariant: every `Ok` has passed k·G == Q; no code path enumerates candidate exponents.
+Prose invariants: every `Ok` passed `verify_log`; `Inconsistent` is never retried or masked;
+`lambda_power` and `negated` are over-specified for rows 2, 3 and 5.
 
-### C-IndexCalcRecovery
+### C-DpBudget
 
-Compiler + test + prose-enforced. Defined in 3. Consumed by 4.
+Compiler + test-enforced. *To be frozen at 2.* Consumed by 3, 12. The four distinguished-point
+solvers return `Result<DlogSolution<RhoEvidence>, DlogError>` and take an explicit total-step
+budget parameter; no input can make them run unboundedly; `solve_dp_glv` returns `Unsupported`
+off its curve.
+
+### C-DpSignedCollision
+
+Test + prose-enforced. *To be frozen at 3.* Consumed by 12. A distinguished-point collision
+requires equal full x; opposite y-parity yields the negated relation and `negated: true`.
+
+### C-PohligEvidence
+
+Compiler + test-enforced. *To be frozen at 4.* Consumed by 12.
 
 ```rust
-/// Left-kernel basis: each u ∈ F_ℓ^{#relations} satisfies Σᵢ uᵢ·eᵢ ≡ 0.
-pub fn solve_ek_linalg(relations: &[Relation], strategy: &IndexCalcStrategy)
-    -> Result<Vec<Vec<FpNaive>>, IndexCalcError>;
-pub fn index_calculus_dlp(g, q, strategy: &IndexCalcStrategy)
-    -> Result<IndexCalcSolution, IndexCalcError>;
-
-pub struct IndexCalcSolution {
-    pub x: u64,                      // log_G(Q) mod ℓ, verified x·G_ℓ == Q_ℓ
-    pub combination: Vec<FpNaive>,   // the u used; uᵀb ≢ 0
-    pub relations: Vec<Relation>,    // the system u combines
-}
-// IndexCalcError gains Undetermined { relations: usize } (bound exhausted, no u with uᵀb ≢ 0)
-// and Inconsistent (combinations disagree or verification fails); RecoveryFailed is removed.
+pub fn solve_ecdlp_composite<F: Fp<4>>(curve: &Curve, g: &AffinePoint<F>, q: &AffinePoint<F>,
+    n: u64) -> Result<DlogSolution<PohligEvidence>, DlogError>;
+pub struct PohligEvidence { pub components: Vec<PrimePowerComponent> }
+pub struct PrimePowerComponent { pub p: u64, pub e: u32, pub residue: u64,
+                                 pub digits: Vec<DigitMethod> }
+pub enum DigitMethod { SubgroupTable, Rho(RhoEvidence) }  // name per the primary source
 ```
 
-Prose invariants: relations hold mod ℓ because ℓ ∥ n; x comes only from a relation combination;
-`Inconsistent` is an invariant failure, never retried or masked.
+Prose invariant: the small-subgroup step is the published method's own size-selected sub-step,
+documented with its source; `docs/development.md` rule 5 says so in one sentence.
+
+### C-MovOutcome
+
+Compiler + test-enforced. *To be frozen at 6.* Consumed by 12. `mov_reduce -> Result<MovSolution,
+MovError>`; `MovSolution { k_mod_ell, ell, g_pair, h_pair }` verified k·G == Q;
+`MovError { InvalidInput, DegeneratePairing, Dl(gnfs::dl::SolveDlError), Inconsistent }`.
+
+### C-SsaOutcome
+
+Compiler + test-enforced. *To be frozen at 7.* Consumed by 12. `ssa_solve` keeps
+`Result<u64, SsaError>`; `SsaError` gains `Inconsistent` and `Unsupported`; `NotAnomalous` only on
+an exact count.
+
+### C-GhsTransferGuard
+
+Compiler + test-enforced. *To be frozen at 8.* Consumed by 12.
+`transfer_point -> Result<_, GhsError>` with `NotOnCurve` and `NotInSubfield`.
+
+### C-RhoFactorOutcome
+
+Compiler + test-enforced. *To be frozen at 9.* Consumed by 12.
+
+```rust
+pub fn factor(n: u128, max_c: u64, batch_size: usize) -> Result<Factorization, FactorError>;
+pub struct Factorization { pub d: u128, pub evidence: FactorEvidence } // 1 < d < n, n % d == 0
+pub enum FactorEvidence { Even, Rho { c: u64 } }
+pub enum FactorError { InvalidInput, Prime, Unsupported, BudgetExhausted { constants: u64 } }
+```
+
+### C-EcmOutcome
+
+Compiler + test-enforced. *To be frozen at 10.* Consumed by 12.
+`ecm_factor -> Result<Uint<4>, EcmError>` with `InvalidInput`, `Prime`, `CurvesExhausted { curves }`.
+
+### C-ShorFactorOutcome
+
+Compiler + test-enforced. *To be frozen at 11.* Consumed by 12.
+
+```rust
+pub fn factor(n: u64, seed: u64) -> Result<ShorFactorization, ShorFactorError>;
+pub struct ShorFactorization { pub p: u64, pub q: u64, pub evidence: ShorEvidence } // p·q == n
+pub enum ShorEvidence { Even, PrimePower { prime: u64, exponent: u32 }, CommonFactor { a: u64 },
+                        OrderFinding { a: u64, seed: u64, s: u64, r: u64 } }
+pub enum ShorFactorError { NotComposite, Unsupported { qubits: usize },
+                           AttemptsExhausted { attempts: usize } }
+```
+
+Prose invariant: `order_from_phase` returns the multiplicative order, not a multiple.
 
 ## Progress ledger
 
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
-| 1 | Recover the ECDLP exponent from finite-precision Fourier outcomes | done | 89b0d59 | C-ShorExtraction |
-| 2 | Report Shor ECDLP measurement evidence without exhaustive fallback | done | 2cb56f3 | C-ShorSolve |
-| 3 | Recover the index-calculus log from a relation combination | done | 15cdec6 | C-IndexCalcRecovery |
-| 4 | Correct the Shor ECDLP and index-calculus exposition ◆ | done | e3040c4 | |
-| 5 | Anneal cleanup (skippable) | done | 208fc6f | |
-
-Boundary note (row 4 ◆, 2026-11-08): `still-on-intent`. Fix-loop budget 2 of 2 spent (anneal-fix
-cf42c3c; correction of seven fork-named statements ec4c5f7). Allowed extras on row 4: `README.md`,
-`shor/src/lib.rs`. Tolerated deviations from contract text (adjudicated contract-consistent; the
-fork recommends a one-line note in C-IndexCalcRecovery at arc close): `NoKernel` removed,
-`Inconsistent` also fires on uᵀb≡0 ∧ uᵀa≢0, `DEFAULT_MAX_ATTEMPTS`, `RelationStream`,
-`recover_log_from_relations` (returns `Undetermined` for a fixed set), anti-diagonal enumeration.
-Unresolved, carried to row 5 (not clean): `docs/PEDAGOGY.md:~780` still says "a relation matrix
-whose solution recovers the discrete log" (same wording the fork corrected in README:87–88). Not
-corrected, additive/out of footprint: SURVEY dangling references and its "768 qubits" claim
-(`docs/SURVEY.md:2139,2148,2189`); "principle-4" survivors in `rho/src/ssa/mod.rs`,
-`rho/src/pairing/mov.rs:198`, `rho/src/ecdlp/pohlig.rs:48`; `shor/docs/PEDAGOGY.md` "~40" vs 45
-tests for `pointadd_kat.rs`; BENCHMARKS N=91 "21 qubits". Row 5 is not skippable: edited lines
-over 100 characters in `docs/PEDAGOGY.md` and `docs/BENCHMARKS.md` are ledgered, and "2D-lattice"
-wording in `shor/src/ecdlp/mod.rs:1,45,113` is a cosmetic naming inconsistency with "dual-lattice".
-Flagged for the user (human sign-off, recommend a ROADMAP entry): `rho/src/ecdlp/pohlig.rs:187`
-(`solve_ecdlp_composite` brute-forces small prime-order subgroups) and `rho/src/pairing/mov.rs:198`
-(k=2 extension-field brute-force solver) are exhaustive searches over the answer space reported as
-success, outside this arc's scope; `docs/development.md` rule 5 forbids that pattern.
-Process note: row 1's commit body (89b0d59) is unwrapped and the row 4 ledger commit be017e9 carries a
-sentence as its subject instead of `Ledger: 4 done` (committer drafting defects; history not
-rewritten by the driver).
+| 1 | Define a verified rho discrete-log outcome and adopt it in Brent rho | pending | | |
+| 2 | Bound the distinguished-point rho solvers and verify their results | pending | | |
+| 3 | Recover the log from negated distinguished-point collisions | pending | | |
+| 4 | Verify Pohlig–Hellman results and name the small-subgroup method | pending | | |
+| 5 | Verify binary-field rho and Koblitz results | pending | | |
+| 6 | Verify MOV results and type its failure classes | pending | | |
+| 7 | Separate SSA failure classes and handle zero logs and large primes | pending | | |
+| 8 | Reject off-curve and non-subfield points in the GHS transfer | pending | | |
+| 9 | Type rho factoring outcomes and bound each attempt | pending | | |
+| 10 | Type ECM factoring outcomes | pending | | |
+| 11 | Report Shor factoring provenance and return the minimal order | pending | | |
+| 12 | Correct the solver-outcome exposition ◆ | pending | | |
+| 13 | Anneal cleanup (skippable) | pending | | |
 
 ## Action-frame digest
 
-### 1 — 2026-11-08
-Discovery/flex: The circuit distribution matched the Fourier-sum formula directly (natural bit
-order on c and d, sign ω^{-(ac+bd)}); no register-convention defect, `EXP_BITS` stays 4 and
-`qubit_budget_within_ceiling` holds. The inferred defect is confirmed: the old rule succeeded with
-probability only ~0.02–0.16 per measurement (k=2..12, from the same distribution), the new rule
-~0.64–0.66.
-Affected: C-ShorExtraction (frozen as specified; `extract_k_from_measurement` panics on c or d ≥ M
-rather than returning `None`, so `None` means exactly j ≡ 0; rounding ties go up, only tie is c=8
-at r=13).
-Deferred: yes — row 2 picks its default retry budget from these values (≈0.64 per attempt; the
-subagent suggested 8); row 4 may cite them only via the test that computes them
-(`primary_success_probability_positive_all_k`, ignored for cost; it asserts > 0, the numeric values
-are not asserted anywhere, so row 4 must label them as estimates or have a test compute them).
-Primary success probability per k (2..12): 0.644962, 0.638561, 0.638561, 0.637623, 0.644962,
-0.644962, 0.637623, 0.638561, 0.638561, 0.644962, 0.656824. Old rule (k=2..12): 0.0438, 0.1612,
-0.0201, 0.0780, 0.0315, 0.0438, 0.0780, 0.1612, 0.0201, 0.0315, 0.0473 (measured once in a deleted
-scratch test; not tested).
-Texture: `primary_success_probability` finds the log by classical scan of 0..r and panics if q is
-outside ⟨g⟩, which is acceptable as a test oracle but not a solver path. The row-1 commit body
-landed unwrapped (committer `-m` misuse); history is not rewritten by the driver.
-
-### 2 — 2026-11-08
-Discovery/flex: C-ShorSolve frozen as specified, plus one additive public item not in the contract:
-`pub const DEFAULT_MAX_ATTEMPTS = 8` (≈0.36⁸ ≈ 3·10⁻⁴ exhaustion probability from row 1's per-k
-probabilities). Attempt n runs the circuit at `seed.wrapping_add(n)`; `Measurement.seed` is that
-circuit seed, `attempt` is zero-based, and `AttemptsExhausted.attempts` equals `max_attempts`
-(budget 0 → `attempts: 0`). Seed 0 extracts correctly at attempt 0 for k ∈ {3,5,7,9,12} (searched
-seeds 0..16, nothing re-selected); the exhaustion KAT is k=3, seed 2, budget 1 (pair (2,11) → 11).
-Affected: C-ShorSolve (docs in row 4 may cite `DEFAULT_MAX_ATTEMPTS`).
-Deferred: yes — (a) the two `rho_crosscheck_k3`/`k7` tests are ignored with a stated reason that
-they are cheap (~0.2 s) and merely grouped off the default path; row 4/5 may ask whether they
-belong on the default path (they are in-workspace cross-checks, not external-tool oracles).
-(b) Stale plan labels (`C-PointAdd`, `C-ECDLPSolve`) survive outside row 1/2's expected files:
-`shor/src/lib.rs:26,30,42`, `shor/src/curve/mod.rs:8,302,304`, `shor/src/ecc/mod.rs:29,131`. They
-hit the anneal denylist and the lib.rs:42 line describes the `solve_ecdlp` driver; the ◆ anneal
-gate will find them and they fall to the anneal-fix or row 5 (additive, outside the declared arc
-files: surface, do not absorb silently).
-Texture: default-path ecdlp_kat now costs ~115 s debug; ignored suite ~360 s.
-
-### 3 — 2026-11-08
-Discovery/flex: C-IndexCalcRecovery frozen with these deviations, all inside the six expected files
-and none flagged by the subagent as contract-invalidating: (a) `IndexCalcError::NoKernel` is also
-removed (the full basis can legitimately be empty, so `solve_ek_linalg` returns `Ok(vec![])`; the
-contract text names only `RecoveryFailed` as removed). (b) New public items `RelationStream`
-(`collect`, re-exported) and `recover_log_from_relations` (`solve`, not re-exported; fixed-relation-
-set recovery needed to test `Undetermined`/`Inconsistent`). (c) `Inconsistent` also fires when a
-basis vector has uᵀb ≡ 0 but uᵀa ≢ 0 (honest relations make uᵀa ≡ 0). (d) Relation enumeration order
-changed from a-outer/b-inner to anti-diagonals (a+b = 1, 2, …): the old order kept b inside the span
-of exponent columns and hid x (some k needed >90 relations; the 60-k KAT cost ~135 s vs ~3 s now);
-the enumeration bound is unchanged (a ∈ [1,n), b ∈ [0,n)). Extension scheme: 7 = fb_size+1 relations
-initially, then +7 per round until some u has uᵀb ≢ 0 or the stream is drained.
-`block_wiedemann_fl` returns a complete basis here (dense exact RREF in `find_right_kernel`, one
-vector per free column), so `Undetermined` is certified; it is not a Wiedemann–Krylov iteration at
-this scale and the rustdoc says so.
-Affected: C-IndexCalcRecovery (error enum shape: `NoKernel` gone; row 4 docs must not mention it).
-Deferred: yes — row 4's boundary fork should decide whether the `NoKernel` removal and the extra
-`Inconsistent` condition need to be written back into the contract text. Doc claims: the
-cyclic-ℓ-Sylow claim is checked only indirectly (x·G_ℓ == Q_ℓ for every k and `toy_fixture_parameters`
-asserting ℓ ∥ n); `Undetermined` is unreachable for honest Q on the toy fixture and is exercised
-only via the b ≡ 0 construction and a drained-stream unit test. Row 4 must not state either more
-strongly. Leaked labels remain outside the six files: "Principle-4" in `strategy.rs`, `decompose.rs`,
-gnfs linalg/sieve, `semaev/*`, `pairing/mov.rs`, `ghs_kat.rs`; "C-EWBench" in `attacks.rs` comments;
-"frozen" wording in untouched KATs. All hit the anneal denylist and are outside the declared arc
-footprint — surface at the ◆ gate, do not absorb silently.
-Texture: coverage 93.78% after row 3; `index_calculus/mod.rs` at 77% from error-enum Display impls.
-
-### 4 — 2026-11-08
-Discovery/flex: Docs corrected; no contract flexed. Allowed extras (4d, plainly part of the unit):
-`shor/src/lib.rs` (crate rustdoc still stated the old `b'·k ≡ −a'` rule; also dropped its
-`C-ECDLPSolve`/`C-PointAdd` labels at that passage) and `README.md` (cross-references broken by
-label renames). `shor/docs/PEDAGOGY.md` was rewritten whole. Published quantitative claims carry
-tests (17 qubits → `qubit_budget_within_ceiling`; distribution formula → `distribution_matches_
-fourier_formula_*`; peak pairs → `extract_exact_peak_pairs_recover_k`; fixture pairs →
-`ecdlp_k*_seed0`; 60-residue recovery → `recovers_every_residue`) or are labelled estimates: per-
-measurement success ≈0.64–0.66 (function `primary_success_probability`, no test asserts the value)
-and exhaustion ≈0.36⁸ ≈ 3·10⁻⁴. Removed: old-rule success numbers, "768 qubits (Proos–Zalka)"
-(inconsistent with the doc's own formula), "~35 s total", stale test counts, "KAT-verified …
-Complete" verdicts, an O((log r)³) expected-time claim (kept as a labelled literature claim).
-Affected: none.
-Deferred: yes — at the ◆ gate. (a) Denylist hits remain in files this row touched, left by the
-subagent as "the library's own organising vocabulary": `docs/PEDAGOGY.md` (~46 non-citation hits:
-"Track S/E/D/G/ρ", "Phase 0–8" rho chapter headings), `docs/BENCHMARKS.md` (~35: "G.B–G.W" section
-labels, "Phase 1–4"), `README.md` (~30 Track/G.x/E.x), `shor/src/lib.rs` (C-ModExp, C-PointAdd,
-C-OrderFind, C-Factor, C-StateVec, C-QFT outside the ecdlp passage). `docs/MATHEMATICS.md` hits
-are bibliography keys ([S09], [S93], [S85]…): keyword matches. Out-of-file leakage in code
-comments (`decompose.rs` "principle-4 boundary", gnfs/semaev/pairing, "C-EWBench") is not in the
-arc's touched durable files except where already listed. (b) The unrelated pre-existing
-inconsistency in BENCHMARKS (N=91 "21 qubits" vs its own table's 14) was left alone.
-Texture: the denylist's `Track`/`Phase` patterns hit the repo's own cross-document organising
-labels (shared with README, SURVEY and the gnfs docs), so a coordinated rename is wider than the
-row's footprint.
-
-### 4 ◆ anneal gate — 2026-11-08
-Discovery/flex: The mechanical denylist gate hit in `docs/PEDAGOGY.md` (56), `docs/BENCHMARKS.md`
-(35), `README.md` (30), `shor/src/lib.rs` (7), `rho/benches/attacks.rs` (4) and, in the sibling
-files of the index-calculus module, `decompose.rs`/`strategy.rs` (5). One `@build` anneal-fix
-(commit cf42c3c; Fix-loop budget used 1 of 2) translated all of them to zero hits; `docs/
-MATHEMATICS.md`'s 10 residuals are bibliography keys ([S09] etc., keyword matches, not edited).
-Side effects to know: README's promise "Z.1.2 will extend this into the library-wide synthesis"
-became "A library-wide synthesis … is planned" (mild claim change); "a deferred re-shard" removed
-from `attacks.rs`/`strategy.rs`; two runtime messages containing "principle-4 boundary" (one
-`assert_eq!` in `decompose.rs`, one `debug_assert!` in `strategy.rs`) were reworded and no test
-asserts them; PEDAGOGY's "Track"/"Phase" headings, cumulative speedup table header, and BENCHMARKS'
-section labels were renamed to descriptive names; several edited lines now exceed 100 characters
-(ledgered for the anneal row, not a fix trigger).
-Affected: none (no contract text).
-Deferred: yes — (a) `docs/SURVEY.md` (excluded from the anneal) quotes renamed labels and old
-comments at many lines (310–312, 526–556, 746, 1162–1173, 1317–1320, 1368–1384, 2412, 2501, 2560);
-those references now dangle. (b) Same "principle-4" phrasing survives in files this arc never
-touched: `rho/src/ssa/mod.rs`, `rho/src/pairing/mov.rs`, `rho/src/ecdlp/pohlig.rs:48`; and
-gnfs/semaev/ghs_kat labels. Outside the arc's footprint: additive surface, not absorbed.
-(c) PEDAGOGY.md:83 still carries "~768 qubits for secp256k1" although row 4 removed that claim
-elsewhere (found by the stale-claim search, not yet corrected).
-Texture: three of the four rows' leaks came from older arcs' vocabulary, not from rows 1–3.
-
-### 4 ◆ boundary fork — 2026-11-08
-Discovery/flex: Verdict `still-on-intent`: both solvers succeed by the advertised mechanism or fail
-typed; no exhaustive solver path remains (the only 0..R scan is the `primary_success_probability`
-test oracle); no contract broken. Seven prose contradictions named and fixed in ec4c5f7: PEDAGOGY
-"~768 qubits" (now 1280 = 2·256 + 3·256, labelled layout arithmetic), PEDAGOGY per-round batch
-(`fb_size + 1`, not `fb_size`), README relation-matrix wording (left-kernel combination, log mod ℓ),
-`InvalidSubgroup` rustdoc engine name (`block_wiedemann_fl`), MATHEMATICS [PZ03] section pointer
-(§11.4), MATHEMATICS "correct at all scales" overreach, `DEFAULT_MAX_ATTEMPTS` rustdoc estimate
-label. Classified harmless: hidden-subgroup H statement in MATHEMATICS (correctly framed against
-the dual relation), "right kernel of the transposed matrix" (correct orientation), "2D-lattice"
-naming (cosmetic), historical comparison in `ecdlp_kat.rs`.
-Affected: none (contract text untouched; the fork recommends a one-line contract note at arc close).
-Deferred: yes — row 5 must take `docs/PEDAGOGY.md:~780` (same wording as the corrected README
-line), the over-100-character lines, and optionally the "2D-lattice" → "dual-lattice" naming and
-`k·G_ℓ = Q_ℓ` vs `x` notation in `docs/BENCHMARKS.md:524`, `rho/benches/attacks.rs:185,202,208`.
-Texture: the fork's judgment that a non-solver 0..R scan inside a test oracle is consistent with
-"no code path enumerates candidate exponents" is the reading tolerated for C-ShorSolve.
-
-### 5 — 2026-11-08
-Discovery/flex: Ran (not skipped): ~100 arc-added over-width lines and the carried-over PEDAGOGY
-statement. Rewrapped all prose/comment overruns; PEDAGOGY's "relation matrix whose solution recovers
-the discrete log" now matches README (left-kernel combination, log mod ℓ); "2D-lattice" → "dual-
-lattice" in `shor/src/ecdlp/mod.rs`; `k·G_ℓ = Q_ℓ` → `x·G_ℓ = Q_ℓ` in BENCHMARKS and `attacks.rs`
-(assert message text only). Full gate green on the final tree: check, test, dep-policy, audit,
-coverage 93.78%.
-Affected: none.
-Deferred: remaining over-width lines are unwrappable by kind: markdown table rows and fenced
-blocks (PEDAGOGY, BENCHMARKS, MATHEMATICS:110, shor PEDAGOGY, README:121), code lines
-(`ecdlp_kat.rs:230,364`, `collect.rs:211`, `decompose.rs:65`, `index_calculus_kat.rs:1116`) and two
-`#[ignore = "…"]` attributes (`ecdlp_kat.rs:525,556`). Not touched: SURVEY, the out-of-footprint
-"principle-4" survivors, the brute-force small-subgroup / extension-field solvers flagged in the
-boundary note.
+*(none yet)*
 
 ## Discoveries & risks
 
-- **Inferred (sharding), enrolled 1:** wrong extraction orientation and no r/M rescaling. If the
-  exact distribution shows the old rule was in fact correct under this circuit's conventions:
-  internal-continue (the distribution is the contract, not the inference); record it.
-- **Inferred, enrolled 3:** the kernel is a right kernel over factor-base columns; Phase 1 neither
-  detects inconsistent rows nor verifies x.
-- **Confirmed, enrolled 2–3:** every end-to-end test of both solvers would pass on the fallback
-  alone; `index_calculus_dlp_smoke` asserts only `is_ok()`.
-- **Internal-continue:** `EXP_BITS` raise within the qubit ceiling; seed re-selection; relation
-  collection beyond fb_size+1 within the (a,b) bound; full-basis computation if the engine's is
-  partial.
-- **Additive-reshard (surface, do not absorb):** any edit outside `shor/src/ecdlp`, `rho/src/
-  index_calculus`, their tests, `rho/benches/attacks.rs` and the row-4 docs; Shor factoring
-  fidelity; deduplicating `iqft_on_qubits`; a new crate edge.
-- **Destructive-HALT:** the circuit distribution disagrees with the Fourier-sum formula in a way
-  no register convention explains; or the primary success probability is 0 for some k under every
-  admissible `EXP_BITS` (the mechanism cannot work at this scale, a scope decision for the user).
+- **Inferred (sharding), enrolled 3:** plain `solve_dp` keys distinguished points by the low x
+  word only, so a P/−P collision may return a wrong k. If the walk provably never meets −P:
+  internal-continue (keep the synthetic KAT; record why).
+- **Inferred, enrolled 4:** the Pohlig–Hellman/Silver order-p step is a table over the subgroup.
+  If the primary source does not support this: **destructive-HALT** — the user's choice to keep
+  the enumeration rests on it; the alternatives (rho on tiny groups, baby-step giant-step) are a
+  scope decision.
+- **Inferred, enrolled 5:** a wrong τ eigenvalue would give a silently wrong Koblitz k. If
+  verification fails on a fixture: internal-continue fix within `binary_ecdlp`; record.
+- **Inferred, enrolled 7:** the SSA k_raw/2 correction's mathematical source is unstated. If it
+  masks a lifting defect: additive-reshard (surface, do not absorb).
+- **Confirmed:** Pohlig–Hellman's end-to-end tests never reach rho (all primes ≤ 5); Shor
+  factoring's `order_from_phase` returns multiples (its own test expects 8 for order 4); no rho
+  solver verifies k·G == Q internally except SSA.
+- **Internal-continue:** call-site-only adaptation in a file outside a row's expected files when
+  the compiler forces it; budget defaults and seed re-selection by a bounded recorded search;
+  replacing the wall-clock GLV test with a step comparison.
+- **Additive-reshard (surface, do not absorb):** MOV's k=2 log engine and NFS-DL's `solve_dl`;
+  Shor factoring register width; deduplicating `iqft_on_qubits`; principle-N label survivors
+  outside a row's files; any new crate edge.
+- **Destructive-HALT:** verification shows a solver returning wrong answers on existing fixtures
+  in a way not fixable inside its module; or a contract needs a crate edge to hold.
 - **Preflight:** PLAN and ROADMAP will be dirty after sharding; commit them before `/plan-run`.
 
 ## Notes for executors
 
 **Sizing.**
-- (1) Ambient complexity is moderate: two small modules in different crates.
-- (2) The floor is moderate. Row 3's mechanism is atomic; row 1's derivation is one object.
-- (3) Cost of a design error is moderate: public API breaks, but no consumers exist outside the
-  tests and one bench.
-- (4) Correctness-criticality is high: the arc exists because evidence lied. This drove the
-  1|2 split at the extraction contract.
-- (5) Inner-loop bandwidth is high for rho and for Shor's distribution check, but low for Shor
-  end-to-end runs (~10 s each). Keep default-path circuit runs few.
+- (1) Ambient complexity is moderate-high: `rho/src/ecdlp/mod.rs` is 1432 lines with threaded
+  walkers; the other modules are small.
+- (2) The floor is set by row 1's signature change (all callers at once) and row 2's shared
+  coordinator; neither is a split candidate.
+- (3) Cost of a design error is high for row 1 (consumed by rows 2–5), which put an inflection
+  juncture on it; moderate elsewhere.
+- (4) Correctness-criticality is high: the arc exists because results go unchecked. This drove
+  the 2|3 split.
+- (5) Inner-loop bandwidth is high for rho and numth (fast tests), low for Shor factoring
+  (circuit runs).
 
-No row uses F/C: the rows are small and tightly steered.
+Outlier check: rows 6, 7, 8 and 10 are below the usual band; they stay separate because they are
+independent modules (no catch-all row). Row 1's eight files are one atomic signature change, mostly
+call-site edits. No row uses F/C: the rows are small and tightly steered.
 
-**Routing.** T1 implements every row; T0 runs only the ◆ boundary fork (intent check, claim
-adjudication).
+**Routing.** T1 implements every row; T0 runs the row-1 inflection juncture and the ◆ boundary
+fork.
 
-**Outcome contract.** `docs/development.md`, "Solver outcomes and fallbacks", is the authority for
-rows 1–3; the Purpose section applies it to these two solvers.
+**Outcome contract.** `docs/development.md`, "Solver outcomes and fallbacks", is the authority;
+`shor/src/ecdlp/mod.rs` is the worked reference shape.
 
-**Register.** State the property or invariant, never the plan coordinate. Mathematical exposition
-goes in the sections named in row 4; no new chapters.
+**Register.** State the property or invariant, never the plan coordinate. Exposition goes in the
+sections row 12 names; no new chapters.
 
 **Anneal denylist** (grep enrolled durable files at ◆, excluding PLAN/ROADMAP/NOTES/SURVEY/AGENTS):
 
@@ -456,8 +460,8 @@ goes in the sections named in row 4; no new chapters.
     \bTrack [A-Z]\b|\bPhase [0-9]+\b
     (PLAN|ROADMAP|NOTES|SURVEY)(\.md)?\b|plan-(run|shard|juncture)
 
-KAT, algorithmic step numbers, group notation (S₃, S4) and quantum phase terminology are domain
-terms: classify collisions, do not rename.
+KAT, algorithmic step numbers, group notation (S₃, S4), bibliography keys ([S09]) and quantum
+phase terminology are domain terms: classify collisions, do not rename.
 
 **First run:** after committing the planning docs, from `@plan-admin`:
 

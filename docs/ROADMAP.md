@@ -54,8 +54,7 @@ their presence here. Shard a selected scope into `PLAN.md` only after its contra
 | Scope | Current state | Dependency / priority |
 |---|---|---|
 | NFS-DL composition | Placeholder and unresolved maths | Design before implementation |
-| Shor / elliptic index calculus | Sharded into PLAN; repair in progress | Correctness first; no CADO dependency |
-| Solver-outcome audit | Contract adopted; other solvers unaudited | Shard by topic; NFS-DL via its design |
+| Solver-outcome audit | Audited; repairs sharded into PLAN | NFS-DL via its design |
 | Oracles / CADO sidecar | Early GNFS slice selected | Design separately; parallel with repairs |
 | GNFS assurance | Coverage limits, not proven defects | After urgent repairs |
 | Mathematical exposition | Errors and unsupported claims | Correct with algorithm adjudication |
@@ -117,42 +116,30 @@ identity and intermediate relation equations independently. Remove placeholder s
 the stale k>1-unsupported and full-k=2-pipeline claims in rustdoc, MATHEMATICS and PEDAGOGY. Any
 intentional capability restriction must be explicit and approved, not disguised as successful NFS.
 
-### Shor and elliptic index-calculus fidelity
+### Shor factoring register width
 
-**Confirmed:** `shor/src/ecdlp/mod.rs::solve_ecdlp` can return the exhaustive-search answer after
-measurement extraction fails. Its fallback does not use the measurement, despite the comment that
-the measurement biases that search. `rho/src/index_calculus/solve.rs` can likewise enumerate the
-group after augmented elimination fails; its `_kernel` result is discarded. This does not establish
-that either primary algorithm never works, or that augmented elimination is inherently invalid.
-
-Give primary-path success and fallback success distinguishable evidence. Require primary-only
-fixtures with intermediate identities and non-vacuous assertions; test fallbacks separately.
-Audit finite-precision phase extraction instead of assuming raw Fourier outcomes satisfy an exact
-mod-r relation. Audit relation validity, consistency/rank handling and returned-log verification in
-the elliptic solver. Correct comments claiming unused kernel provenance or measurement influence.
-An exhaustive fallback may remain honestly labelled; it cannot certify the advertised mechanism.
-
-**Inferred during sharding (static reading, not executed):** the ECDLP extraction applies the
-subgroup relation a+bk≡0 to the measured pair instead of the dual relation d≡k·c, and reduces mod r
-without rescaling the M=2^t register by r/M. The elliptic solver's kernel is a right kernel over
-factor-base columns; recovery needs a left kernel, a combination of relations.
-The factoring path has no fallback, but its exponent register is n_bits(N) qubits rather than the
-textbook ≈2·n_bits(N), `order_from_phase` can return a multiple of the order, and its end-to-end
-fixtures use tuned seeds. These are factoring-fidelity findings outside the current repair.
+**Confirmed:** `shor/src/shor/mod.rs::exp_len_for` sizes the exponent register at n_bits(N) qubits,
+not the textbook ≈2·n_bits(N) that guarantees continued-fraction recovery (2^t ≥ N²); sufficiency
+for the four fixture targets is empirical. Widening it pushes N=91 past the simulator's qubit
+ceiling, so it is a target-selection decision, not a local fix.
 
 ### Solver-outcome audit
 
 `docs/development.md`'s "Solver outcomes and fallbacks" generalises the GNFS reconstruction failure
-contract. It binds new and repaired code at once; existing solvers have not been checked against it.
-Audit each remaining solver for unverified success, conflated failure classes (especially budget
-exhaustion read as a negative), non-method fallbacks and missing provenance where several paths can
-succeed: rho factoring and ECDLP (including distinguished-point parallelism), MOV, GHS,
-hyperelliptic, Semaev/SSA, Pohlig–Hellman, Shor factoring and NFS-DL.
+contract. A static audit against it (source reading, not executed) found unverified success,
+conflated `None` failures, unbounded distinguished-point walks and missing provenance in rho ECDLP
+(Brent, distinguished-point, binary-field, Koblitz), Pohlig–Hellman, MOV, SSA, rho factoring, ECM
+and Shor factoring, plus an input-validation gap in the GHS transfer. Their repair is sharded into
+PLAN.
 
-**Confirmed instance:** NFS-DL's `solve_dl` returns `Ok(0)` for an empty frontier; that belongs to
-the NFS-DL contract design, not this audit. Bare `Option` returns are not violations by themselves:
-a documented single failure class conforms. Shard findings by topic; record conforming solvers as
-checked instead of listing them.
+Checked and conforming: Shor ECDLP and elliptic index calculus. GHS is a transfer, not a solver;
+the hyperelliptic and Semaev modules are substrates with no solver path. Pohlig–Hellman's
+small-prime enumeration was adjudicated as the method's own size-selected sub-step, not a fallback,
+subject to a literature check in its repair. Bare `Option` returns are not violations by themselves:
+a documented single failure class conforms.
+
+**Outside this audit:** NFS-DL's `solve_dl` returns `Ok(0)` for an empty frontier, and MOV's k=2
+discrete log runs through its exhaustive toy table; both belong to the NFS-DL contract design.
 
 ## Oracles and assurance
 
@@ -254,6 +241,9 @@ test succeed. Preserve the distinction between exact per-instance validation and
   for non-monic f, `discriminant` returns lc(f)·disc(f), so `is_bad_prime` does flag p | c.
 - `docs/development.md` incorrectly says there is no proptest layer. Describe the actual KAT-first
   mix and mathematical assertions, not stale counts or unconditional correctness guarantees.
+- `shor/docs/PEDAGOGY.md` gives about 40 tests for `pointadd_kat.rs` (45 exist), and BENCHMARKS's
+  N=91 passage says 21 qubits where its own table gives 14. Adjudicate; prefer removing drifting
+  counts to updating them.
 
 Sweep related unchanged passages as well as edited lines. A clean planning-token grep does not
 establish that the mathematics or capability claims are correct.
@@ -274,8 +264,9 @@ versus full-algorithm gate counts, and architecture/runtime assumptions must not
 - Schrottenloher, <https://arxiv.org/abs/2606.02235v1>: disclosed point-addition circuits compare
   against Babbush et al.; explain that relationship rather than presenting independent estimates of
   identical scope. Distinguish secp256k1 results from generic prime-field variants.
-- Re-check the Proos–Zalka baseline and Roetteler et al. comparison, including the unsupported
-  approximately 768-qubit attribution, and correct the Shor journal citation to SIAM J. Comput.
+- Re-check the Proos–Zalka baseline and Roetteler et al. comparison before publishing any
+  attribution; the unsupported approximately 768-qubit claim is gone from MATHEMATICS and PEDAGOGY
+  but SURVEY still carries it. Correct the Shor journal citation to SIAM J. Comput.
 
 Put validated exposition and bibliography entries in MATHEMATICS. Competition harnesses and
 engineering demonstrations do not automatically imply a new mathematical algorithm or implementation
@@ -316,8 +307,9 @@ Resolve these remaining documentation scopes without assuming a wholesale textbo
   section-reference convention: chapter-local GNFS §5 currently collides with whole-book chapter 5.
   Update all consumers together. Give the new checked-square-root sections stable navigable anchors
   without casually renumbering widely cited GNFS section ranges. A short reading path is optional.
-- Replace Track/session/phase construction labels with mathematical topics across README,
-  MATHEMATICS, PEDAGOGY, BENCHMARKS and residual source/test comments. Preserve real technique
+- Track/phase labels are gone from README, PEDAGOGY and BENCHMARKS (MATHEMATICS's residual matches
+  are bibliography keys). Replace the remainder in source/test comments, e.g. principle-N labels in
+  gnfs linalg/sieve, `rho/src/semaev` and `rho/tests/ghs_kat.rs`. Preserve real technique
   groupings, algorithmic step numbers and quantum phase terminology. Replace undefined principle-N
   and contract labels with their actual invariant; do not erase useful interface explanations.
 - Remove bare ROADMAP references as well as PLAN.md/NOTES.md/SURVEY.md references from durable
@@ -454,6 +446,8 @@ reference maintenance than copying every convention into one starter project.
 The user selected eventual deletion of `docs/SURVEY.md`, not preservation as a historical findings
 ledger. Its completed findings, stale inventories and superseded decisions need no migration.
 Git history preserves them. The active scopes above replace it as the source of outstanding work.
+SURVEY also quotes labels and comments since renamed in README, PEDAGOGY, BENCHMARKS and the
+index-calculus module; those references now dangle, one more reason to transfer and delete it.
 
 Before deletion, check and transfer only useful material that is not already present:
 
