@@ -451,7 +451,10 @@ pub enum FactorError { InvalidInput, Prime, Unsupported, BudgetExhausted { const
 
 ### C-EcmOutcome
 
-Compiler + test-enforced. *To be frozen at 10.* Consumed by 12.
+Compiler + test-enforced. **Frozen at 10 (54c393a).** As built: `EcmError { InvalidInput, Prime,
+Unsupported, CurvesExhausted { curves: u32 } }` (Copy; `Unsupported` is a unit variant);
+`ecm_factor(n: &Uint<4>, b1: u64, b2: u64, max_curves: u32)`; `pub const MILLER_RABIN_PROOF_BOUND`
+(ψ₁₃) re-exported from `shared-numth`. Consumed by 12.
 `ecm_factor -> Result<Uint<4>, EcmError>` with `InvalidInput`, `Prime`, `CurvesExhausted { curves }`,
 and (added after row 9's discovery, by juncture verdict) `Unsupported`: an odd probable prime at or
 above the proven Miller–Rabin bound (ψ₁₃ ≈ 2^81.5 once base 41 is added) cannot be certified.
@@ -494,7 +497,7 @@ ba81676's body is also unwrapped (cosmetic; same `@git-editor` pass).
 | 7 | Separate SSA failure classes and handle zero logs and large primes | done | 9154962 | C-SsaOutcome |
 | 8 | Reject off-curve and non-subfield points in the GHS transfer | done | dbc33d2 | C-GhsTransferGuard |
 | 9 | Type rho factoring outcomes and bound each attempt | done | a404982 | C-RhoFactorOutcome |
-| 10 | Type ECM factoring outcomes | pending | | |
+| 10 | Type ECM factoring outcomes | done | 54c393a | C-EcmOutcome |
 | 11 | Report Shor factoring provenance and return the minimal order | pending | | |
 | 12 | Correct the solver-outcome exposition ◆ | pending | | |
 | 13 | Anneal cleanup (skippable) | pending | | |
@@ -697,8 +700,38 @@ says invariant failures are a separate variant — adding `Inconsistent` to both
 contract choice, cheapest before row 10 freezes.
 Texture: none.
 
+### 10 — 2026-11-09
+Discovery/flex: The row-9 primality discovery was resolved here as instructed. Observed before the
+fix: the new `psi_12_rejected` test failed (18 passed / 1 failed) — `is_prime(ψ₁₂)` returned `true`;
+`bc` confirmed ψ₁₂ = 399165290221 × 798330580441; bases 2..37 accept it, base 41 rejects it;
+2^79 − 67 accepted. Sorenson–Webster (2015) constants recalled, NOT re-read (arithmetic + tests are
+the evidence; prime.rs says so). Fix: base 41 added to the last `DETERMINISTIC_WITNESSES` row;
+module/`miller_rabin`/`is_prime` docs corrected (12 bases proven below ψ₁₂ ≈ 2^78.1; 13 below ψ₁₃ ≈
+2^81.456; above that "probable prime", no proven bound); the fallback `FULL_WITNESSES` is now the
+13-base set (beyond the brief; only strengthens the probable-prime verdict); private
+`TWELVE_BASE_PROOF_BOUND`; `pub const MILLER_RABIN_PROOF_BOUND` (ψ₁₃, u128). ECM classification
+order: n ≤ 1 → `InvalidInput`; n = 2 → `Prime`; even n > 2 → `Ok(2)` with no curves; odd n with
+`is_prime` → `Prime` below ψ₁₃, else `Unsupported`; otherwise up to `max_curves` curves (sigma starts
+at 6). Divisor check `verified_divisor` (1 < d < n, n mod d == 0, `Uint` `rem`); a failing candidate
+counts as a failed curve. `CurvesExhausted.curves` = curves actually run. Callers of `ecm_factor`:
+only inline tests (`pohlig.rs` mentions it in comments only).
+Affected: C-EcmOutcome (frozen as built, incl. the added `Unsupported`). rho's `PRIME_PROOF_BOUND`
+stays at ψ₁₂ — now conservative rather than wrong.
+Deferred: yes — (a) NEW RISK (not fixed; outside scope): ECM `stage1_scalar` builds k with
+`wrapping_mul` in `Uint<4>`; the product of prime powers up to B1 is ≈ e^B1, exceeding 256 bits for
+B1 above ≈ 177, after which the scalar is silently wrong and stage 1 is not B1-smooth (existing tests
+use B1 = 200 and 300 and still pass). Every returned factor is still verified, so this affects ECM
+strength, not outcome soundness. Surface to the user; row 12 must not claim B1-smoothness for large
+B1. (b) Row 12 obligations from row 9's entry stand; `shared/numth/docs/PEDAGOGY.md` is also stale on
+`ecm_factor`'s signature (`-> Option<Uint<4>>`), line numbers and the 12/13-witness claims.
+(c) Option (a)/(b) user flags in row 9's entry remain open (note: C-EcmOutcome froze without an
+invariant-failure variant, mirroring C-RhoFactorOutcome).
+Texture: none.
+
 ## Discoveries & risks
 
+- **Row 10 (risk, surfaced):** ECM stage-1 scalar silently overflows 256 bits for B1 ≳ 177 (strength
+  only; returned factors are verified). Not fixed; surface to the user.
 - **Row 9 (internal-continue, verified by juncture fork):** `shared_numth::is_prime` returns a false
   "prime" for ψ₁₂ and between ψ₁₂ and ψ₁₃ (docs wrong; fix scheduled in row 10; see digest).
 - **Row 8 (risk, surfaced):** GHS transfer's GF(2^l) reinterpretation is a fixture coincidence, not
