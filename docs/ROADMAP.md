@@ -54,7 +54,7 @@ their presence here. Shard a selected scope into `PLAN.md` only after its contra
 | Scope | Current state | Dependency / priority |
 |---|---|---|
 | NFS-DL composition | Placeholder and unresolved maths | Design before implementation |
-| Solver-outcome audit | Audited; repairs sharded into PLAN | NFS-DL via its design |
+| Solver-outcome audit | Repairs landed; open follow-ups below | Decisions needed; NFS-DL via its design |
 | Oracles / CADO sidecar | Early GNFS slice selected | Design separately; parallel with repairs |
 | GNFS assurance | Coverage limits, not proven defects | After urgent repairs |
 | Mathematical exposition | Errors and unsupported claims | Correct with algorithm adjudication |
@@ -123,23 +123,81 @@ not the textbook ≈2·n_bits(N) that guarantees continued-fraction recovery (2^
 for the four fixture targets is empirical. Widening it pushes N=91 past the simulator's qubit
 ceiling, so it is a target-selection decision, not a local fix.
 
-### Solver-outcome audit
+### Solver-outcome follow-ups
 
-`docs/development.md`'s "Solver outcomes and fallbacks" generalises the GNFS reconstruction failure
-contract. A static audit against it (source reading, not executed) found unverified success,
-conflated `None` failures, unbounded distinguished-point walks and missing provenance in rho ECDLP
-(Brent, distinguished-point, binary-field, Koblitz), Pohlig–Hellman, MOV, SSA, rho factoring, ECM
-and Shor factoring, plus an input-validation gap in the GHS transfer. Their repair is sharded into
-PLAN.
+`docs/development.md`'s "Solver outcomes and fallbacks" is the standard. Every solver in the
+original audit (rho ECDLP in all four forms, Pohlig–Hellman, MOV, SSA, rho factoring, ECM,
+Shor factoring, and the GHS transfer's input guard) now returns a verified, typed outcome; the
+source and tests are the record. Shor ECDLP and elliptic index calculus conformed already. GHS
+is a transfer, not a solver; the hyperelliptic and Semaev modules are substrates with no solver
+path. Pohlig–Hellman's small-prime enumeration is the method's own size-selected sub-step
+(Pohlig and Hellman 1978, §IV), not a fallback; its large-prime step is rho, not the paper's
+time–memory step. A bare `Option` is not a violation when it documents a single failure class.
 
-Checked and conforming: Shor ECDLP and elliptic index calculus. GHS is a transfer, not a solver;
-the hyperelliptic and Semaev modules are substrates with no solver path. Pohlig–Hellman's
-small-prime enumeration was adjudicated as the method's own size-selected sub-step, not a fallback,
-subject to a literature check in its repair. Bare `Option` returns are not violations by themselves:
-a documented single failure class conforms.
+**Outside this scope:** NFS-DL's `solve_dl` returns `Ok(0)` for an empty frontier, and MOV's
+k=2 discrete log runs through its exhaustive toy table; both belong to the NFS-DL contract design.
 
-**Outside this audit:** NFS-DL's `solve_dl` returns `Ok(0)` for an empty frontier, and MOV's k=2
-discrete log runs through its exhaustive toy table; both belong to the NFS-DL contract design.
+The items below are open. Each was found while repairing, and each lies outside what that repair
+was allowed to change. Record new findings here with an evidence label, a destination and a
+closure condition; delete an item when its fix lands. In the solver items every success is still
+checked against the group or divisibility identity, so none returns a wrong answer; the GHS item
+concerns the transfer, which has no such end-to-end check, so its wrong-result exposure is
+**inferred**, not demonstrated.
+
+- **SSA on the canonical lift (confirmed; decision needed).** On the stored a = 0 lift of
+  `anomalous_toy` (y² = x³ + 5 over F₇), multiplication by p lands at valuation 2, and the
+  raw quotient is k_raw = 1, 4, 6, 1, 3, 6 for k = 1..6. Lifting a to 7, 14 or 21 gives valuation
+  1 and k_raw = k. `ssa_solve` therefore tries the raw quotient and its half; the halving is an
+  empirical compensation, not a derivation, and only the final k·G = Q check makes it sound.
+  **Inferred:** the stored lift is the canonical lift (CM by ℤ[ζ₃]), where the method
+  breaks; the literature claim (Leprévost–Monnerat–Varrette–Vaudenay 2005) is recalled,
+  not read. Closure: lift non-canonically (a → a + p·s) in `lift_point` and the multiply-by-p
+  loop, retry with a second lift if the first lands in E₂, delete the halving and `Candidate`,
+  and test that the stored lift lands in E₂ and that every k comes out as the raw quotient
+  on a second anomalous fixture with a ≠ 0. Decide at the same time whether `SsaError` gains
+  `InvalidInput` (today `LiftFailed` stands for bad input); until then `Inconsistent` can occur
+  on valid canonical-lift input. Also: `formal_log.rs` reports a breached invariant (valuation
+  < 1 on a proven-anomalous curve) as `SsaError::Padic(InvalidParams { k: 0 })` (**inferred**
+  unreachable on valid input), and the implementation is O(p), not polynomial in log p.
+- **GHS field identification (confirmed; decision needed).** `transfer_point` reinterprets
+  the conorm's GF(2⁶) bits as GF(2^l) elements by reducing the raw bits, which is not a
+  field homomorphism in general (x²+x+1 does not divide x⁶+x+1). On GF(4) ⊂ GF(2⁶)
+  it sends 0x3b→3 and 0x3a→2, while `shared_gf2m::restrict` sends 0x3b→2 and 0x3a→3,
+  the Frobenius conjugate. Using `restrict` fails `transfer_sample_point_known_answer` and
+  `transfer_g_plus_p_known_answer` and leaves the homomorphism and log-preservation tests passing.
+  Decide: adopt `restrict` and rewrite the two constants after checking them independently, or
+  document the identification as valid only on the fixture field.
+- **MOV domain limit (confirmed; decision needed).** The single-limb p < 2^64 limit is a
+  `debug_assert` in `fpext_to_bigint`; a larger p is truncated silently in release builds,
+  and `MovError` has no unsupported-domain variant. Closure: a release-mode guard and an
+  unsupported outcome. Separately, `reduced_tate(R, G)` with R = G returns 0 rather than 1;
+  decide whether that is a defect in the pairing or an acceptable degenerate value (it is
+  reported as `DegeneratePairing`). The k=2 log engine stays with the NFS-DL design.
+- **ECM stage-1 scalar (confirmed).** `stage1_scalar` accumulates the product of prime powers up
+  to B1 with `wrapping_mul` in `Uint<4>`; the product is about e^B1 and exceeds 256 bits for B1
+  above roughly 177, after which the scalar is silently wrong and stage 1 is not B1-power-smooth.
+  The existing tests (B1 = 200, 300) still pass, and returned factors are verified independently,
+  so this costs strength, not soundness. Closure: apply the prime powers to the point one at
+  a time, or reject a too-large B1 with a typed error, with a test at large B1. Also decide
+  whether `ecm_factor` stays a standalone primitive: nothing in the workspace calls it outside
+  its own tests.
+- **CLI and bench defaults (confirmed / inferred).** **Confirmed:** `rho-dlog --curve generic`
+  uses order 9_223_372_037_218_517_353 = 7 · 17 · 77_507_328_043_853_087, so Brent reports
+  `InvalidInput(OrderNotPrime)`. **Inferred by arithmetic, not run:** the default Brent run
+  on `secp-toy` and `bench_brent` end `BudgetExhausted` (per-attempt cap 2²⁹ − 1 ≈
+  0.25·√n), and the 62-bit distinguished-point bench needs about 2.7·10⁹ steps, so it
+  is not practically runnable.  Decide: project the generator onto a prime-order subgroup or
+  drop `generic`; choose defaults that can succeed or remove the Brent bench.
+- **Outcome-shape choices (decision needed).** Rho factoring and ECM have no invariant-failure
+  variant although the standard separates that class. **Inferred:** a gcd is always a divisor, so
+  the only way the divisor check fails is a trivial d, which is an ordinary failed attempt. Add
+  an `Inconsistent` variant to both, or record the exemption in `docs/development.md`. Related:
+  after the base-41 fix `is_prime` is proven below ψ₁₃ ≈ 2^81.5, while rho factoring
+  still certifies primes only below ψ₁₂ ≈ 2^78.1 (an odd probable prime between them,
+  such as 2^79 − 67, is `Unsupported`).  Raising rho's bound is optional and changes that
+  known-answer test. Either way, confirm the Sorenson–Webster constants against the paper;
+  they are recalled, not re-read, and the evidence in tree is the factorisation of ψ₁₂
+  and the regression tests.
 
 ## Oracles and assurance
 
@@ -244,6 +302,11 @@ test succeed. Preserve the distinction between exact per-instance validation and
 - `shor/docs/PEDAGOGY.md` gives about 40 tests for `pointadd_kat.rs` (45 exist), and BENCHMARKS's
   N=91 passage says 21 qubits where its own table gives 14. Adjudicate; prefer removing drifting
   counts to updating them.
+- `docs/PEDAGOGY.md`'s GLV and negation-map passages (roughly the rho-optimisation tour) state √3
+  and √6 walk-length reductions, some without the word "expected". **Confirmed:** no test asserts
+  them; `glv_fewer_steps_than_negmap` checks only a 2× no-regression bound, and the Koblitz √(2m)
+  saving is likewise unmeasured (the toy group has order 4, so orbits have at most two points).
+  Label them "expected, not measured", or measure them on a fixture where the orbit is large.
 
 Sweep related unchanged passages as well as edited lines. A clean planning-token grep does not
 establish that the mathematics or capability claims are correct.
@@ -312,6 +375,19 @@ Resolve these remaining documentation scopes without assuming a wholesale textbo
   gnfs linalg/sieve, `rho/src/semaev` and `rho/tests/ghs_kat.rs`. Preserve real technique
   groupings, algorithmic step numbers and quantum phase terminology. Replace undefined principle-N
   and contract labels with their actual invariant; do not erase useful interface explanations.
+  **Confirmed by grep:** about 300 survivors remain in roughly 70 files outside the solver files
+  already cleaned: `gnfs/` (including `gnfs/docs/PEDAGOGY.md`, the largest), `shared/padic`,
+  `shared/gf2m`, `shared/numth` outside its guide, `rho/src/{semaev,hyperelliptic,binary_curve,
+  pairing,ghs}` and `rho/src/ssa/lift.rs`, `shor/src/{sparse,qft,statevec,arith}`,
+  `shor/tests/qft_kat.rs`, plus "C1"/ROADMAP mentions in `shared/numfield/docs/PEDAGOGY.md` and
+  `gnfs/tests/{schirokauer_kat,special_q_kat}.rs`. The sweep regex must also cover the variants the
+  original missed: `\bC-[A-Z][A-Za-z0-9]+\b`, `\bCat-?[ABCI]\b`, `[Pp]rinciple[- ]?[0-9]+`,
+  `\bPhase [α-ω]`, `[α-ω]\.[0-9]+` and `\b(the|per the) plan\b`.
+- One-time repository housekeeping, to delete once done: the first solver-repair commit carries a
+  malformed `Co-authored-by` trailer (`@build <build@opencode.local>` instead of the identity format
+  in `AGENTS-ROSTER.md`) and one later ledger commit has an unwrapped body, both fixable with
+  `@git-editor`; a stale `git stash` entry ("WIP on master: d50ab68", a discarded experiment already
+  superseded by committed work) can be dropped.
 - Remove bare ROADMAP references as well as PLAN.md/NOTES.md/SURVEY.md references from durable
   prose and inline comments. The old token sweep missed extensionless names. Replace historical
   pass-verdict sections with honest scope statements where they contain useful substance.
