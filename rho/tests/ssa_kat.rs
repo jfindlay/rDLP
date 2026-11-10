@@ -30,17 +30,22 @@
 //!     composite modulus, singular curve, `G = ∞`, `G` and `Q` off the curve, `n ≠ p`.
 //!     `verify_anomalous` shares the first two. No `SsaError` variant has a `source`.
 //!
+//! 18. On the lift of `anomalous_toy` with its stored `a = 0`, `p·G̃` lies in `E₂` (the formal
+//!     parameter has valuation 2), so the quotient of logarithms carries no information.
+//! 19. On each anomalous fixture (`anomalous_toy` and a curve with `a ≠ 0` found by a recorded,
+//!     bounded search) and for every point, at most one class of shifts `s` mod `p` (`a ↦ a +
+//!     p·s`) puts `p·G̃` in `E₂`; `ssa_solve` recovers every `k` on each.
+//!
 //! The invariant-failure and inconsistent-quotient outcomes are reached through unit seams in
 //! `rho::ssa::formal_log` and `rho::ssa::reduce`, which hold the private helpers they exercise.
 //!
 //! # Note on the fixture's lift
 //!
-//! The curve `y² = x³ + 5` over `F_7` has `a = 0`, so its stored lift to Z_7 is the canonical
-//! lift (`j = 0`). On that lift the quotient `k_raw` of log leading units was observed to equal
-//! `2k mod p` for `k ∈ {2,3,4,5}`; the `rho::ssa::reduce` module documentation explains why that
-//! is an empirical artefact of the lift rather than a general law. The `ssa_solve`
-//! implementation checks `k·G = Q` in `E(F_p)` for the quotient and for its half before
-//! returning; the candidate selection itself is unit-tested in `rho::ssa::reduce`.
+//! The curve `y² = x³ + 5` over `F_7` has `a = 0`, so its stored lift to Z_7 is degenerate:
+//! `p·G̃ ∈ E₂` there, and the quotient of leading units is a ratio of second-order terms. The
+//! reduction therefore lifts the curve as `a ↦ a + p·s` with `s ≢ 0 (mod p)`, on which `p·G̃`
+//! has valuation exactly 1 and the raw quotient is `k`. The `rho::ssa::reduce` module
+//! documentation gives the derivation and the source.
 //!
 //! # Hand-computed lift values
 //!
@@ -61,7 +66,8 @@ use num_bigint::BigInt;
 use rho::curve::{AffinePoint, Curve};
 use rho::ecdlp::solve_brent;
 use shared_field::{Fp, FpNaive4 as FpNaive};
-use rho::ssa::lift::{LiftError, check_lift_on_curve, lift_point};
+use rho::ssa::lift::{LiftError, check_lift_on_curve, lift_point, lifted_a};
+use rho::ssa::reduce::kernel_filtration_level;
 use rho::ssa::{
     ANOMALOUS_TOY_P, SsaError, SsaInputDefect, anomalous_toy, ssa_solve, verify_anomalous,
 };
@@ -89,6 +95,11 @@ fn point_on(x: u64, y: u64, p: u64) -> AffinePoint<FpNaive> {
 
 fn bi(n: i64) -> BigInt {
     BigInt::from(n)
+}
+
+/// The coefficient `a` of the verbatim lift of `curve` (shift 0): `a` as stored.
+fn stored_a(curve: &Curve) -> BigInt {
+    lifted_a(curve, 0)
 }
 
 // ─── KAT 1: verify_anomalous returns true on the fixture ─────────────────────
@@ -144,7 +155,7 @@ fn kat_lift_base_point_coordinates() {
     let g = toy_point(3, 2);
     let k = 4u32;
 
-    let (x_tilde, y_tilde) = lift_point::<FpNaive>(&g, &curve, k)
+    let (x_tilde, y_tilde) = lift_point::<FpNaive>(&g, &curve, &stored_a(&curve), k)
         .expect("lift of G = (3, 2) should succeed");
 
     // x̃ = 3 (lifted exactly — no Hensel needed for x).
@@ -178,11 +189,11 @@ fn kat_lift_on_curve_mod_pk() {
     let g = toy_point(3, 2);
     let k = 4u32;
 
-    let (x_tilde, y_tilde) = lift_point::<FpNaive>(&g, &curve, k)
+    let (x_tilde, y_tilde) = lift_point::<FpNaive>(&g, &curve, &stored_a(&curve), k)
         .expect("lift of G = (3, 2) should succeed");
 
     // Verify ỹ² ≡ x̃³ + ax̃ + b (mod 7^4).
-    let on_curve = check_lift_on_curve(&x_tilde, &y_tilde, &curve)
+    let on_curve = check_lift_on_curve(&x_tilde, &y_tilde, &curve, &stored_a(&curve))
         .expect("check_lift_on_curve should not error");
 
     assert!(
@@ -225,7 +236,7 @@ fn kat_lift_second_point_on_curve() {
     let pt = toy_point(5, 2);
     let k = 4u32;
 
-    let (x_tilde, y_tilde) = lift_point::<FpNaive>(&pt, &curve, k)
+    let (x_tilde, y_tilde) = lift_point::<FpNaive>(&pt, &curve, &stored_a(&curve), k)
         .expect("lift of (5, 2) should succeed");
 
     // x̃ = 5 (exact lift).
@@ -239,7 +250,7 @@ fn kat_lift_second_point_on_curve() {
     );
 
     // Verify on-curve.
-    let on_curve = check_lift_on_curve(&x_tilde, &y_tilde, &curve)
+    let on_curve = check_lift_on_curve(&x_tilde, &y_tilde, &curve, &stored_a(&curve))
         .expect("check_lift_on_curve should not error");
     assert!(on_curve, "lifted (5, 2) must satisfy the curve equation mod 7^4");
 }
@@ -285,7 +296,8 @@ fn kat_lift_2torsion_errors_non_simple_root() {
     // The 2-torsion point (0, 0): y₀ = 0, so g'(y₀) = 2·0 = 0 mod 7 → NonSimpleRoot.
     let two_torsion = point_on(0, 0, 7);
 
-    let result = lift_point::<FpNaive>(&two_torsion, &curve_2torsion, 4);
+    let a = stored_a(&curve_2torsion);
+    let result = lift_point::<FpNaive>(&two_torsion, &curve_2torsion, &a, 4);
 
     assert!(
         matches!(result, Err(LiftError::Hensel(HenselError::NonSimpleRoot { .. }))),
@@ -297,7 +309,8 @@ fn kat_lift_2torsion_errors_non_simple_root() {
 /// The identity has no affine coordinates: lifting it is `LiftError::PointAtInfinity`.
 #[test]
 fn kat_lift_infinity_errors() {
-    let result = lift_point::<FpNaive>(&AffinePoint::Infinity, &anomalous_toy(), 4);
+    let curve = anomalous_toy();
+    let result = lift_point::<FpNaive>(&AffinePoint::Infinity, &curve, &stored_a(&curve), 4);
     assert_eq!(result.err(), Some(LiftError::PointAtInfinity));
 }
 
@@ -314,7 +327,8 @@ fn kat_lift_error_source_chain() {
         gx: Uint::<4>::from(0u64),
         gy: Uint::<4>::from(0u64),
     };
-    let hensel = lift_point::<FpNaive>(&point_on(0, 0, 7), &curve_2torsion, 4)
+    let a = stored_a(&curve_2torsion);
+    let hensel = lift_point::<FpNaive>(&point_on(0, 0, 7), &curve_2torsion, &a, 4)
         .expect_err("2-torsion point cannot be lifted");
     assert!(hensel.source().is_some(), "LiftError::Hensel must expose its cause");
     assert!(LiftError::PointAtInfinity.source().is_none());
@@ -331,7 +345,7 @@ fn kat_lift_precision_1() {
     let curve = anomalous_toy();
     let g = toy_point(3, 2);
 
-    let (x_tilde, y_tilde) = lift_point::<FpNaive>(&g, &curve, 1)
+    let (x_tilde, y_tilde) = lift_point::<FpNaive>(&g, &curve, &stored_a(&curve), 1)
         .expect("lift at k=1 should succeed");
 
     // At k=1, x̃ ≡ 3 mod 7 and ỹ ≡ 2 mod 7.
@@ -352,14 +366,14 @@ fn kat_lift_precision_2() {
     let curve = anomalous_toy();
     let g = toy_point(3, 2);
 
-    let (x_tilde, y_tilde) = lift_point::<FpNaive>(&g, &curve, 2)
+    let (x_tilde, y_tilde) = lift_point::<FpNaive>(&g, &curve, &stored_a(&curve), 2)
         .expect("lift at k=2 should succeed");
 
     assert_eq!(*x_tilde.residue(), bi(3), "x̃ at k=2 must be 3");
     assert_eq!(*y_tilde.residue(), bi(9), "ỹ at k=2 must be 9 (first Newton step)");
 
     // Verify on-curve mod 7^2 = 49.
-    let on_curve = check_lift_on_curve(&x_tilde, &y_tilde, &curve)
+    let on_curve = check_lift_on_curve(&x_tilde, &y_tilde, &curve, &stored_a(&curve))
         .expect("check_lift_on_curve at k=2 should not error");
     assert!(on_curve, "lifted (3, 2) at k=2 must satisfy the curve equation mod 49");
 }
@@ -383,7 +397,7 @@ fn kat_lift_pari_cross_check() {
     let curve = anomalous_toy();
     let g = toy_point(3, 2);
 
-    let (_, y_tilde) = lift_point::<FpNaive>(&g, &curve, 4)
+    let (_, y_tilde) = lift_point::<FpNaive>(&g, &curve, &stored_a(&curve), 4)
         .expect("lift should succeed");
 
     assert_eq!(
@@ -400,14 +414,11 @@ fn kat_lift_pari_cross_check() {
 /// The anomalous fixture is `y² = x³ + 5` over `F_7`. `G = (3, 2)`, `Q = 3·G = (6, 5)`.
 /// The SSA reduction must recover `k = 3`.
 ///
-/// # Note on the halved candidate
+/// # Note on the lift
 ///
-/// On this fixture's stored (canonical, `a = 0`) lift the raw quotient is `k_raw = 6` for
-/// `k = 3`, and the halved candidate `k_raw / 2 = 3` is the one that verifies. That is an
-/// empirical compensation on this fixture, not complex multiplication and not a `2k` law in
-/// general (see the `rho::ssa::reduce` module documentation). `ssa_solve` computes the
-/// quotient of the log leading units and its half modulo `p`, then accepts whichever
-/// candidate satisfies `k·G == Q`, returning 3 as required.
+/// `ssa_solve` lifts the curve with `a ↦ a + p·s` (not the stored `a = 0`, on which `p·G̃ ∈ E₂`),
+/// takes the quotient of the log leading units, which is `k = 3` itself, and checks `k·G == Q`
+/// before returning it.
 #[test]
 fn kat_ssa_solve_recovers_k3() {
     let curve = anomalous_toy();
@@ -827,5 +838,180 @@ fn kat_ssa_error_has_no_source() {
     for e in all {
         assert!(e.source().is_none(), "{e:?}");
         assert!(!e.to_string().is_empty(), "{e:?}");
+    }
+}
+
+// ─── the lift of the curve: where p·G̃ lands in the filtration ─────────────────
+
+/// The valuation of the formal parameter of `p·G̃` on the lift of the toy curve with its stored
+/// `a = 0`: it lies in `E₂` (valuation 2), so the quotient of logarithms there is a ratio of
+/// second-order terms and not `k`. Every shift `s ≢ 0 (mod 7)` puts it in `E₁ \ E₂`.
+#[test]
+fn kat_stored_lift_of_toy_curve_is_degenerate() {
+    let curve = anomalous_toy();
+    let g = toy_point(3, 2);
+
+    assert_eq!(kernel_filtration_level::<FpNaive>(&curve, &g, &stored_a(&curve)), Ok(2));
+    for shift in 1..ANOMALOUS_TOY_P {
+        assert_eq!(
+            kernel_filtration_level::<FpNaive>(&curve, &g, &lifted_a(&curve, shift)),
+            Ok(1),
+            "shift s = {shift}"
+        );
+    }
+}
+
+/// The shifts `s` in `0..p` for which `p·P̃ ∈ E₂` on the lift `a ↦ a + p·s` (shift 0 is the
+/// stored coefficient).
+fn degenerate_shifts(curve: &Curve, point: &AffinePoint<FpNaive>, p: u64) -> Vec<u64> {
+    (0..p)
+        .filter(|&s| {
+            let level = kernel_filtration_level::<FpNaive>(curve, point, &lifted_a(curve, s))
+                .expect("the lift of a point of an anomalous curve reaches the kernel");
+            level >= 2
+        })
+        .collect()
+}
+
+/// Every finite point of the curve over `F_p`.
+fn finite_points(p: u64, a: u64, b: u64) -> Vec<AffinePoint<FpNaive>> {
+    let mut points = Vec::new();
+    for x in 0..p {
+        let rhs = (x * x % p * x + a * x + b) % p;
+        points.extend((0..p).filter(|y| y * y % p == rhs).map(|y| point_on(x, y, p)));
+    }
+    points
+}
+
+/// At most one class of shifts `s` mod `p` puts `p·P̃` in `E₂`, for every point of each fixture,
+/// and it is the same class for every point (the degeneracy belongs to the lifted curve).
+///
+/// The classes are `s = 0` (the stored coefficient) and `s = 1, …, p − 1`. Two degenerate
+/// classes would make one retry with a second shift insufficient; none is observed. On both
+/// fixtures the one degenerate class is the stored coefficient, `s = 0`.
+#[test]
+fn kat_at_most_one_shift_class_is_degenerate() {
+    let second = second_fixture();
+    let fixtures = [
+        (anomalous_toy(), ANOMALOUS_TOY_P, 0u64, 5u64),
+        (second.curve(), second.p, second.a, second.b),
+    ];
+
+    for (curve, p, a, b) in fixtures {
+        let points = finite_points(p, a, b);
+        assert_eq!(points.len() as u64, p - 1, "p − 1 finite points on an anomalous curve");
+        let classes: Vec<Vec<u64>> =
+            points.iter().map(|pt| degenerate_shifts(&curve, pt, p)).collect();
+
+        for (pt, shifts) in points.iter().zip(&classes) {
+            assert!(shifts.len() <= 1, "p = {p}, point {pt:?}: degenerate shifts {shifts:?}");
+        }
+        assert!(
+            classes.windows(2).all(|w| w[0] == w[1]),
+            "p = {p}: the degenerate class differs between points: {classes:?}"
+        );
+        assert_eq!(classes[0], vec![0], "p = {p}: the stored coefficient is the degenerate lift");
+    }
+}
+
+// ─── a second anomalous fixture, with a ≠ 0 ───────────────────────────────────
+
+/// An anomalous curve found by search, with its base point.
+struct SearchedFixture {
+    p: u64,
+    a: u64,
+    b: u64,
+    gx: u64,
+    gy: u64,
+}
+
+impl SearchedFixture {
+    fn curve(&self) -> Curve {
+        Curve {
+            p: Uint::<4>::from(self.p),
+            a: Uint::<4>::from(self.a),
+            b: Uint::<4>::from(self.b),
+            n: Uint::<4>::from(self.p),
+            gx: Uint::<4>::from(self.gx),
+            gy: Uint::<4>::from(self.gy),
+        }
+    }
+
+    fn generator(&self) -> AffinePoint<FpNaive> {
+        point_on(self.gx, self.gy, self.p)
+    }
+}
+
+/// The number of points of `y² = x³ + ax + b` over `F_p`, by direct enumeration.
+fn naive_point_count(p: u64, a: u64, b: u64) -> u64 {
+    1 + (0..p)
+        .map(|x| {
+            let rhs = (x * x % p * x + a * x + b) % p;
+            (0..p).filter(|y| y * y % p == rhs).count() as u64
+        })
+        .sum::<u64>()
+}
+
+/// Search for an anomalous curve with `a ≠ 0` by enumeration.
+///
+/// The search runs over primes `11 ≤ p ≤ 31` in increasing order and, for each, over `a` in
+/// `1..p` and `b` in `1..p` in lexicographic order, keeping the first nonsingular curve whose
+/// naive point count equals `p`. The base point is the finite point with the least `x`, then the
+/// least `y`. The search is bounded by `p ≤ 31` and stops at the first hit.
+fn search_second_fixture() -> Option<SearchedFixture> {
+    const LOWEST_PRIME: u64 = 11;
+    const HIGHEST_PRIME: u64 = 31;
+    let is_prime = |n: u64| n > 1 && (2..n).all(|d| n % d != 0);
+
+    for p in (LOWEST_PRIME..=HIGHEST_PRIME).filter(|&n| is_prime(n)) {
+        for a in 1..p {
+            for b in 1..p {
+                let disc = (4 * (a * a % p * a % p) + 27 * (b * b % p)) % p;
+                if disc == 0 || naive_point_count(p, a, b) != p {
+                    continue;
+                }
+                let (gx, gy) = (0..p)
+                    .flat_map(|x| (1..p).map(move |y| (x, y)))
+                    .find(|&(x, y)| y * y % p == (x * x % p * x + a * x + b) % p)
+                    .expect("an anomalous curve has finite points");
+                return Some(SearchedFixture { p, a, b, gx, gy });
+            }
+        }
+    }
+    None
+}
+
+/// The second anomalous fixture: `y² = x³ + x + 5` over `F_11`, `G = (0, 4)`.
+///
+/// Recorded search: [`search_second_fixture`] over primes `11 ≤ p ≤ 31`, `a` in `1..p`, `b` in
+/// `1..p`, first hit `p = 11, a = 1, b = 5`. The search is re-run by
+/// `kat_second_fixture_matches_its_recorded_search`, so the constants below are not trusted.
+fn second_fixture() -> SearchedFixture {
+    SearchedFixture { p: 11, a: 1, b: 5, gx: 0, gy: 4 }
+}
+
+/// The recorded search finds the pinned curve, and `verify_anomalous` re-proves that it is
+/// anomalous (an exact count, independent of the enumeration above) while it is not singular.
+#[test]
+fn kat_second_fixture_matches_its_recorded_search() {
+    let found = search_second_fixture().expect("the search bound contains an anomalous curve");
+    let pinned = second_fixture();
+    assert_eq!(
+        (found.p, found.a, found.b, found.gx, found.gy),
+        (pinned.p, pinned.a, pinned.b, pinned.gx, pinned.gy)
+    );
+    assert_ne!(pinned.a % pinned.p, 0, "the fixture must have a ≢ 0");
+    assert_eq!(verify_anomalous::<FpNaive>(&pinned.curve()), Ok(true));
+}
+
+/// `ssa_solve` recovers every `k` in `1..p` on the second fixture, each verified by `k·G = Q`.
+#[test]
+fn kat_second_fixture_recovers_every_k() {
+    let fixture = second_fixture();
+    let (curve, g) = (fixture.curve(), fixture.generator());
+
+    for k in 1..fixture.p {
+        let q = curve.scalar_mul(&g, &Uint::<4>::from(k));
+        assert_eq!(ssa_solve::<FpNaive>(&curve, &g, &q, fixture.p), Ok(k), "k = {k}");
     }
 }

@@ -3195,17 +3195,22 @@ $\tilde{y} \equiv y_0$ by Hensel's lemma. The solve exists and is unique when $y
 is, $P$ is not a 2-torsion point), since $f'(y_0) = 2y_0 \not\equiv 0 \pmod{p}$ for $p > 2$.
 
 **The anomalous hypothesis.** Because $\#E(\mathbb{F}_p) = p$, $p \cdot P = \mathcal{O}$ in
-$E(\mathbb{F}_p)$, so $p \cdot \tilde{P}$ reduces to $\mathcal{O}$: it lies in $E_1$. It is *not*
-$\mathcal{O}$ in $E(\mathbb{Z}/p^2\mathbb{Z})$ in general, and it must not be: if
-$p \cdot \tilde{P}$ vanished the logarithm would be identically zero and carry no information.
+$E(\mathbb{F}_p)$, so $p \cdot \tilde{P}$ reduces to $\mathcal{O}$: it lies in $E_1$, the domain of
+$\psi$. Whether it lies deeper depends on the lifted curve. The kernel of reduction of
+$E(\mathbb{Z}/p^2\mathbb{Z})$ is $E_1/E_2$, so $p \cdot \tilde{P} = \mathcal{O}$ in
+$E(\mathbb{Z}/p^2\mathbb{Z})$ exactly when $p \cdot \tilde{P} \in E_2$; on such a lift the
+logarithm of $p \cdot \tilde{P}$ vanishes modulo $p^2$ and carries no information about $P$. (The
+point $p \cdot \tilde{P}$ is in $E_1$ in all cases; it is its membership in $E_2$ that is in
+question.)
 
-**A lift-independent homomorphism.** Define
+**A lift-independent homomorphism.** Fix a lift $\tilde{E}$ of the curve and define
 $$\lambda(P) = \psi(p \cdot \tilde{P}) / p \bmod p.$$
-Another lift $\tilde{P}'$ of $P$ differs from $\tilde{P}$ by some $\kappa \in E_1$, so $p\tilde{P}'
-- p\tilde{P} = p\kappa$ and $\psi(p\kappa) = p\,\psi(\kappa) \in p^2\mathbb{Z}_p$: $\lambda(P)$ does
-not depend on the lift. Since $\tilde{P} + \tilde{Q}$ lifts $P + Q$ and $\psi$ is additive on $E_1$,
+Another lift $\tilde{P}'$ of $P$ to the same $\tilde{E}$ differs from $\tilde{P}$ by some
+$\kappa \in E_1$, so $p\tilde{P}' - p\tilde{P} = p\kappa$ and
+$\psi(p\kappa) = p\,\psi(\kappa) \in p^2\mathbb{Z}_p$: $\lambda(P)$ does not depend on the lift of
+the point. Since $\tilde{P} + \tilde{Q}$ lifts $P + Q$ and $\psi$ is additive on $E_1$,
 $\lambda(P + Q) = \lambda(P) + \lambda(Q)$: $\lambda: E(\mathbb{F}_p) \to \mathbb{F}_p$ is a
-homomorphism.
+homomorphism (for the chosen $\tilde{E}$).
 
 **The DLP recovery.** For $Q = k \cdot G$ this gives $\lambda(Q) = k\,\lambda(G)$, so
 $$k \equiv \frac{\psi(p \cdot \tilde{Q})}{\psi(p \cdot \tilde{G})} \pmod{p}$$
@@ -3215,10 +3220,31 @@ that $p \cdot \tilde{G} \in E_1 \setminus E_2$ (its parameter has valuation $1$)
 **Which lifts of the curve work.** The condition $\lambda(G) \neq 0$ depends on the lift of the
 *curve* $\tilde{E}$, not on the choice of point lifts. If $p \cdot \tilde{G} \in E_2$ then
 $\psi(p \cdot \tilde{G})$ is divisible by $p^2$, $\lambda(G) = 0$, and the displayed ratio is a
-quotient of second-order terms from which the derivation does not determine $k$. It is commonly
-stated that the attack breaks down on the *canonical* lift of $E$; this text has not checked a
-source for that statement, so treat it as unverified. What is derived above is the precise
-requirement, $p \cdot \tilde{G} \notin E_2$.
+quotient of second-order terms from which the derivation does not determine $k$. What is derived
+above is the precise requirement, $p \cdot \tilde{G} \notin E_2$.
+
+Smart (*The discrete logarithm problem on elliptic curves of trace one*, J. Cryptology 12(3),
+1999, 193–196, p. 195) states that the method fails when the lift of the curve is the *canonical*
+lift, that a lift is canonical with probability about $1/p$, that the failure is detectable, and
+that the remedy is to repeat with another lift of the curve; that note also observes that only
+$E(\mathbb{Z}/p^2\mathbb{Z})$ is needed. It does not derive why the canonical lift puts
+$p \cdot \tilde{G}$ in $E_2$, and neither does this text. Leprévost–Monnerat–Varrette–Vaudenay
+(*Generating anomalous elliptic curves*, Inform. Process. Lett. 93, 2005, 225–230; preprint read)
+restate the method and do not discuss the failure. The identification of the failing lifts with
+the canonical lift, beyond Smart's one sentence, is therefore not checked here.
+
+**The repair used by the implementation.** The lifted curve is $y^2 = x^3 + (a + p\,s)x + b$ with
+$s \not\equiv 0 \pmod p$, which reduces to the same curve modulo $p$; the points are lifted to it
+and multiplied by $p$ on it. If $p \cdot \tilde{G} \in E_2$ for the shift $s_1$, one second shift
+$s_2 \not\equiv s_1, 0$ is tried, and $p \cdot \tilde{G} \in E_2$ on both is reported as an
+invariant failure. This is justified only if at most one class of $s$ modulo $p$ is degenerate for
+a given curve; that is *measured*, not derived: on the toy curve and on a second searched curve
+with $a \neq 0$ every class is checked, for every point, by
+`kat_at_most_one_shift_class_is_degenerate`, and an exploratory scan of all 481 anomalous
+curves $y^2 = x^3 + ax + b$ over $\mathbb{F}_p$ with $5 \leq p \leq 59$ and $b \neq 0$ (not
+retained as a test) found exactly one degenerate class of $s$ for each. On the toy curve $y^2 =
+x^3 + 5$ over $\mathbb{F}_7$ that class is $s = 0$, the stored coefficient $a = 0$ (parameter
+valuation $2$, asserted by `kat_stored_lift_of_toy_curve_is_degenerate`).
 
 #### Proof sketch
 
@@ -3227,60 +3253,66 @@ multiple $p\kappa$ of an element of $E_1$ lies in $p^2\mathbb{Z}_p$, so that div
 \tilde{P})$ by $p$ and reducing modulo $p$ forgets the choice of lift. Together with the anomalous
 hypothesis (which puts $p \cdot \tilde{P}$ in the domain of $\psi$) they make $\lambda$ a
 homomorphism $E(\mathbb{F}_p) \to \mathbb{F}_p$, and a homomorphism that is nonzero on the generator
-$G$ of a group of prime order is injective, so $k$ is the ratio $\lambda(Q)/\lambda(G)$.
+$G$ of a group of prime order is injective, so $k$ is the ratio $\lambda(Q)/\lambda(G)$. Nonzero on
+$G$ is the requirement $p \cdot \tilde{G} \notin E_2$ on the chosen lift of the curve.
 
 #### L-notation
 
 The *algorithm* is polynomial in $\log p$: multiplying a lift by $p$ by double-and-add takes
-$O(\log p)$ group operations in $\tilde{E}(\mathbb{Z}/p^r\mathbb{Z})$ for a small fixed $r$, each of
-polynomial cost, and the logarithm is a truncated power series. This is the sharpest escape in this
-chapter: the anomalous structure collapses the ECDLP to a linear computation. The *implementation*
-is not polynomial in $\log p$. It multiplies by $p$ as $p - 1$ repeated additions and confirms
-anomalousness by an exact point count that sums a Legendre symbol over all $x \in \mathbb{F}_p$;
-both cost $O(p)$ (`verify_anomalous` is exact where $x^3$ overflows 64 bits, as
-`kat_verify_anomalous_exact_where_cube_overflows_u64` checks, but practical only for small $p$).
+$O(\log p)$ group operations in $\tilde{E}(\mathbb{Z}/p^r\mathbb{Z})$ for a small fixed $r$ (Smart
+observes that $r = 2$ suffices for the group computation), each of polynomial cost, and the
+logarithm is a truncated power series. This is the sharpest escape in this chapter: the anomalous
+structure collapses the ECDLP to a linear computation. The *implementation* is not polynomial in
+$\log p$. Its multiplication by $p$ is a loop of $p - 1$ projective additions, $O(p)$ rather than
+the $O(\log p)$ of double-and-add, and it confirms anomalousness by an exact point count that sums
+a Legendre symbol over all $x \in \mathbb{F}_p$, also $O(p)$ (`verify_anomalous` is exact where
+$x^3$ overflows 64 bits, as `kat_verify_anomalous_exact_where_cube_overflows_u64` checks, but
+practical only for small $p$). The final check $k \cdot G = Q$ is $O(\log p)$.
 
 **Scale note.** At toy scale ($p = 7$) the constant factors are invisible — the computation is
 instantaneous. The pedagogical content is the mechanism, not the timing.
 
 #### What the implementation does
 
-`ssa_solve` lifts $G$ and $Q$ to precision $p^8$ on the curve as stored (`lift_point`: $x$ exactly,
-$y$ by Hensel's lemma; $a$ and $b$ are used as given, not reduced), multiplies each lift by $p$ in
-projective coordinates, evaluates `elliptic_log_proj` at $t = -X/Y$, and divides the leading units
-in $\mathbb{F}_p$ to obtain a candidate $k_{\mathrm{raw}}$. Despite its name, `elliptic_log_proj`
-computes $\log(1 + t)$, the logarithm of the *multiplicative* formal group; that is a different
-power series from the logarithm $\psi$ of $E$'s formal group used in the derivation above. The
-candidate is therefore not trusted: the solver returns a $k$ only after checking $k \cdot G = Q$.
+`ssa_solve` lifts the curve as $a \mapsto a + p\,s$ (first $s = 1$, then $s = 2$ only if
+$p \cdot \tilde{G} \in E_2$; $b$ is used as stored), lifts $G$ and $Q$ to that curve at precision
+$p^4$ (`lift_point`: $x$ exactly, $y$ by Hensel's lemma), multiplies each lift by $p$ on the same
+curve in projective coordinates (`multiply_by_p_proj`), evaluates `elliptic_log_proj` at
+$t = -X/Y$, and divides the leading units in $\mathbb{F}_p$ to obtain
+$k_{\mathrm{raw}} = \psi(p \cdot \tilde{Q}) / \psi(p \cdot \tilde{G}) \bmod p$. Despite its name,
+`elliptic_log_proj` computes $\log(1 + t)$, the logarithm of the *multiplicative* formal group;
+that is a different power series from the logarithm $\psi$ of $E$'s formal group used in the
+derivation above, but both are $\equiv t \pmod{p^2}$ on $E_1$, and only the leading unit is read.
+The precision $4$ is `WORKING_PRECISION`; precision $3$ is the least that can work, and was
+measured to suffice on the same scan as the shift classes (not asserted by a test). The quotient
+is the answer, but the solver still returns a $k$ only after checking $k \cdot G = Q$.
 
 The failure classes are kept apart. $Q = \mathcal{O}$ is $k = 0$ with no reduction
 (`kat_ssa_solve_infinity_is_zero`). A curve whose exact count differs from $p$ is `NotAnomalous`
 (`kat_ssa_solve_not_anomalous`); a prime that does not fit one 64-bit limb is `Unsupported`, never
-reported as non-anomalous (`kat_large_prime_is_unsupported_not_non_anomalous`). The lift reports a
-2-torsion point as `LiftFailed` (`kat_lift_2torsion_errors_non_simple_root`, which tests
-`lift_point` directly; `ssa_solve` propagates that error by code reading, with no solver-level
-test). If the curve is anomalous and the points lift but no candidate verifies, the result is
-`Inconsistent`, an invariant failure that is never retried
-(`resolve_candidate_rejects_unverifiable_quotients`, a unit test in `rho/src/ssa/reduce.rs`;
-no fixture reaches it through `ssa_solve`). `kat_ssa_solve_recovers_every_k` checks that every
-$k \in 1..p$ on the fixture is recovered.
+reported as non-anomalous (`kat_large_prime_is_unsupported_not_non_anomalous`). The invalid inputs
+(composite modulus, singular curve, $G = \mathcal{O}$, $G$ or $Q$ off the curve, $n \neq p$) are
+`InvalidInput`; a 2-torsion point cannot occur once those checks pass, since $E(\mathbb{F}_p)$
+then has odd prime order, and the lift helper reports it as `LiftError::Hensel`
+(`kat_lift_2torsion_errors_non_simple_root`, which tests `lift_point` directly). A degenerate lift
+is not a failure: it is detected (`p·G̃ ∈ E₂`, valuation of $t$ at least $2$) and answered with the
+second lift, tested by `ssa_solve_retries_when_the_first_shift_is_degenerate` and
+`retry_runs_the_second_shift_after_a_degenerate_first`; $p \cdot \tilde{G} \in E_2$ on both lifts
+is `InvariantFailure("p·G̃ in E₂ on two shifted lifts")`
+(`two_degenerate_lifts_are_an_invariant_failure`). If the quotient is the only candidate and fails
+$k \cdot G = Q$, the result is `Inconsistent { k }`, an invariant failure that is never retried
+(`verify_candidate_rejects_unverifiable_quotients`, a unit test in `rho/src/ssa/reduce.rs`; no
+fixture reaches it through `ssa_solve`). `kat_ssa_solve_recovers_every_k` and
+`kat_second_fixture_recovers_every_k` check that every $k \in 1..p$ is recovered on the toy curve
+and on a searched anomalous curve with $a \neq 0$ ($y^2 = x^3 + x + 5$ over $\mathbb{F}_{11}$).
 
-**Empirical halving: an observation about the fixture, not a derived property.** The fixture
-$y^2 = x^3 + 5$ over $\mathbb{F}_7$ has $a = 0$, and its stored lift is the one with $j = 0$
-(complex multiplication by $\mathbb{Z}[\zeta_3]$). In an exploratory computation recorded in the
-`reduce` module documentation, $p \cdot \tilde{P}$ on that lift had parameter valuation $2$ or more
-for every point, not $1$, so the leading units of the two logarithms are not the lift-independent
-quantity
-$\lambda$ derived above; the quotient $k_{\mathrm{raw}}$ came out as $1, 4, 6, 1, 3, 6$ for
-$k = 1, \ldots, 6$, that is $2k \bmod 7$ for $k = 2, \ldots, 5$. Lifting the same curve with
-$a = 7, 14, 21$ gave valuation $1$ and $k_{\mathrm{raw}} = k$ with no factor 2. No test asserts
-these exploratory values. The solver therefore also tries $k_{\mathrm{raw}} \cdot 2^{-1} \bmod p$,
-an empirical compensation for this fixture with no derivation behind it: this text does not
-attribute the factor $2$ to the formal logarithm or to complex multiplication. It is safe only
-because of the final check — in a group of prime order at most one of the two candidates satisfies
-$k \cdot G = Q$ — and the unit tests `resolve_candidate_accepts_raw_quotient` and
-`resolve_candidate_halves_a_doubled_quotient` exercise the two branches. Correctness of every
-returned value rests on $k \cdot G = Q$, not on the logarithm.
+**The stored lift of the toy curve.** The toy curve $y^2 = x^3 + 5$ over $\mathbb{F}_7$ has
+$a = 0$, so its stored lift has $j = 0$. On that lift $p \cdot \tilde{G}$ has parameter valuation
+$2$ (`kat_stored_lift_of_toy_curve_is_degenerate`), so the leading units are second-order terms,
+not $\lambda$; on every shift $s \not\equiv 0$ the valuation is $1$ and the raw quotient is
+exactly $k$, with no factor $2$ and no second candidate
+(`attempt_on_shifted_lift_returns_the_raw_quotient`). This text claims no connection between the
+degeneracy and complex multiplication beyond the measurement.
 
 #### Cross-reference
 

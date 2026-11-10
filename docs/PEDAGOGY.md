@@ -1168,16 +1168,18 @@ group logarithm turns the ECDLP into a division in $\mathbb{F}_p$. The algorithm
 $\log p$ — the sharpest escape among the algebraic attacks — although this implementation is not
 (see below).
 
-The key steps: (1) lift the affine points $G, Q \in E(\mathbb{F}_p)$ to points
-$\tilde{G}, \tilde{Q}$ over $\mathbb{Z}_p$ via Hensel's lemma; (2) multiply each lift by $p$:
-because $\#E(\mathbb{F}_p) = p$, $p \cdot \tilde{G}$ and $p \cdot \tilde{Q}$ reduce to
-$\mathcal{O}$, so they lie in the kernel of reduction $E_1 \cong \hat{E}(p\mathbb{Z}_p)$ (they are
-*not* $\mathcal{O}$ modulo $p^2$ — the logarithm would then carry no information); (3) apply the
-formal group logarithm $\psi$ to both, which lands in $p\mathbb{Z}_p$; (4) recover
+The key steps: (1) lift the curve to $\mathbb{Z}_p$ by shifting $a \mapsto a + p\,s$ with
+$s \not\equiv 0 \pmod p$ (the same curve modulo $p$), and lift the affine points
+$G, Q \in E(\mathbb{F}_p)$ to points $\tilde{G}, \tilde{Q}$ on it via Hensel's lemma; (2) multiply
+each lift by $p$ on that lifted curve: because $\#E(\mathbb{F}_p) = p$, $p \cdot \tilde{G}$ and
+$p \cdot \tilde{Q}$ reduce to $\mathcal{O}$, so they lie in the kernel of reduction
+$E_1 \cong \hat{E}(p\mathbb{Z}_p)$ (whether they lie in the deeper $E_2$ depends on the lift of the
+curve — the logarithm would then carry no information); (3) apply the formal group logarithm
+$\psi$ to both, which lands in $p\mathbb{Z}_p$; (4) recover
 $k \equiv \psi(p \cdot \tilde{Q}) / \psi(p \cdot \tilde{G}) \pmod{p}$ from the quotient of the
 leading terms. Step (4) is justified when $p \cdot \tilde{G} \in E_1 \setminus E_2$ for the lift of
-the curve used; the derivation, and why the requirement is on the lift of the curve, are in
-`docs/MATHEMATICS.md` §10.2.
+the curve used; the derivation, why the requirement is on the lift of the curve, and the source for
+the failing (canonical) lift are in `docs/MATHEMATICS.md` §10.2.
 
 ### The module surface
 
@@ -1186,66 +1188,80 @@ the curve used; the derivation, and why the requirement is on the lift of the cu
 
 /// Solve the ECDLP on an anomalous curve; the result is checked k·G == Q.
 ///
-/// Requires #E(F_p) = p (anomalous), established by an exact point count.
-/// Returns k mod p such that Q = k·G. The last argument is ignored; p is read from the curve.
+/// Requires #E(F_p) = p (anomalous), established by an exact point count, and n == p.
+/// Returns k mod p such that Q = k·G; Q = ∞ gives 0.
 pub fn ssa_solve<F: Fp<4>>(
     curve: &Curve,
     g: &AffinePoint<F>,
     q: &AffinePoint<F>,
-    _n: u64,
+    n: u64,
 ) -> Result<u64, SsaError>;
 
-pub enum SsaError { NotAnomalous, Inconsistent { k_raw: u64 }, Unsupported(&'static str),
-                    LiftFailed(HenselError), Padic(ZpError) }
+pub enum SsaError {
+    InvalidInput(SsaInputDefect), NotAnomalous, Unsupported(&'static str),
+    Inconsistent { k: u64 }, InvariantFailure(&'static str),
+}
+pub enum SsaInputDefect { FieldNotPrime, SingularCurve, GeneratorAtInfinity,
+                          GeneratorNotOnCurve, TargetNotOnCurve, OrderNotFieldPrime }
 ```
 
 The internal structure:
-- `rho::ssa::lift` — Hensel lift: $F_p$ point → $\mathbb{Z}_p$ point (`lift_point`; $x$ exactly,
-  $y$ by Hensel's lemma, on the curve coefficients as stored).
+- `rho::ssa::lift` — Hensel lift: $F_p$ point → $\mathbb{Z}_p$ point on a lifted curve
+  (`lift_point(point, curve, a_lift, k)`; $x$ exactly, $y$ by Hensel's lemma), the coefficient of
+  the lifted curve (`lifted_a(curve, shift)` $= a + p \cdot$ `shift`), and the lift check
+  (`check_lift_on_curve(x, y, curve, a_lift)`). The helpers report `LiftError`, which is not an
+  `SsaError`.
 - `rho::ssa::formal_log` — the logarithm applied to $p \cdot \tilde{P}$ (`elliptic_log_proj`).
   Despite the name it evaluates $\log(1 + t)$ at $t = -X/Y$, the logarithm of the multiplicative
-  formal group, not the series $\psi$ of $E$'s formal group.
-- `rho::ssa::reduce` — the full SSA reduction assembling the steps (`ssa_solve`): lift, multiply by
-  $p$ as $p - 1$ repeated projective additions, logarithm, division in $\mathbb{F}_p$, then
-  verification.
+  formal group, not the series $\psi$ of $E$'s formal group; the two agree modulo $p^2$ on $E_1$.
+  `formal_parameter_valuation` reads the filtration step $v_p(t)$.
+- `rho::ssa::reduce` — the full SSA reduction assembling the steps (`ssa_solve`): one lifted curve
+  per attempt, passed to both the point lifts and the multiplication by $p$
+  (`multiply_by_p_proj`, $p - 1$ repeated projective additions), logarithm, division in
+  $\mathbb{F}_p$ (`fp_divide_logs`), then verification (`verify_candidate`).
+  `kernel_filtration_level(curve, point, a_lift)` exposes the filtration step of $p \cdot \tilde{P}$
+  on one lift, for tests.
 
 The p-adic substrate (arithmetic, Hensel lifting, and the p-adic logarithm) is provided by
 `shared-padic`.
 
 **Cost.** The multiply-by-$p$ loop and the exact anomalous check (`verify_anomalous`, a Legendre
 sum over all $x$) are both $O(p)$, so this implementation is toy-scale; it does not realise the
-polynomial-time bound, which needs double-and-add for the multiplication by $p$ and a point-counting
-method better than summation. The precision is fixed at $p^8$.
+polynomial-time bound, which needs double-and-add for the multiplication by $p$ (the loop here is
+$O(p)$, double-and-add is $O(\log p)$) and a point-counting method better than summation. The
+precision is fixed at $p^4$ (`WORKING_PRECISION`).
 
-**Outcomes.** The quotient is a candidate: `ssa_solve` returns a `k` only after checking
+**Outcomes.** The quotient is the answer; `ssa_solve` still returns a `k` only after checking
 `k·G == Q`.
 
 | Outcome | Meaning | Exercised by |
 |---------|---------|--------------|
-| `Ok(k)` | verified `k` with `k·G == Q`; `Q = ∞` gives `0` immediately, on any curve | `kat_ssa_solve_recovers_every_k` (every `k` in `1..7`), `kat_ssa_solve_infinity_is_zero` (`rho/tests/ssa_kat.rs`) |
+| `Ok(k)` | verified `k` with `k·G == Q`; `Q = ∞` gives `0` immediately, on any curve | `kat_ssa_solve_recovers_every_k` (every `k` in `1..7`), `kat_second_fixture_recovers_every_k` (every `k` in `1..11`, `a ≠ 0`), `kat_ssa_solve_infinity_is_zero` (`rho/tests/ssa_kat.rs`) |
 | `Err(NotAnomalous)` | an exact count gives `#E ≠ p`; a proven negative | `kat_ssa_solve_not_anomalous` |
-| `Err(Unsupported(..))` | `p`, `a` or `b` does not fit one 64-bit limb (or `p < 5`, by code reading); never reported as non-anomalous | `kat_large_prime_is_unsupported_not_non_anomalous` |
-| `Err(LiftFailed(..))` | the point cannot be Hensel-lifted, e.g. a 2-torsion point (`y = 0`); `SsaError` has no input-defect variant, so `G = ∞` and off-curve points also surface here (code reading) | `kat_lift_2torsion_errors_non_simple_root` (tests `lift_point` directly) |
-| `Err(Inconsistent { k_raw })` | the points lifted but neither candidate verified; an invariant failure, never retried; on a degenerate lift it can occur on valid input | `resolve_candidate_rejects_unverifiable_quotients` (unit, `src/ssa/reduce.rs`); no fixture reaches it through `ssa_solve` |
-| `Err(Padic(..))` | an arithmetic error from the p-adic layer | not exercised |
+| `Err(Unsupported(..))` | `p`, `a` or `b` does not fit one 64-bit limb, or `p < 5`; never reported as non-anomalous | `kat_large_prime_is_unsupported_not_non_anomalous` |
+| `Err(InvalidInput(..))` | composite modulus, singular curve, `G = ∞`, `G` or `Q` off the curve, `n ≠ p` | `kat_composite_modulus_is_field_not_prime`, `kat_singular_curve_is_rejected_before_the_count`, `kat_generator_at_infinity`, `kat_generator_off_curve`, `kat_target_off_curve`, `kat_order_must_equal_field_prime` |
+| `Err(Inconsistent { k })` | the quotient of logarithms, the only candidate, fails `k·G == Q`; an invariant failure, never retried | `verify_candidate_rejects_unverifiable_quotients` (unit, `src/ssa/reduce.rs`); no fixture reaches it through `ssa_solve` |
+| `Err(InvariantFailure(..))` | a lift, p-adic or logarithm breach on validated input, or `p·G̃ ∈ E₂` on both shifted lifts | `two_degenerate_lifts_are_an_invariant_failure` and the `formal_log` / `fp_divide_logs` unit tests |
 
-**An empirical compensation, not a derivation.** On the toy fixture the leading-unit quotient comes
-out as $2k \bmod 7$ for $k = 2, \ldots, 5$ (and $\pm 1$ for $k = \pm 1$), so `resolve_candidate`
-also tries $k_{\mathrm{raw}} \cdot 2^{-1} \bmod p$. The fixture has $a = 0$, so its stored lift
-keeps $j = 0$; in an exploratory computation (recorded in the `reduce` module documentation, not
-asserted by a test) $p \cdot \tilde{P}$ then has parameter valuation $2$ or more for every point, a
-case in which the quotient is a lift-dependent second-order quantity and not the homomorphism
-derived in `docs/MATHEMATICS.md` §10.2. The halving is an observation about that fixture and has no
-derivation; it is not claimed to be a property of the formal logarithm or of complex
-multiplication. It is safe only because of the final check: in a group of prime order at most one
-of the two candidates satisfies `k·G == Q`. The unit tests `resolve_candidate_accepts_raw_quotient`
-and `resolve_candidate_halves_a_doubled_quotient` exercise the two branches, and
-`kat_ssa_solve_recovers_every_k` the whole path.
+**A degenerate lift is detected and replaced, not compensated for.** On the toy fixture the stored
+lift ($a = 0$) has $p \cdot \tilde{G} \in E_2$, with parameter valuation $2$
+(`kat_stored_lift_of_toy_curve_is_degenerate`), and the quotient of leading units there is not
+$\lambda$. `ssa_solve` lifts the curve with $a \mapsto a + p\,s$ instead; on every shift
+$s \not\equiv 0$ the raw quotient is exactly $k$
+(`attempt_on_shifted_lift_returns_the_raw_quotient`), and there is no halved candidate. If the
+first shift is the degenerate one, one second shift is tried
+(`ssa_solve_retries_when_the_first_shift_is_degenerate`). That at most one class of shifts is
+degenerate is measured on the fixtures, for every point, by
+`kat_at_most_one_shift_class_is_degenerate`; see `docs/MATHEMATICS.md` §10.2 for the evidence and
+its limits.
 
 ### The toy KAT/fixture
 
 The fixture is `anomalous_toy()`: $y^2 = x^3 + 5 \bmod 7$, $p = 7$, $\#E = 7 = p$. The
-generator $G = (3, 2)$. The known scalar is $k = 3$: $Q = 3 \cdot G$.
+generator $G = (3, 2)$. The known scalar is $k = 3$: $Q = 3 \cdot G$. A second fixture with
+$a \neq 0$, $y^2 = x^3 + x + 5$ over $\mathbb{F}_{11}$ with $G = (0, 4)$, comes from a recorded
+bounded enumeration in `rho/tests/ssa_kat.rs` (`kat_second_fixture_matches_its_recorded_search`),
+and `verify_anomalous` re-proves it anomalous.
 
 ```rust
 let curve = anomalous_toy();

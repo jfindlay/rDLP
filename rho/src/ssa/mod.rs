@@ -2,9 +2,11 @@
 //!
 //! This module implements the SSA reduction, which solves the ECDLP on anomalous curves (curves
 //! with trace of Frobenius = 1, i.e. `#E(F_p) = p`). The reduction is polynomial in `log p`, but
-//! this implementation is O(p): it multiplies by `p` by repeated addition and counts points
-//! exactly, so it is toy-scale. It consumes the p-adic substrate from `shared-padic` (p-adic
-//! arithmetic, Hensel lifting, and the p-adic logarithm).
+//! this implementation is O(p): it multiplies by `p` by repeated addition (double-and-add would
+//! be O(log p)) and counts points exactly, so it is toy-scale. It lifts the curve as
+//! `a ↦ a + p·s` rather than verbatim, because the verbatim lift can put `p·G̃` in `E₂`, where
+//! the quotient of logarithms is meaningless (see [`reduce`]). It consumes the p-adic substrate
+//! from `shared-padic` (p-adic arithmetic, Hensel lifting, and the p-adic logarithm).
 //!
 //! # Structure
 //!
@@ -61,20 +63,19 @@ pub enum SsaError {
     Unsupported(&'static str),
     /// The quotient of formal logarithms modulo `p` fails `k·G = Q`.
     ///
-    /// This is an invariant failure: it is surfaced, never retried. On a lift where `p·P̃` has
-    /// valuation exactly 1 the quotient determines `k`, so a failing candidate is internally
-    /// contradictory data. On the stored `a = 0` lift (the canonical lift of a curve with
-    /// complex multiplication) `p·P̃` lies deeper in the filtration, the quotient is a
-    /// lift-dependent artefact, and this error can occur on valid input.
+    /// This is an invariant failure: it is surfaced, never retried. The quotient is the only
+    /// candidate, and on a lift with `p·G̃ ∈ E₁ \ E₂` it equals `k` exactly, so a quotient that
+    /// fails verification is internally contradictory data, not a property of the input.
     Inconsistent {
         /// The quotient of formal logarithms modulo `p` that failed verification.
         k: u64,
     },
     /// An internal property that must hold after validation was violated, with no candidate `k`.
     ///
-    /// The message names the violated property. It is surfaced, never retried. Where the lift of
-    /// the stored `a = 0` curve puts `p·G̃` in `E₂` (valuation of the formal parameter above 1,
-    /// or a vanishing residue at working precision), these breaches can occur on valid input.
+    /// The message names the violated property. It is surfaced, never retried. A degenerate lift
+    /// (`p·G̃ ∈ E₂`) is not itself one of these breaches: it is detected and answered with one
+    /// other lift of the curve, and is reported here only if it recurs on both lifts. For valid
+    /// input none of these breaches is expected to occur.
     InvariantFailure(&'static str),
 }
 

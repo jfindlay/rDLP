@@ -71,9 +71,9 @@ use crate::ssa::SsaError;
 /// - the p-adic layer rejects `t`, `1 + t` or the logarithm, or reports the convergence
 ///   condition violated after the kernel check passed.
 ///
-/// On a lift where `p·P̃` has valuation exactly 1 these cannot occur for a point of an anomalous
-/// curve. On the stored `a = 0` lift `p·P̃` may lie in `E₂`, and the zero-residue and
-/// precision breaches can then occur on valid input.
+/// On a curve with `#E(F_p) = p`, for a lift on which `p·P̃ ∈ E₁ \ E₂` and a working precision of
+/// at least [`crate::ssa::reduce::WORKING_PRECISION`], none of these occurs: the parameter has
+/// valuation exactly 1, so every one is a breach of the data and not a property of the input.
 ///
 /// # Scale limits
 ///
@@ -162,6 +162,38 @@ pub fn elliptic_log_proj(x_proj: &Zp, y_proj: &Zp) -> Result<Zp, SsaError> {
     Ok(log_z)
 }
 
+/// The valuation `v_p(t)` of the formal parameter `t = −X/Y`: the step `E_{v}` of the filtration
+/// of the kernel of reduction that the projective point `(X:Y:Z)` first lies in.
+///
+/// The value 1 means the point is in `E₁ \ E₂`, so the logarithm's leading unit is determined.
+/// A zero `X` at working precision means the valuation is at least the working precision; the
+/// precision is then returned, as a lower bound, and exceeds 1 for every usable precision.
+///
+/// # Errors
+///
+/// [`SsaError::InvariantFailure`] if `Y` is zero at working precision (the valuation of `t`
+/// cannot be read), or if `v_p(t) < 1` (the point is outside the kernel of reduction, which on a
+/// curve with `#E(F_p) = p` is a breach of the data).
+pub(crate) fn formal_parameter_valuation(x_proj: &Zp, y_proj: &Zp) -> Result<u32, SsaError> {
+    let p = x_proj.prime();
+    let y_res = y_proj.residue();
+    if y_res.is_zero() {
+        return Err(SsaError::InvariantFailure("projective Y vanishes at working precision"));
+    }
+    let vy = padic_valuation_bigint(y_res, p);
+    let x_res = x_proj.residue();
+    if x_res.is_zero() {
+        return Ok(x_proj.precision().min(y_proj.precision()));
+    }
+    let vx = padic_valuation_bigint(x_res, p);
+    if vx <= vy {
+        return Err(SsaError::InvariantFailure(
+            "formal parameter has valuation below 1: point outside the kernel of reduction",
+        ));
+    }
+    Ok(vx - vy)
+}
+
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 /// Compute the p-adic valuation of a `BigInt` `x` (number of times p divides x).
@@ -231,6 +263,23 @@ mod tests {
     fn elliptic_log_proj_accepts_kernel_point() {
         let log = elliptic_log_proj(&zp(7, 7, 8), &zp(1, 7, 8)).expect("kernel point");
         assert_ne!(*log.residue(), BigInt::zero());
+    }
+
+    /// The valuation of `t = −X/Y` is `v(X) − v(Y)`; a vanishing `X` is at least the precision.
+    #[test]
+    fn formal_parameter_valuation_reads_the_depth_in_the_filtration() {
+        assert_eq!(formal_parameter_valuation(&zp(7, 7, 8), &zp(1, 7, 8)), Ok(1));
+        assert_eq!(formal_parameter_valuation(&zp(98, 7, 8), &zp(2, 7, 8)), Ok(2));
+        assert_eq!(formal_parameter_valuation(&zp(0, 7, 8), &zp(1, 7, 8)), Ok(8));
+    }
+
+    /// A point outside the kernel, or a vanishing `Y`, is an invariant failure.
+    #[test]
+    fn formal_parameter_valuation_rejects_points_outside_the_kernel() {
+        for (x, y) in [(3, 2), (7, 7), (7, 0)] {
+            let result = formal_parameter_valuation(&zp(x, 7, 8), &zp(y, 7, 8));
+            assert!(matches!(result, Err(SsaError::InvariantFailure(_))), "got {result:?}");
+        }
     }
 
     /// A zero residue is a breach, never read as valuation 0.
