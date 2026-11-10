@@ -432,6 +432,13 @@ checkpoint):
 - Row 5 `cargo test --workspace` — reused (same identity) — exit 0 — 2026-11-10T10:03:58-05:00 — log
   `/tmp/opencode/rdlp/ecm-test.log` (86 `test result: ok`, no failures) — same environment.
 - Row 5 `cargo coverage` — deferred → ◆ boundary (row 10); no tests deleted (4 added).
+- Row 6 `cargo check --workspace` — reused (worker record, validated) — `/home/justin/Source/rDLP` —
+  exit 0 — 2026-11-10T10:07:27-05:00 — log `/tmp/opencode/rdlp/inc-check.log` — input identity
+  `21d74488…875d` (same recipe, base `347dae2`; recomputed by the driver and equal) — rustc/cargo
+  1.95.0, dev profile, default features. No manifest or lockfile changed.
+- Row 6 `cargo test --workspace` — reused (same identity) — exit 0 — 2026-11-10T10:11:24-05:00 — log
+  `/tmp/opencode/rdlp/inc-test.log` (86 `test result: ok`, no failures) — same environment.
+- Row 6 `cargo coverage` — deferred → ◆ boundary (row 10); 1 test deleted, 17 added.
 - Row 1 `cargo coverage` — deferred → ◆ boundary (row 10) or earlier after substantial test removal
   (row 2 or 7).
 
@@ -446,7 +453,7 @@ change and on first active run of each new day.
 | 3 | Identify the GHS conorm subfield with `restrict` | done | ae1f1cc | C-GhsSubfieldIdentification (coverage deferred to ◆; `m > 63` has no variant, unreachable by type) |
 | 4 | Guard MOV's single-limb field domain in release builds | done | 32452cd | C-MovDomain (coverage deferred to ◆) |
 | 5 | Apply ECM stage-1 prime powers one ladder call at a time | done | a4a040f | C-EcmStage1 (coverage deferred to ◆) |
-| 6 | Report non-dividing factor candidates as `Inconsistent` | pending | | |
+| 6 | Report non-dividing factor candidates as `Inconsistent` | done | 7ce7340 | C-FactorInconsistent (allowed extra `rho/src/factor/cli.rs`; coverage deferred to ◆) |
 | 7 | Certify rho-factoring primes below 2^80 with the 13-base bound | pending | | |
 | 8 | Project the generic rho-dlog curve onto its prime-order subgroup | pending | | |
 | 9 | Retarget the ECDLP benches to groups that finish | pending | | |
@@ -530,6 +537,18 @@ anneal exclusions but is a rolling doc — note, do not edit unless the row-10 s
 Texture: worker used `python3` for a read-only calc and to splice one test into `ecm.rs`
 (tool-discipline slip, no effect on correctness); the ladder fn's own doc comment was left alone —
 re-read it at ◆.
+
+### 6 — 2026-11-10
+Discovery/flex: No contract flex. Both solvers now route candidates through a private
+`judge_candidate` + search loop (`rho.rs`: `search_constants`; `ecm.rs`: `search_curves`) and
+`verified_divisor` is gone from both. Neither error enum has `Display`; the property is in variant
+doc comments and the CLI message. A compiler-forced `Inconsistent` arm was added to
+`rho/src/factor/cli.rs`.
+Affected: C-FactorInconsistent (frozen at 6); no downstream contract.
+Deferred: yes — two human docs omit the new variants and are outside row 6's files:
+`shared/numth/docs/PEDAGOGY.md` (~:317) and `docs/PEDAGOGY.md` (~:767) list the factor/ECM outcomes;
+row 10's sweep must add `Inconsistent`. Row 7 edits `rho.rs` and `factor_kat.rs` again.
+Texture: ECM and rho unit tests live in-module (new `mod tests` in `rho.rs`).
 
 ## Discoveries & risks
 
