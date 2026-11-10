@@ -856,9 +856,11 @@ fn extracted_curve_f_coeffs_in_gf2_2() {
 
     // The curve's poly is GF(2^2); we check coefficients are in GF(2^2)
     // by embedding them into GF(2^6) and using is_in_subfield.
-    // Since the coefficients are raw bit-vectors in GF(2^2), we embed them
-    // into GF(2^6) by treating them as GF(2^6) elements (they are subfield
-    // elements, so the bit-vector is the same).
+    // The stored coefficients are basis coordinates over GF(2^2) (identified through
+    // `shared_gf2m::restrict`), not raw GF(2^6) bit-vectors.  The two readings coincide only
+    // for coefficients in GF(2), i.e. 0 and 1, which is all this fixture's curve uses; so
+    // embedding the bits directly is valid here.  The case with a coefficient outside GF(2)
+    // is covered by `curve_and_transfer_share_the_subfield_identification` (a = β).
     for (i, &coeff_bits) in curve.f_coeffs.iter().enumerate() {
         let coeff_in_gf6 = F2mNaive::<1>::from_uint(coeff_bits, &p6);
         assert!(

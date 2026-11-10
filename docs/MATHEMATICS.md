@@ -1295,7 +1295,8 @@ point has a specific structure that makes stage 1 more likely to succeed.
 
 **Stage 1.** Compute $Q = kP$ with $k = \prod \{q^{\lfloor \log_q B_1 \rfloor} : q \text{ prime}
 \leq B_1\}$ — every prime power up to $B_1$. After each ladder call, test $\gcd(Z, N)$; a
-non-trivial gcd is the factor. Stage 1 succeeds when $|E(\mathbb{F}_p)|$ is fully $B_1$-smooth.
+non-trivial gcd is the factor. Stage 1 succeeds when $|E(\mathbb{F}_p)|$ is $B_1$-power-smooth (every prime power dividing it is
+at most $B_1$).
 
 *No product scalar.* The product is $\mathrm{lcm}(1, \ldots, B_1) \approx e^{B_1}$, which first
 exceeds $2^{256}$ at $B_1 = 179$ ($256 \ln 2 \approx 177$), so it does not fit a fixed-width
@@ -3246,7 +3247,7 @@ $p \cdot \tilde{G}$ in $E_2$, and neither does this text. Leprévost–Monnerat�
 restate the method and do not discuss the failure. The identification of the failing lifts with
 the canonical lift, beyond Smart's one sentence, is therefore not checked here.
 
-**The repair used by the implementation.** The lifted curve is $y^2 = x^3 + (a + p\,s)x + b$ with
+**The remedy used by the implementation.** The lifted curve is $y^2 = x^3 + (a + p\,s)x + b$ with
 $s \not\equiv 0 \pmod p$, which reduces to the same curve modulo $p$; the points are lifted to it
 and multiplied by $p$ on it. If $p \cdot \tilde{G} \in E_2$ for the shift $s_1$, one second shift
 $s_2 \not\equiv s_1, 0$ is tried, and $p \cdot \tilde{G} \in E_2$ on both is reported as an

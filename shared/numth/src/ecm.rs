@@ -3,7 +3,8 @@
 //! ECM (Lenstra 1987) factors a composite ``N`` by choosing a random elliptic
 //! curve ``E`` over ``Z/NZ`` and computing a ``B1``-smooth scalar multiple of a
 //! starting point ``P``.  The key insight: if ``p | N`` and the group order
-//! ``|E(F_p)|`` is ``B1``-smooth, then computing ``k * P`` (for ``k`` the
+//! ``|E(F_p)|`` is ``B1``-power-smooth (every prime power dividing it is ≤ ``B1``), then
+//! computing ``k * P`` (for ``k`` the
 //! product of prime powers ≤ ``B1``) drives the point to the identity mod ``p``
 //! while it remains non-identity mod ``N``.  A failed modular inversion in the
 //! group law then reveals ``gcd(denominator, N) = p``.

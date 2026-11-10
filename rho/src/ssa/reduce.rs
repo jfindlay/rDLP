@@ -76,7 +76,7 @@ use crate::ssa::{SsaError, SsaInputDefect, check_curve, uint4_to_bigint, verify_
 /// Measured, not derived: with `k = 3` (and `4`, `5`, `6`, `8`) every `k` in `1..p` was recovered
 /// on each of the 481 anomalous curves `y² = x³ + ax + b` over `F_p`, `5 ≤ p ≤ 59`, `b ≠ 0`, with
 /// the same degenerate shift class for every precision (exploratory scan, not retained as a
-/// test). The earlier value `8` was therefore not needed. The value `4` keeps one digit of margin
+/// test), so precision `3` already suffices on that range. The value `4` keeps one digit of margin
 /// for the projective multiplication by `p`, whose coordinates are not normalised and could lose
 /// precision on inputs the scan did not reach.
 ///

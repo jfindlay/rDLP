@@ -344,7 +344,7 @@ All of these are unit tests in `shared/numth/src/ecm.rs`.
 
 **Stage 1** computes Q = k·P with k = ∏ { q^⌊log_q(B1)⌋ : q prime ≤ B1 } — every prime power up to
 B1. After each ladder call, gcd(Z-coordinate, N) is tested; a non-trivial gcd is the factor. Stage 1
-succeeds when |E(F_p)| is fully B1-smooth.
+succeeds when |E(F_p)| is B1-power-smooth (every prime power dividing it is at most B1).
 
 *No product scalar.* The product k = lcm(1, …, B1) ≈ e^B1 exceeds 2^256 once B1 reaches 179
 (256·ln 2 ≈ 177; the product first passes 256 bits when the prime 179 is multiplied in), so it

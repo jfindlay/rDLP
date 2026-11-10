@@ -280,8 +280,9 @@ b₂ ≠ b₁ mod n). The expected number of steps to collision is O(√n) by th
 ### What this codebase is
 
 This crate implements two Pollard rho variants — integer factorization and ECDLP — with all
-canonical optimizations, built up one optimization at a time. Each stage adds one optimization,
-delivers a runnable artifact, and produces a measurable speedup. The goal is a clean, readable CPU
+canonical optimizations, built up one optimization at a time. Each stage adds one optimization
+and delivers a runnable artifact; the speedups are expected, not measured (see the benchmark
+notes below). The goal is a clean, readable CPU
 implementation that a researcher can extend or benchmark. It is not a constant-time cryptographic
 library; these are *attacks on* cryptographic problems, run on toy parameters.
 
@@ -637,8 +638,9 @@ identically to the negation-map walk.
 
 **Speedup:** ~√3 ≈ 1.73× reduction in expected walk steps vs the negation map alone, or ~√6 ≈
 2.45× vs distinguished points (plain DP walk). The GLV endomorphism is essentially free to evaluate
-— one multiplication by β per orbit member — so the theoretical speedup should be nearly fully
-realised in practice. These are expected ratios, not tested ones: the only comparison in the test
+— one multiplication by β per orbit member — so the theoretical speedup is expected to be
+close to realised in practice, though that has not been measured. These are expected ratios, not
+tested ones: the only comparison in the test
 suite is `glv_fewer_steps_than_negmap` (unit, `src/ecdlp/mod.rs`, on the 1093-element `tiny_glv`
 group), which asserts only that the GLV step total over 20 seeds is at most twice the negation-map
 total. A ratio of about 0.62–0.77 was observed when that test was written; the observation is not
