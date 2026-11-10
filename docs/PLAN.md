@@ -518,6 +518,21 @@ checkpoint):
   (worker record, validated) — exit 0 — 2026-11-10T14:04:43-05:00 / 14:10:10-05:00 — logs
   `/tmp/opencode/rdlp/bc-check.log`, `/tmp/opencode/rdlp/bc-test.log` (86 `test result: ok`, no
   failures) — same identity `4fad38d5…cca2`.
+- Row 11 `cargo check --workspace` — reused (worker record, validated) — `/home/justin/Source/rDLP` —
+  exit 0 — 2026-11-10T14:31:33-05:00 — log `/tmp/opencode/rdlp/s11-check.log` — input identity
+  `d767fc52…bc21` (same recipe, base `78feb13`; recomputed by the driver and equal) — rustc/cargo
+  1.95.0, dev profile, default features. Diff is documentation and comment-only (driver-checked).
+- Row 11 `cargo test --workspace` — reused (same identity) — exit 0 — 2026-11-10T14:35:25-05:00 — log
+  `/tmp/opencode/rdlp/s11-test.log` (86 `test result: ok`, no failures) — same environment.
+- Final delivery `cargo coverage` — passed — `/home/justin/Source/rDLP` — exit 0 —
+  2026-11-10T14:49:18-05:00 — log `/tmp/opencode/rdlp/coverage-final.log` — input identity
+  `d767fc52…bc21` (the row-11 diff before commit `d97a649`; same tree content as `d97a649`; recomputed
+  after the run and equal) — rustc/cargo 1.95.0, default profile. Total lines 94.30% (regions
+  95.01%, functions 95.55%), floor 80%.
+- Final delivery freshness — `cargo dep-policy` and `cargo audit` — reused (the passed records at the
+  top of this block, 2026-11-10T08:33:39-05:00; advisory databases as recorded there): no manifest,
+  lockfile, `deny.toml`, `.cargo` or toolchain-file change in `a7f72ba..d97a649` (driver-verified
+  `git diff --stat`, empty), and checked on the same calendar day (2026-11-10, 14:49).
 - ◆ boundary freshness — `cargo dep-policy` and `cargo audit` — reused (today's passed records above;
   no dependency input — manifests, lockfile, `deny.toml`, toolchain — changed since `a7f72ba`,
   verified by `git diff --stat` at chain resume 2026-11-10 ~12:30; still the same calendar day).
@@ -549,9 +564,9 @@ over-width Markdown table rows matching neighbouring tables — ledgered for row
 - Row 1 `cargo coverage` — deferred → ◆ boundary (row 10) or earlier after substantial test removal
   (row 2 or 7).
 
-Pending checks: none outstanding at the ◆ boundary (coverage passed; see below). `cargo coverage` and
-the freshness checks are re-validated at final delivery (after row 11) — reusable only if no
-executable or dependency input changed since and still the same calendar day.
+Pending checks: none. Final delivery (after row 11) passed: `cargo coverage` run on the final inputs,
+freshness checks reused (same day, no dependency input changed). No check is `deferred`. A later
+chain or a new calendar day must re-run `cargo dep-policy` and `cargo audit`.
 
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
@@ -565,7 +580,7 @@ executable or dependency input changed since and still the same calendar day.
 | 8 | Project the generic rho-dlog curve onto its largest prime-order subgroup | done | e1764e2 | C-GenericSubgroup (user-approved revision; c·P₀ = G′ and 561103·G′ = ∞ held in-tree, no HALT; coverage deferred to ◆) |
 | 9 | Retarget the ECDLP benches to groups that finish | done | f656f03 | C-BenchFixture (new 25-bit fixture `prime_order_25`; GLV bench dropped; coverage deferred to ◆) |
 | 10 | Correct the follow-up exposition ◆ | done | c22a7d1 | prose row, no contract frozen (allowed extras, all comment/rustdoc-only: `rho/src/{ssa/{lift,mod},ghs/{curve,mod},curve/mod,ecdlp/mod}.rs`, `rho/benches/ecdlp.rs`, `rho/tests/{mov,ghs,factor,ssa,ecdlp}_kat.rs`, `shared/numth/src/lib.rs`); ◆ boundary: coverage passed (94.30%), fork `still-on-intent`, correction `2c961e6` (see boundary note) |
-| 11 | Anneal cleanup (skippable) | pending | | |
+| 11 | Anneal cleanup (skippable) | done | d97a649 | ran (not skipped): the boundary review's scope limit left unchanged prose uncertified; 13 leaks translated, 30 over-width prose lines rewrapped; comment/doc-only, 9 files; needs-human items listed in the row-11 digest |
 
 ## Action-frame digest
 
@@ -797,6 +812,31 @@ large docs uncertified, and 3 non-table lines are over 100 columns. Pre-existing
 `rho/src/pairing/{ecext,mod}.rs` and other crates are outside every row's files; widening row 11 to
 them needs the user's sign-off (not given). Final delivery must re-validate coverage/freshness.
 Texture: the committer noted the corrected stage-1 sentence is ~128 columns (committed as given).
+
+### 11 — 2026-11-10
+Discovery/flex: The anneal pass ran rather than being skipped (the boundary review's scope limit and
+three non-table over-width lines failed the skip criteria). Pattern greps found zero genuine hits; the
+contextual read of MATHEMATICS (1–5173), PEDAGOGY (1–1840), BENCHMARKS (1–842), README (1–347) and numth
+PEDAGOGY (1–511) found and translated 13 leaks (numbering inherited from global stage numbers, "no
+longer"/"was added" history, a false "is planned" claim, a scratch remark) and the 30 non-table
+over-width prose lines were rewrapped. `.rs` changes comment-only; code bodies in the 25 in-scope
+`.rs` files were not read (comments and docstrings only).
+Affected: none.
+Deferred: yes — NEEDS-HUMAN, not edited: (1) "Track"/family-letter vocabulary ("cross-track",
+"all five tracks" vs six family letters, "α-Substrate" titles, PEDAGOGY :23–24 "α"/"NF") looks like
+leftover plan track labels but is pervasive and shared with out-of-scope gnfs docs; (2) PEDAGOGY :216
+"substrate-over-specifies discipline" (a named pattern, also in `gnfs/docs/PEDAGOGY.md`); (3) BENCHMARKS
+"Test coverage added"/"Tests added" headings and a "50 tests" line vs a coverage table summing to 26
+(point-in-time counts); (4) MATHEMATICS :75 "replaces the earlier undecided … choice" and "Wait —
+let us be more careful"/"Hmm" scratch remarks in the GNFS derivation; README "Two complementary
+artifacts" listing three and a stale `DynResidue` crate-layout mention; `ecm.rs:838` test doc vs body;
+`ssa_kat.rs` header numbering. REPORT-ONLY leaks outside every row's files: `rho/src/pairing/{ecext,mod}.rs`
+("frozen contract", "option A/B", "Principle 1/3/4"), "Principle-4" headings across `semaev`,
+`binary_curve`, `hyperelliptic`, their KATs, `rho/src/semaev/mod.rs:26–27`, `hyperelliptic_kat.rs:6`,
+`binary_ecdlp/mod.rs:681`, `shared/numfield/docs/PEDAGOGY.md:709`, and gnfs sources/tests/docs —
+project-wide anneal scope, not approved.
+Texture: left in place as executable (not rewrapped): `ecdlp_kat.rs:40` and `ecdlp/mod.rs:1244` `use`
+lines, `test_curves.rs:494` `assert_eq!`; 17 Markdown table rows and `pairing/tate.rs:31`.
 
 ## Discoveries & risks
 
