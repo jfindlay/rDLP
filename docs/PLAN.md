@@ -409,6 +409,13 @@ checkpoint):
   `/tmp/opencode/rdlp/bench_smoke.log`.
 - Row 2 `cargo coverage` — deferred → ◆ boundary (row 10). Judged not "substantial test removal":
   3 unit tests deleted, 13 added.
+- Row 3 `cargo check --workspace` — reused (worker record, validated) — `/home/justin/Source/rDLP` —
+  exit 0 — 2026-11-10T09:23:05-05:00 — log `/tmp/opencode/rdlp/ghs-check-final3.log` — input
+  identity `28d7ac9d…6d39` (same recipe, base `3c1c9dd`; recomputed by the driver and equal) —
+  rustc/cargo 1.95.0, dev profile, default features.
+- Row 3 `cargo test --workspace` — reused (same identity) — exit 0 — 2026-11-10T09:27:38-05:00 — log
+  `/tmp/opencode/rdlp/ghs-test-final3.log` (86 `test result: ok`, no failures) — same environment.
+- Row 3 `cargo coverage` — deferred → ◆ boundary (row 10); no tests deleted (6 added).
 - Row 1 `cargo coverage` — deferred → ◆ boundary (row 10) or earlier after substantial test removal
   (row 2 or 7).
 
@@ -420,7 +427,7 @@ change and on first active run of each new day.
 |---|---------|--------|--------|-------|
 | 1 | Type SSA input and invariant failures | done | 829caaa | C-SsaOutcome (frozen by juncture; per-unit gate passed, coverage deferred to ◆) |
 | 2 | Lift SSA curves non-canonically and drop the halved candidate | done | 0aa2b01 | C-SsaLift (test-enforced sweep; allowed extra `formal_log.rs`; coverage deferred to ◆) |
-| 3 | Identify the GHS conorm subfield with `restrict` | pending | | |
+| 3 | Identify the GHS conorm subfield with `restrict` | done | ae1f1cc | C-GhsSubfieldIdentification (coverage deferred to ◆; `m > 63` has no variant, unreachable by type) |
 | 4 | Guard MOV's single-limb field domain in release builds | pending | | |
 | 5 | Apply ECM stage-1 prime powers one ladder call at a time | pending | | |
 | 6 | Report non-dividing factor candidates as `Inconsistent` | pending | | |
@@ -461,6 +468,22 @@ bad input" wording. Smart 1999 was read: it states the failure on the canonical 
 (another lift) but does not derive the mechanism; the docs label the Serre–Tate "only the canonical
 lift lands in E₂" explanation as unverified, backed by the sweep. `lift.rs` comments still carry
 "Principle-4" wording (plan vocabulary, left out of scope by the worker) — anneal candidate.
+
+### 3 — 2026-11-10
+Discovery/flex: The independent hand derivation (confirmed with `gp`) of the two transfer constants
+agrees with `restrict` and disagrees with the old raw-bits output: the old constants were wrong
+(raw reading swaps β and β² on GF(4) ⊂ GF(2⁶); D_P = [X+1, 2], D_{G+P} = [X+1, 3]). The transfer
+itself is not suspect, so the planned destructive-HALT condition (disagreement with both) did not
+fire. Homomorphism/log-preservation KATs pass under both readings because the fixture curve has F₂
+coefficients and is conjugation-symmetric; a new KAT with a = β discriminates (fails on raw bits).
+Affected: C-GhsSubfieldIdentification (frozen at 3). `GhsError` gained `SubfieldPolyMismatch` (and
+`SubfieldDivisibility`); a pub `check_subfield_identification` was added in `ghs/mod.rs`.
+Deferred: yes — the ◆ sweep should check that no durable text still calls the transfer "valid only
+on the fixture" (worker fixed two PEDAGOGY lines outside §12) and that GHS statements elsewhere
+(README, MATHEMATICS summaries) match. No `m > 63` variant exists: `Uint<1>` caps m at 63 by type,
+replaced by a const assertion — the contract's "typed error for m > 63" is vacuous, not unmet.
+Texture: one over-width line added to the PEDAGOGY test table (pre-existing over-width row);
+ledger it for the anneal sweep.
 
 ## Discoveries & risks
 
