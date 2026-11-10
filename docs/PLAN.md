@@ -463,7 +463,7 @@ change and on first active run of each new day.
 | 5 | Apply ECM stage-1 prime powers one ladder call at a time | done | a4a040f | C-EcmStage1 (coverage deferred to ◆) |
 | 6 | Report non-dividing factor candidates as `Inconsistent` | done | 7ce7340 | C-FactorInconsistent (allowed extra `rho/src/factor/cli.rs`; coverage deferred to ◆) |
 | 7 | Certify rho-factoring primes below 2^80 with the 13-base bound | done | 53b072e | C-RhoPrimeBound (allowed extras: `factor/{mod,cli}.rs`, both PEDAGOGY files; coverage deferred to ◆) |
-| 8 | Project the generic rho-dlog curve onto its prime-order subgroup | pending | | |
+| 8 | Project the generic rho-dlog curve onto its prime-order subgroup | pending | | HALTED 2026-11-10: premise false (n′ is not the order of 119·G); `additive-reshard` verdict not applied (run lacks `may-reshard`; user decision) — see Discoveries & risks |
 | 9 | Retarget the ECDLP benches to groups that finish | pending | | |
 | 10 | Correct the follow-up exposition ◆ | pending | | |
 | 11 | Anneal cleanup (skippable) | pending | | |
@@ -572,6 +572,46 @@ to touch it or leave it for the roadmap owner). Worker fixed `docs/PEDAGOGY.md` 
 PEDAGOGY :465 outside the listed files — row 10's sweep should re-read them.
 Texture: none.
 
+### 8 — 2026-11-10 (HALT: reshard needs `may-reshard` and a user decision)
+Discovery/flex: The row-8 worker (read-only, `gp`) found the plan's n′ = 77_507_328_043_853_087 is
+prime but is NOT a factor of #E for `generic` (y² = x³ − 3x + 1 over p = 2⁶³ − 25, P₀ = (3,
+821_487_384_573_098_969)); n′·(119·P₀) ≠ ∞. The juncture fork verified it independently: #E =
+9_223_372_037_844_426_960 = 2⁴·3²·5·1493·1697·9011·561103; ord P₀ = 2³·3²·5·1493·1697·9011·561103;
+stored `GENERIC_N` = 7·17·n′ is neither #E nor a multiple of ord P₀ (the "Computed by Sage" note is
+false; it merely lies inside the Hasse interval). Today `--curve generic` reports `OrderNotPrime`
+(`outcome.rs:149–154` tests primality before n·P = ∞), hiding the wrong order. No `Ok` is wrong; no
+test, bench or solver run depends on `generic`; docs citing the composite order: README :231,
+PEDAGOGY :877, BENCHMARKS :73–80, ROADMAP :194 (rolling), `curve/mod.rs:17`. The largest prime
+subgroup is ℓ = 561_103 (≈ 2¹⁹), cofactor c = 8_218_965_179_160, G′ = c·P₀ =
+(3569091914278015591, 7073522384094063206), ℓ·G′ = ∞ (gp).
+Affected: C-GenericSubgroup (not yet frozen; text as written is unmeetable); C-BenchFixture and
+row 9 unchanged. Row 8 made no edits; tree clean.
+Verdict: juncture `additive-reshard` — redefine row 8 as "Project the generic rho-dlog curve onto
+its largest prime-order subgroup": `generic_curve()` stores G′ above and n = 561_103 (`generic::N`);
+`cli.rs` drops `GENERIC_N`/Sage note; rustdoc records P₀, c, #E, ord P₀ ("found with PARI/GP;
+certified in-tree only by the KATs"); README and PEDAGOGY §6 describe a 63-bit field with a
+prime-order subgroup of order 561103 and keep the secp-toy Brent exhaustion statement. KATs: G′ ≠ ∞,
+561103·G′ = ∞, `is_prime(561103)`, c·P₀ = G′, Brent's input check accepts (G′, 561103), and
+`solve_brent` recovers a fixed k from (G′, k·G′). Existing P₀ reference multiples/linearity tests
+stay on P₀ built explicitly (not `generator()`). Files: the original row-8 list plus
+`rho/src/curve/mod.rs:17` doc line. If in-tree c·P₀ ≠ G′ or 561103·G′ ≠ ∞: destructive-HALT (curve
+arithmetic suspect; no search, no constant adjustment). C-GenericSubgroup new text: "stored
+generator G′ = 8_218_965_179_160·P₀ has proven prime order n′ = 561_103 (all in-tree); the CLI uses
+the stored order". Row 9 entry unchanged (it may reuse the 2¹⁹ subgroup, `tiny_a`, `tiny_b`; its
+BENCHMARKS rewrite replaces the `generic` row "unknown†" and footnote). Row 10 (b) becomes
+"`generic` composite or wrong order — 9_223_372_037_218_517_353 is neither #E nor a multiple of
+ord P₀, including the BENCHMARKS `generic` row/footnote".
+Not applied: the run was invoked without `may-reshard`, and the verdict changes what the user chose
+(the plan's ≈2⁵⁶ group). User options: (a) accept the 19-bit `generic` (the spec above — resume with
+`/plan-run docs/PLAN.md may-reshard`, or edit PLAN's row 8/contract/row 10 yourself and resume
+without the flag); (b) replace `generic` with a curve over 2⁶³ − 25, a = −3 and a new b whose order
+has a ~2⁵⁰–2⁵⁶ prime factor, found by a bounded recorded b-search and proved in-tree (follow-up
+item; regenerates the reference KATs); (c) drop `generic`.
+Deferred: yes — see the verdict spec; ◆ sweep must also catch the `generic` composite/wrong-order
+claim in the five places listed.
+Texture: the worker correctly refused to adjust constants; the fork corrected the worker's claim
+that today's CLI fails with `WrongGeneratorOrder` (it is `OrderNotPrime`).
+
 ## Discoveries & risks
 
 Carried down from ROADMAP and the sharding survey; phrased for adjudication.
@@ -592,7 +632,8 @@ Carried down from ROADMAP and the sharding survey; phrased for adjudication.
   constant.
 - **Confirmed (survey), enrolled 8:** `GENERIC_N` = 7·17·77_507_328_043_853_087 ("Computed by
   Sage"). If n′·G′ ≠ ∞: additive-reshard (surface; dropping `generic` is the user's fallback
-  decision).
+  decision). **Fired at row 8 (2026-11-10):** n′·G′ ≠ ∞ and `GENERIC_N` is not even a multiple of
+  ord P₀; see the row-8 digest entry for the verdict spec and the user decision it awaits.
 - **Inferred, enrolled 5:** Z ≡ 0 modulo a factor persists through later ladder calls, so the
   final gcd still detects it; if stage 2 depends on stage 1's point semantics, internal-continue.
 - **Internal-continue:** call-site adaptation outside a row's files when the compiler forces it;
