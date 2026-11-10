@@ -516,7 +516,7 @@ skipped). Out-of-arc "principle-N"/"C1"/ROADMAP survivors (~300 hits, ~70 files,
 | 10 | Type ECM factoring outcomes | done | 54c393a | C-EcmOutcome |
 | 11 | Report Shor factoring provenance and return the minimal order | done | c20ef50 | C-ShorFactorOutcome |
 | 12 | Correct the solver-outcome exposition ◆ | done | 748528e | — |
-| 13 | Anneal cleanup (skippable) | pending | | |
+| 13 | Anneal cleanup (skippable) | done | 0ba8dff | — |
 
 ## Action-frame digest
 
@@ -831,6 +831,30 @@ descent.rs:384 (stale, optional), binary_ecdlp/mod.rs:54, ssa_kat.rs:165, `share
 `docs/SURVEY.md`, [S09] keys, "Phase 64/256".
 Texture: the first anneal pass was green by the gate's own regexes yet left real leaks — treat the
 widened denylist in Notes for executors as the standard.
+
+### 13 — 2026-11-09
+Discovery/flex: Not skipped: the ◆ anneal gate was green only by its own narrow regexes, and the
+boundary fork named 18 stale-claim/vocabulary corrections that rode here (22 files, comments/rustdoc/
+docs only; the driver confirmed zero non-comment code-line changes and no changed test functions).
+Judged against the code, three prescribed statements were softened by the builder: Koblitz — "only the
+τ-power-0 representative is exercised" was unverifiable (the toy group has order 4 and τ acts as ±1,
+so orbits have ≤ 2 points; the larger collapse is not exercised); the Brent bench "most likely
+`BudgetExhausted`" holds only roughly (per-attempt cap 2²⁹ − 1 ≈ 5.4·10⁸ steps ≈ 0.25·√n, ≤ ~3% per
+attempt by a crude birthday estimate; not run); `Fp::sqrt`/`legendre` never call `is_prime`
+(numth PEDAGOGY now says neither checks primality). `formal_log.rs` (`elliptic_log_proj` not renamed)
+was rewritten around log(1 + t) at t = −X/Y; `ghs/descent.rs` heading renamed; `ecdlp/glv.rs`,
+`rho/src/lib.rs` and README touched. Widened denylist over the arc's 42 files plus the 22 touched:
+only domain terms remain (bibliography keys/section refs, quantum "Phase 64/256").
+Affected: none.
+Deferred: yes (user-facing, for the exit report) — (a) ~100 "principle 4"/"Principle-4" and ~300
+total plan-label survivors outside the arc's files (`gnfs/`, `shared/padic`, `shared/gf2m`,
+`rho/src/{semaev,ghs,hyperelliptic,binary_curve,pairing,ssa/lift.rs}`, `shor/src/{sparse,qft,statevec,
+arith}`, `shor/tests/qft_kat.rs`, `shared/numth` outside PEDAGOGY, `gnfs/docs/PEDAGOGY.md`); (b)
+`docs/PEDAGOGY.md` 590–731 state √3/√6 walk-length reductions as theory-derived expectations (lines
+604, 630, 702, 712, 731 without the word "expected"; not contradicted by any test); (c) a stale
+`git stash` entry (`stash@{0}`, "WIP on master: d50ab68", the row-8 builder's `restrict` experiment —
+the work it mirrors is committed in dbc33d2; left in place, drop it if unwanted).
+Texture: none.
 
 ## Discoveries & risks
 
