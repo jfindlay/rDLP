@@ -1,962 +1,383 @@
-# rDLP — Solver-outcome conformance
+# rDLP — Solver-outcome follow-ups
 
-Execution graph for the ROADMAP scope "Solver-outcome audit". The previous (completed) Shor ECDLP
-and index-calculus plan is preserved in git at `01b4df9:docs/PLAN.md`.
+Execution graph for the ROADMAP scope "Solver-outcome audit", follow-up items. The previous
+(completed) solver-outcome conformance plan is preserved in git at `fc434fb:docs/PLAN.md`.
 
 ## Purpose (design intent)
 
-Bring every remaining solver under `docs/development.md`'s "Solver outcomes and fallbacks": success
-returned only after an exact check independent of the method; invalid input, unsupported domain,
-resource exhaustion, invariant failure and mathematical negatives kept distinct; no unbounded
-search; provenance whenever more than one path can succeed. A static audit at sharding found
-nearly every rho solver returning an unchecked `Option<u64>` whose `None` merges several failure
-classes, distinguished-point walks with no budget, and one probable wrong-answer path (plain
-distinguished-point collisions keyed by x alone). The repaired Shor ECDLP
-(`shor::ecdlp::{EcdlpSolution, EcdlpError}`) is the reference shape.
+Close the follow-ups the solver-outcome repairs found but were not allowed to change, under
+`docs/development.md`'s "Solver outcomes and fallbacks": SSA must recover k from a lift on which
+the formal-log quotient is exact (no empirical halving), and must type bad input and invariant
+breaches distinctly; the GHS transfer must identify GF(2^l) inside GF(2^m) by a field
+isomorphism that holds beyond the fixture; MOV must reject fields it cannot represent instead of
+truncating them in release builds; ECM stage 1 must actually be B1-power-smooth at every B1;
+factoring solvers must surface a broken divisor invariant instead of retrying past it; rho
+factoring must certify every prime its domain admits; and the `rho-dlog` CLI and ECDLP benches
+must run instances that can finish. Each repair corrects the exposition it directly falsifies.
 
-Scope boundary: the rho ECDLP family (Brent, distinguished-point variants, binary-field, Koblitz),
-Pohlig–Hellman, MOV, SSA, the GHS transfer's input guard, rho factoring, ECM, Shor factoring, their
-tests, benches, CLIs and exposition. Out of scope: NFS-DL (including MOV's k=2 log engine), Shor
-factoring's register width (documented, not changed), new algorithms, new crate edges.
+Scope boundary: `rho/src/{ssa,ghs,pairing,factor}`, `rho/src/ecdlp/cli.rs`, `rho/src/curve`,
+`rho/benches/ecdlp.rs`, `shared/numth/src/{ecm,prime}.rs`, their tests and exposition. Out of
+scope: NFS-DL and MOV's k=2 log engine, Shor factoring's register width, removing ECM,
+re-measuring published benchmark numbers (tooling scope), new algorithms, new crate or dependency
+edges (dev-dependencies included), git-history housekeeping.
 
 ## Verify gate
 
 - VERIFY_TYPES: `cargo check --workspace`
 - VERIFY_TEST: `cargo test --workspace`
-- Also mandatory: `cargo dep-policy`, `cargo audit`, `cargo coverage` (80% line floor).
+- Cadence (authority: `docs/development.md`, "Verification cadence"): VERIFY_TYPES and
+  VERIFY_TEST once on the final inputs of each completed code row; `cargo coverage` (80% line
+  floor) at the ◆ boundary and at final delivery, earlier after substantial test removal (rows 2
+  and 7 delete tests and branches — the driver judges), deferred with that checkpoint named at
+  interior rows; `cargo dep-policy` and `cargo audit` when dependency inputs change, on the first
+  active run of each day, and before release. A row with a deferred check is complete under its
+  per-unit gate, never a full-gate pass.
 - Not gates: `cargo fmt-check`, `cargo lint` (unadopted; do not fix drive-by).
-- Cost-gated (not oracles): `cargo test -p shor --test ecdlp_kat -- --ignored` at rows 1–2 (the
-  rho cross-checks call the changed API); `cargo test -p shor --test factor_kat -- --ignored` at
-  row 11.
+- Oracles (manual, only if `gp` is on `PATH`; never a gate): `kat_ssa_pari_cross_check`,
+  `kat_lift_pari_cross_check` at rows 1–2; any `kat_pari_*` row 3 adds.
+- Bench smoke (row 9 only, not a test substitute): `cargo bench -p rho --bench ecdlp -- --test`.
 
 ## Session list
 
 | # | Session | Cat | Tier | Consumes | Expected files |
 |---|---------|-----|------|----------|----------------|
-| 1 @architect | Define a verified rho discrete-log outcome and adopt it in Brent rho | A | T1 (juncture T0) | (existing walks) | `rho/src/ecdlp/{outcome.rs (new),mod.rs,cli.rs,pohlig.rs}`, `rho/tests/{ecdlp_kat,ssa_kat}.rs`, `rho/benches/ecdlp.rs`, `shor/tests/ecdlp_kat.rs` |
-| 2 | Bound the distinguished-point rho solvers and verify their results | B | T1 | C-DlogOutcome | `rho/src/ecdlp/{mod.rs,coordinator.rs,dp.rs,cli.rs}`, `rho/tests/ecdlp_kat.rs`, `rho/benches/ecdlp.rs`, `shor/tests/ecdlp_kat.rs` |
-| 3 | Recover the log from negated distinguished-point collisions | B | T1 | C-DlogOutcome, C-DpBudget | `rho/src/ecdlp/{coordinator.rs,dp.rs,mod.rs}`, `rho/tests/ecdlp_kat.rs` |
-| 4 | Verify Pohlig–Hellman results and name the small-subgroup method | B | T1 | C-DlogOutcome | `rho/src/ecdlp/pohlig.rs`, `rho/src/curve/test_curves.rs`, `rho/tests/{ecdlp_kat,index_calculus_kat}.rs`, `rho/benches/attacks.rs`, `docs/development.md` |
-| 5 | Verify binary-field rho and Koblitz results | B | T1 | C-DlogOutcome | `rho/src/binary_ecdlp/{mod.rs,koblitz.rs}`, `rho/tests/binary_ecdlp_kat.rs` |
-| 6 | Verify MOV results and type its failure classes | B | T1 | C-OutcomeShape | `rho/src/pairing/mov.rs`, `rho/tests/mov_kat.rs`, `rho/benches/attacks.rs` |
-| 7 | Separate SSA failure classes and handle zero logs and large primes | B | T1 | C-OutcomeShape | `rho/src/ssa/{mod.rs,reduce.rs}`, `rho/tests/ssa_kat.rs`, `rho/benches/attacks.rs` |
-| 8 | Reject off-curve and non-subfield points in the GHS transfer | B | T1 | C-OutcomeShape | `rho/src/ghs/{transfer.rs,mod.rs,reduce.rs}`, `rho/tests/ghs_kat.rs`, `rho/benches/attacks.rs` |
-| 9 | Type rho factoring outcomes and bound each attempt | B | T1 | C-OutcomeShape | `rho/src/factor/{rho.rs,mod.rs,cli.rs}`, `rho/tests/factor_kat.rs`, `rho/benches/factor.rs` |
-| 10 | Type ECM factoring outcomes | B | T1 | C-OutcomeShape | `shared/numth/src/{ecm.rs,lib.rs,prime.rs}` (prime.rs added after row 9's discovery; see digest) |
-| 11 | Report Shor factoring provenance and return the minimal order | B | T1 | C-OutcomeShape | `shor/src/shor/mod.rs`, `shor/src/lib.rs`, `shor/tests/factor_kat.rs` |
-| 12 ◆ | Correct the solver-outcome exposition | I | T1 (◆ fork T0) | all | `docs/MATHEMATICS.md`, `docs/PEDAGOGY.md`, `docs/BENCHMARKS.md`, `README.md`, `shor/docs/PEDAGOGY.md`, `docs/development.md` |
-| 13 | Anneal cleanup (skippable) | I | — | none | durable files touched by rows 1–12 |
+| 1 @architect | Type SSA input and invariant failures | A | T1 (juncture T0) | C-OutcomeShape | `rho/src/ssa/{mod.rs,reduce.rs,formal_log.rs,lift.rs}`, `rho/tests/ssa_kat.rs` |
+| 2 | Lift SSA curves non-canonically and drop the halved candidate | B | T1 | C-SsaOutcome | `rho/src/ssa/{reduce.rs,lift.rs,mod.rs}`, `rho/tests/ssa_kat.rs`, `rho/benches/attacks.rs`, `docs/MATHEMATICS.md` §10.2, `docs/PEDAGOGY.md` §11 |
+| 3 | Identify the GHS conorm subfield with `restrict` | B | T1 | C-OutcomeShape | `rho/src/ghs/{transfer.rs,curve.rs,mod.rs}`, `rho/tests/ghs_kat.rs`, `docs/MATHEMATICS.md` §10.3, `docs/PEDAGOGY.md` §12 |
+| 4 | Guard MOV's single-limb field domain in release builds | B | T1 | C-OutcomeShape | `rho/src/pairing/{mov.rs,tate.rs}`, `rho/tests/mov_kat.rs`, `docs/MATHEMATICS.md` §10.5, `docs/PEDAGOGY.md` §10 |
+| 5 | Apply ECM stage-1 prime powers one ladder call at a time | B | T1 | — | `shared/numth/src/ecm.rs`, `shared/numth/docs/PEDAGOGY.md` §5, `docs/MATHEMATICS.md` (ECM) |
+| 6 | Report non-dividing factor candidates as `Inconsistent` | B | T1 | C-OutcomeShape, C-EcmStage1 | `rho/src/factor/{rho.rs,mod.rs}`, `rho/tests/factor_kat.rs`, `shared/numth/src/ecm.rs` |
+| 7 | Certify rho-factoring primes below 2^80 with the 13-base bound | B | T1 | C-FactorInconsistent | `rho/src/factor/rho.rs`, `rho/tests/factor_kat.rs`, `shared/numth/src/prime.rs` (rustdoc), `docs/MATHEMATICS.md` (primality) |
+| 8 | Project the generic rho-dlog curve onto its prime-order subgroup | B | T1 | C-DlogOutcome (prior arc) | `rho/src/curve/generic.rs`, `rho/src/ecdlp/cli.rs`, `rho/tests/ecdlp_kat.rs`, `README.md`, `docs/PEDAGOGY.md` §6 |
+| 9 | Retarget the ECDLP benches to groups that finish | C | T1 | C-DpBudget (prior arc), C-GenericSubgroup | `rho/benches/ecdlp.rs`, `rho/src/curve/test_curves.rs`, `rho/tests/ecdlp_kat.rs`, `docs/BENCHMARKS.md` |
+| 10 ◆ | Correct the follow-up exposition | I | T1 (◆ fork T0) | all | `docs/MATHEMATICS.md`, `docs/PEDAGOGY.md`, `shared/numth/docs/PEDAGOGY.md`, `docs/BENCHMARKS.md`, `README.md`, `rho/src/pairing/{mov.rs,miller.rs}` (rustdoc/comments) |
+| 11 | Anneal cleanup (skippable) | I | — | none | durable files touched by rows 1–10 |
 
-Rows 1→2→3 are sequential (shared walk and coordinator code); 4 and 5 consume row 1's frozen
-contract; 6–11 are mutually independent and follow row order. Row 1 is the inflection point: the
-juncture fork checks the drafted C-DlogOutcome against the walk, coordinator, GLV and Koblitz code
-before row 1 implements it.
+Order: 1→2 (SSA); 5→6→7 (`ecm.rs`, then `rho.rs`); 8→9 (bench may use the projected curve);
+3 and 4 are independent; row order is the run order. Row 1 is the inflection point: the juncture
+fork designs C-SsaOutcome against `rho/src/ssa/*` and the row-2 lift mechanism before row 1
+implements it.
 
 ## Session detail
 
-### 1 @architect — Define a verified rho discrete-log outcome and adopt it in Brent rho
+### 1 @architect — Type SSA input and invariant failures
 
-Deliverable: `rho/src/ecdlp/outcome.rs` with C-DlogOutcome (re-exported from `rho::ecdlp`);
-`solve_brent` returns `Result<DlogSolution<RhoEvidence>, DlogError>`. Validate input first
-(`check_prime_order_input`: G ≠ ∞, G and Q on the curve, n prime via `shared-numth`, n·G = ∞,
-n·Q = ∞), handle Q = ∞ and Q = G as `Trivial`, and verify every collision-derived k with
-`verify_log` (k·G == Q) before returning. Degenerate collisions consume retries; spending all
-retries or hitting the per-attempt step cap is `BudgetExhausted` (fix the rustdoc that calls the
-cap "all retries were degenerate"). A non-degenerate collision that fails verification is
-`Inconsistent`, never retried. The `rho-dlog` CLI drops its own re-check and reports each error
-class distinctly.
+Deliverable per C-SsaOutcome (frozen here by the juncture). `ssa_solve` validates input first
+(G ≠ ∞, G and Q on the curve, `n` used: the anomalous order equals p, n·G = ∞, n·Q = ∞) and
+returns `InvalidInput(SsaInputDefect)`; invariant breaches after the curve is proven anomalous —
+`formal_log.rs`'s v_p(t) < 1 branches (~:92–103, :127–131), `fp_divide_logs`'s non-unit g-log —
+become the dedicated invariant-failure class, not `Padic(..)`. `LiftFailed`/`Padic` survive only
+where the juncture shows they are reachable on validated input. The halving stays until row 2;
+do not change the lift here. `Display`/`source` updated.
 
-The footprint is one atomic unit (irreducible floor): the signature change forces every
-`solve_brent` caller in the same commit — `pohlig.rs` (interim adaptation only; row 4 rewrites
-it), `ssa_kat.rs`, `shor/tests/ecdlp_kat.rs`, the bench and the CLI.
+KATs: each `SsaInputDefect` reachable (off-curve G and Q, G = ∞, wrong n); the invariant class is
+reachable through a unit seam (like `resolve_candidate_*`); existing solve KATs unchanged.
 
-KATs:
-- Fixed-seed fixtures return `Collision` evidence whose identity
-  a1·G + b1·Q = ±(a2·G + b2·Q) the test rechecks from the evidence alone.
-- Q = ∞ → `Trivial` with k = 0; Q = G → `Trivial` with k = 1.
-- Each `InputDefect` variant is reachable (off-curve point, composite n, wrong n, G = ∞).
-- `max_retries = 0` → `BudgetExhausted { attempts: 0, .. }`.
-- `verify_log` rejects k + 1.
+Subtleties: the juncture also fixes the outcome of a second-lift failure (row 2): if two distinct
+non-canonical shifts provably cannot both land in E₂, failure is the invariant class; otherwise a
+typed exhaustion outcome. Pin it in the contract now so row 2 does not reopen the enum.
 
-Subtleties: `check_prime_order_input` costs two scalar multiplications plus a primality test per
-call; fine at these sizes. n·Q = ∞ does not prove Q ∈ ⟨G⟩ when n² divides #E; the residual case
-surfaces as `Inconsistent`, and the rustdoc says so.
+### 2 — Lift SSA curves non-canonically and drop the halved candidate
 
-### 2 — Bound the distinguished-point rho solvers and verify their results
+Deliverable per C-SsaLift. Compute one lifted curve a ↦ a + p·s (s ≢ 0 mod p) and pass it to both
+`lift_point` and `multiply_by_p_proj` (today each reads `curve.a` itself — the single seam); k is
+the raw quotient ψ(p·Q̃)/ψ(p·G̃) mod p on a lift with p·G̃ ∈ E₁ \ E₂; retry one second shift if the
+first lands in E₂, per the contract. Delete `Candidate`, `resolve_candidate`'s halving and their
+unit tests; re-check whether precision k = 8 (`reduce.rs:132`) is still needed and name the
+constant. Read a primary source for the canonical-lift failure (Smart 1999 and/or Leprévost–
+Monnerat–Varrette–Vaudenay 2005) and cite it, or label the claim unverified. Correct MATHEMATICS
+§10.2 (log_Ê applied to G̃ ∉ E₁; "p·G̃ = O in E(Z/p²)"; the halving paragraph; O(log p) vs the
+O(p) multiply loop) and PEDAGOGY §11 (names and signatures).
 
-Deliverable per C-DpBudget: `solve_dp`, `solve_dp_negmap`, `solve_dp_batch` and `solve_dp_glv`
-return the C-DlogOutcome types and take an explicit total-step budget. Walkers stop and the call
-returns `BudgetExhausted` when it is spent, so no input can hang the solver. The coordinator
-returns collision evidence, not a bare k; the solver verifies. `solve_dp_glv` returns
-`Unsupported` off the curve its β/λ constants belong to (check the curve parameters, not a name).
-Walker panic or channel loss is an invariant failure reported as such, not `None`. Delete the
-"should not happen" `None` paths. The single-walker negmap limitation becomes a budget outcome.
+KATs: the stored a = 0 lift of `anomalous_toy` lands in E₂ (valuation 2) via a test seam; every k
+on `anomalous_toy` recovered from the raw quotient on the shifted lift; a second anomalous fixture
+with a ≠ 0 found by a bounded, recorded search (naive point count, small p; `verify_anomalous`
+re-proves it in-tree), every k recovered; `Inconsistent` now invariant-only.
 
-KATs: the existing fixed-seed success fixtures assert evidence identities; a tiny budget →
-`BudgetExhausted` for each variant; GLV on a non-GLV curve → `Unsupported`; replace the
-wall-clock test `glv_fewer_steps_than_negmap` with a step-count comparison if the evidence
-carries step counts (otherwise leave it and record).
+Subtleties: `lift_point` is `pub` and the KATs call it; a signature change touches `ssa_kat.rs`.
+`bench_ssa` asserts `Ok(3)` before timing — keep it true.
 
-Subtleties: pick default-path budgets with headroom so fixed-seed tests cannot become flaky;
-record the chosen values in the digest.
+### 3 — Identify the GHS conorm subfield with `restrict`
 
-### 3 — Recover the log from negated distinguished-point collisions
+Deliverable per C-GhsSubfieldIdentification. Replace the raw-bits reinterpretation
+(`restrict_to_subfield`, `transfer.rs:188–196`) with `shared_gf2m::restrict`, and apply the same
+identification to `extract_ghs_curve`'s coefficients (`curve.rs:182–184`) so curve and transfer
+agree; keep `descent.rs:554`'s basis-coordinate extraction consistent. Reject parameters where
+`poly_l` is not the minimal polynomial of β = α^((2^m−1)/(2^l−1)), or `l ∤ m`, or m > 63
+(`restrict` panics there) with a typed `GhsError` before any transfer.
 
-Deliverable per C-DpSignedCollision. `DpRecord` carries enough to tell P from −P (a y-parity bit)
-and the full x-coordinate (not only the low word). A collision at equal x with opposite sign
-yields k from a1 + b1·k ≡ −(a2 + b2·k) and evidence `negated: true`; unequal full x is not a
-collision.
+KATs: re-derive `transfer_sample_point_known_answer` and `transfer_g_plus_p_known_answer`
+independently of the code (hand basis expansion written in the test doc comment, or an opt-in
+`kat_pari_*`); the expected 2↔3 swap is a hypothesis, not the oracle. Homomorphism and
+log-preservation KATs unchanged; mismatched `poly_l` → the new error.
 
-KATs:
-- Synthetic coordinator test: records for a known P and −P with hand-chosen (a, b) recover the
-  right k (deterministic; the primary evidence).
-- A bounded, recorded seed search on a test curve for a plain `solve_dp` run that hits a negated
-  collision; if found, before the fix it yields `Inconsistent` (record that) and after the fix
-  `Ok` with `negated: true`.
-- Two points sharing their low x word but differing in full x do not collide.
+### 4 — Guard MOV's single-limb field domain in release builds
 
-Subtleties: the bug is inferred from reading the code. If the plain walk provably never meets −P,
-keep the synthetic test, record the reason, continue.
+Deliverable per C-MovDomain. `MovError::Unsupported(&'static str)`; `mov_reduce` rejects p ≥ 2^64
+(any non-zero high word of `curve.p`) before `check_mov_input`'s arithmetic; every single-limb
+conversion on the path — `check_mov_input` (~:216), `tate.rs:132`, and the final exponent
+`exp_u128 as u64` at `tate.rs:147` — is guarded upstream or made exact. The `debug_assert`s may
+remain as internal invariants.
 
-### 4 — Verify Pohlig–Hellman results and name the small-subgroup method
+KATs: a curve with p ≥ 2^64 → `Unsupported` (asserted before any debug assertion fires); a k = 2
+case whose final exponent (p²−1)/ℓ exceeds 2^64, if a fixture exists or is cheaply constructed,
+verifies; existing MOV KATs unchanged.
 
-Deliverable per C-PohligEvidence. First read the primary source (Pohlig–Hellman 1978; the
-Silver–Pohlig–Hellman table formulation) and record whether the order-p sub-step there is a
-table/enumeration over the order-p subgroup. If yes, name the sub-method after the source, keep
-the `p ≤ 64` size dispatch as the method's declared sub-step, and add one clarifying sentence to
-`docs/development.md` rule 5: a size-selected sub-step that is itself the published method's step
-is not a fallback. Return `DlogSolution<PohligEvidence>` with the per-digit method recorded; verify
-k·G == Q after CRT (`Inconsistent` otherwise); check n·G = ∞ (`InvalidInput`); `n = 0` no longer
-panics. Add a composite-order test curve with a prime factor > 64 so the rho branch runs
-end to end. Adapt `attacks.rs` and the oracle use in `index_calculus_kat.rs`.
+Subtleties: `tate.rs:147` may be a live wrong-pairing path on supported k = 2 inputs (see
+Discoveries); every `Ok` is verified, so it would show as `DegeneratePairing`/`Inconsistent`, not
+a wrong k. Record what the fixtures show.
 
-KATs: every k on the new fixture (or a sampled set if costly) with evidence showing both
-sub-methods; the identity residue ≡ k (mod p^e) for each component; existing `composite_toy`
-cases; wrong n → `InvalidInput`.
+### 5 — Apply ECM stage-1 prime powers one ladder call at a time
 
-Subtleties: if the literature does not support the claim, HALT (see Discoveries). The fixture's
-order must be factorable by the existing `factor_order` (u64 trial division).
+Deliverable per C-EcmStage1: `run_stage1` applies q = p^⌊log_p B1⌋ for each prime p ≤ B1 with its
+own `montgomery_ladder` call (it already takes `&Uint<4>`); `stage1_scalar` and its wrapping
+product go; optional early gcd per step. Correct the stage-1 limit text in numth PEDAGOGY §5
+(~:336–344) and MATHEMATICS (~:1286–1295), and the Montgomery-ladder comment beside it.
 
-### 5 — Verify binary-field rho and Koblitz results
+KATs: at B1 ≤ 177 the per-prime point equals the old single-product ladder (projectively); a
+fixture that factors only when a prime power above the old overflow point is applied (bounded,
+recorded search for (n, sigma, B1)); existing ECM KATs unchanged. No new dependency for a big
+reference product.
 
-Deliverable: `binary_ecdlp::{solve_brent, solve}` and `koblitz::solve_koblitz` return
-`Result<DlogSolution<RhoEvidence>, DlogError>`, with binary-curve input checks mirroring row 1 and
-k·G == Q verified. Koblitz evidence carries the τ-power (`lambda_power`) and sign of the class
-equivalence. Remove or use the unused `_t` parameter. Budget and degenerate retries as in row 1.
+### 6 — Report non-dividing factor candidates as `Inconsistent`
 
-KATs: existing binary and Koblitz fixtures assert rechecked evidence identities; the τ eigenvalue
-from `compute_tau_eigenvalues` satisfies τ(P) = λ·P on the fixture; a corrupted eigenvalue gives
-`Inconsistent`, not a wrong `Ok`.
+Deliverable per C-FactorInconsistent: `FactorError::Inconsistent { d: u128 }` and
+`EcmError::Inconsistent { d: Uint<4> }` (both stay `Copy`); d ∈ {1, n} remains a failed attempt; any
+other d failing 1 < d < n, n mod d == 0 returns `Inconsistent` at once, never retried.
 
-### 6 — Verify MOV results and type its failure classes
+KATs: each `Inconsistent` reachable through a private seam (the gcd is correct on real inputs);
+d = n still consumes an attempt; existing outcomes unchanged.
 
-Deliverable per C-MovOutcome: `mov_reduce` returns `Result<MovSolution, MovError>`; verify
-k·G == Q in E[ℓ] (independent of the pairing) before returning; the degenerate pairing becomes
-`DegeneratePairing` instead of a fabricated `DescentFailed { stuck_prime: 0 }`; check ℓ prime,
-ℓ | p^k − 1 and G, Q ∈ E[ℓ] as `InvalidInput`; carry the pairing values as evidence. The k=2 log
-engine stays as it is (NFS-DL scope); its errors pass through as `MovError::Dl`.
+### 7 — Certify rho-factoring primes below 2^80 with the 13-base bound
 
-KATs: existing k ∈ {1, 2} fixtures assert evidence (g_pair^k == h_pair) and verification;
-degenerate R → `DegeneratePairing`; a point outside E[ℓ] → `InvalidInput`.
+Deliverable per C-RhoPrimeBound: read Sorenson and Webster, "Strong pseudoprimes to twelve prime
+bases" (Math. Comp. 2017; arXiv:1509.00864) and confirm ψ₁₂ and ψ₁₃; record the citation in
+`prime.rs` rustdoc (replace "recalled, not re-read"). Then every odd n < `MAX_SUPPORTED` with
+`is_prime` → `Prime`, justified by `shared_numth::MILLER_RABIN_PROOF_BOUND` with a compile-time
+assertion `MAX_SUPPORTED ≤ MILLER_RABIN_PROOF_BOUND`; remove `PRIME_PROOF_BOUND` and the
+`Unsupported`-prime branch; `Unsupported` only for n ≥ 2^80. Correct MATHEMATICS's primality
+passage (~:1095) if it states the rho range.
 
-### 7 — Separate SSA failure classes and handle zero logs and large primes
+KATs: 2^79 − 67 → `Prime` (was `Unsupported`); ψ₁₂ (composite) factors or is not `Prime`; n ≥ 2^80
+→ `Unsupported`.
 
-Deliverable per C-SsaOutcome: Q = ∞ returns `Ok(0)`; a verification failure after the curve was
-proven anomalous is `Inconsistent`, not `NotAnomalous`; `verify_anomalous` counts exactly over
-its supported range (u128 arithmetic) and returns `Unsupported` beyond it rather than a false
-negative. State the mathematical source of the k_raw versus k_raw/2 correction in the rustdoc; if
-both candidates can succeed, record which one did (rule 6).
+Subtleties: if the paper cannot be read, do not raise the bound (see Discoveries).
 
-KATs: Q = ∞ → `Ok(0)`; a large-p anomalous curve no longer reports `NotAnomalous` (or reports
-`Unsupported`, per the chosen range); the existing exact-k and non-anomalous cases.
+### 8 — Project the generic rho-dlog curve onto its prime-order subgroup
 
-Subtleties: if the factor-2 correction turns out to mask a lifting defect rather than follow from
-the formal-log derivation, surface it (additive), do not absorb it.
+Deliverable per C-GenericSubgroup: the `generic` generator becomes G′ = 119·G with order
+n′ = 77_507_328_043_853_087, stored with the curve like `secp_k1_toy`; `GENERIC_N` (composite) and
+its "Computed by Sage" provenance go. README and PEDAGOGY §6 describe `generic` as a prime-order
+subgroup and state which default runs can exhaust their budget (secp-toy Brent: per-attempt cap
+2²⁹ − 1 vs ≈ 2.7·10⁹ expected steps, arithmetic only).
 
-### 8 — Reject off-curve and non-subfield points in the GHS transfer
+KATs: G′ ≠ ∞, n′·G′ = ∞, `is_prime(n′)` (together they prove ord G′ = n′ without the external
+order); Brent's input check accepts (G′, n′).
 
-Deliverable per C-GhsTransferGuard: `transfer_point` returns `Result<_, GhsError>`, checks the
-input is on E and that the conorm coordinates lie in GF(2^l) before reinterpreting them; remove
-`GhsError::PointAtInfinity` if it remains unreachable. Adapt `ghs_descend`, `ghs_kat.rs` and the
-bench.
+### 9 — Retarget the ECDLP benches to groups that finish
 
-KATs: off-curve input → `NotOnCurve`; a non-Galois-invariant conorm → `NotInSubfield`; existing
-homomorphism and log-preservation KATs unchanged.
+Deliverable per C-BenchFixture: every bench in `rho/benches/ecdlp.rs` asserts its solve succeeds
+once before timing (as `bench_ssa` does) on a group sized so one iteration finishes in seconds in
+release; reuse an existing prime-order fixture if one fits, else add one (prime order proved
+in-tree; generator and order found by a bounded, recorded search — an external tool may find,
+never certify). Budgets per C-DpBudget. BENCHMARKS: replace the ecdlp-bench setup description;
+mark old numbers as not re-measured (re-measurement belongs to the tooling scope).
 
-### 9 — Type rho factoring outcomes and bound each attempt
+KATs: the fixture's prime-order test; `cargo bench -p rho --bench ecdlp -- --test` completes
+(smoke, recorded; not a test substitute).
 
-Deliverable per C-RhoFactorOutcome: `factor` returns `Result<Factorization, FactorError>`, checks
-1 < d < n and n % d == 0 independently, carries `Even` or `Rho { c }` evidence, reports n ≤ 1 as
-`InvalidInput`, a prime n as `Prime` only where the primality test is proven on the domain,
-n ≥ 2^80 as `Unsupported` (the `mulmod` domain), and spent constants as `BudgetExhausted`.
-`factor(2)` no longer returns 2. The primitives (`floyd`, `brent`, `brent_batched`) take an
-explicit step bound and keep a documented single-failure `Option` ("this attempt failed"). The
-`rho-factor` CLI distinguishes prime from exhaustion.
+### 10 ◆ — Correct the follow-up exposition
 
-KATs: existing composites with evidence; n ∈ {0, 1} → `InvalidInput`; n ∈ {2, 3, a large prime} →
-`Prime`; n ≥ 2^80 → `Unsupported`; `max_c = 0` → `BudgetExhausted`.
+Deliverable: (a) MOV R = G: `DegeneratePairing`'s rustdoc, the `vertical_at` comment
+(`miller.rs:235–249`) and MATHEMATICS §10.5 / PEDAGOGY §10 say the evaluation point lies on the
+Miller divisor's support (the value is undefined; the tangent-line numerator vanishes), reported
+as `DegeneratePairing`. (b) Sweep superseded claims across all durable surfaces these solvers
+touch, including unchanged passages: the SSA halving and "`LiftFailed` means bad input"; GHS
+"valid only on the fixture"; MOV `debug_assert`-only domain; ECM "B1 ≳ 177 wraps"; `generic`
+composite order; rho factoring "probable prime in [ψ₁₂, 2^80) is `Unsupported`"; `pohlig.rs`'s
+ECM mention. (c) Anneal the arc's durable files against the denylist.
 
-### 10 — Type ECM factoring outcomes
+KAT substitute (prose row): every changed behaviour claim cites the test that exercises it or is
+labelled; flagged as this row's contract.
 
-Deliverable per C-EcmOutcome: `ecm_factor` returns `Result<Uint<4>, EcmError>` with
-`InvalidInput`, `Prime` (only where proven) and `CurvesExhausted { curves }` kept distinct, and
-checks the divisor independently; n = 2 is no longer a trivial-divisor success. Update the
-`shared/numth` re-export. Inline tests live in `ecm.rs`.
+### 11 — Anneal cleanup (skippable)
 
-KATs: a semiprime factors with a checked divisor; n = 2 → `Prime`; `max_curves = 0` →
-`CurvesExhausted { curves: 0 }`.
-
-### 11 — Report Shor factoring provenance and return the minimal order
-
-Deliverable per C-ShorFactorOutcome: `factor` returns `Result<ShorFactorization, ShorFactorError>`
-with `Even`, `PrimePower`, `CommonFactor` (if the driver takes that path) or
-`OrderFinding { a, seed, s, r }` evidence, p·q == n checked; prime n → `NotComposite` before any
-circuit runs; inputs beyond the simulator ceiling → `Unsupported`; spent budget →
-`AttemptsExhausted`. `order_from_phase` returns the multiplicative order: reduce a convergent
-denominator d with a^d ≡ 1 by dividing out prime factors while the identity holds. Fix its rustdoc
-(`≤ N` bound; it returned multiples). Correct the stale seed comments (s = 2389 cannot occur in a
-6-bit register) and make `find_order_returns_valid_order` non-vacuous. The register width stays
-n_bits(N); the rustdoc states the textbook 2^t ≥ N² bound and that sufficiency here is empirical.
-
-KATs: each fixture asserts `OrderFinding` evidence and rechecks a^r ≡ 1 and the gcd step;
-`cf_order_from_phase_n15_a7_s32` now expects 4; prime n → `NotComposite` without a circuit run;
-even n → `Even`.
-
-Subtleties: circuit runs are slow; keep default-path additions few.
-
-### 12 ◆ — Correct the solver-outcome exposition
-
-Deliverable: correct human docs against the frozen contracts: MATHEMATICS's rho, Pohlig–Hellman,
-MOV, SSA and Shor-factoring passages; PEDAGOGY's rho/Pohlig/attack tours (including the
-nonexistent `rho/tests/pohlig_kat.rs` reference near line 1361); BENCHMARKS success claims;
-README CLI descriptions; shor PEDAGOGY's factoring chapter; check that `docs/development.md`'s
-rule-5 clarification from row 4 reads as a standalone rule.
-
-KAT substitute (the row is prose): every published behaviour claim (failure classes, budgets,
-verification) cites the test that exercises it; a claim no test computes is removed or labelled.
-Flagged as the row's contract.
-
-Integrative duty: sweep superseded claims ("should not happen", "None if all retries were
-degenerate", unverified "`Some(k)` with k·G = Q", "sufficient … verified for all four targets")
-across all durable surfaces these solvers touch, including unchanged passages. Anneal the arc's
-durable files against the denylist.
-
-### 13 — Anneal cleanup (skippable)
-
-`/plan-anneal` over the arc's durable files: translate leaked plan coordinates and rewrap ledgered
-line-length overruns. The driver may mark it `skipped` if the ◆ anneal ran clean and no overruns
-were ledgered.
+`/plan-anneal` over the arc's durable files: translate leaked plan coordinates and rewrap
+ledgered line-length overruns. The driver may mark it `skipped` if the ◆ anneal and its fork ran
+clean and no overruns were ledgered.
 
 ## Cross-session contracts
 
 ### C-OutcomeShape
 
-Prose + test-enforced. Defined here. Consumed by 1–11. Every repaired solver follows
-`docs/development.md` rules 1–6 in the shape of `shor::ecdlp::{EcdlpSolution, EcdlpError}`: a
-solution struct (answer plus evidence wherever more than one path can succeed) returned only after
-an exact check independent of the method; a typed error whose variants separate invalid input,
-unsupported domain, resource exhaustion, invariant failure (`Inconsistent`, never retried) and
-proven negatives. A documented single-failure `Option` remains acceptable for primitives. No
-crate edges are added to share types: rho, shor and shared-numth each own theirs.
-
-### C-DlogOutcome
-
-Compiler + test-enforced. **Frozen at 1 (7e48f9b).** **Designed (inflection juncture, checked against
-`rho/src/ecdlp/{mod,coordinator,walk,glv,negmap,pohlig,cli}.rs`, `rho/src/binary_ecdlp/*`,
-`rho/src/curve/*`, `shor/src/ecdlp` and every `solve_brent` caller).** Consumed by 2, 3, 4, 5, 12.
-
-```rust
-// rho/src/ecdlp/outcome.rs, re-exported from rho::ecdlp
-/// k < n and k·G == Q, checked by the solver before returning.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]  // readable everywhere; constructible only inside `rho`
-pub struct DlogSolution<E> { pub k: u64, pub evidence: E }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DlogError {
-    InvalidInput(InputDefect),
-    Unsupported(&'static str),                        // outside the implementation's domain
-    BudgetExhausted { attempts: usize, steps: u64 },  // resource outcome; proves nothing
-    Inconsistent { k: u64 },          // non-degenerate collision whose k fails verify_log
-    InvariantFailure(&'static str),   // execution invariant broke (walker panic, channel lost)
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InputDefect {
-    GeneratorAtInfinity, GeneratorNotOnCurve, TargetNotOnCurve, ZeroOrder, OrderNotPrime,
-    WrongGeneratorOrder, TargetOutsideSubgroup,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RhoEvidence {
-    Trivial,  // Q = ∞ (k = 0) or Q = G (k = 1); no walk ran
-    // a1·G + b1·Q = (−1)^negated · (a2·G + b2·Q)  (mod n), recheckable from the fields alone.
-    Collision { attempt: usize, steps: u64, a1: u64, b1: u64, a2: u64, b2: u64, negated: bool },
-}
-
-pub fn verify_log<F: Fp<4>>(curve: &Curve, g: &AffinePoint<F>, q: &AffinePoint<F>, k: u64)
-    -> bool;
-pub fn check_prime_order_input<F: Fp<4>>(curve: &Curve, g: &AffinePoint<F>,
-    q: &AffinePoint<F>, n: u64) -> Result<(), DlogError>;
-pub fn solve_brent<F: Fp<4>>(curve: &Curve, g: &AffinePoint<F>, q: &AffinePoint<F>, n: u64,
-    seed: u64, max_retries: usize) -> Result<DlogSolution<RhoEvidence>, DlogError>;
-```
-
-Field and variant semantics:
-- `Collision.attempt`: zero-based retry index (Brent attempt `i` uses seed `seed + i`, wrapping);
-  `0` for single-run solvers (distinguished points). `steps`: walk steps counted by the call when
-  the collision was accepted, all attempts and walkers included (a snapshot for parallel solvers;
-  not reproducible there, so tests assert identities, not whole-evidence equality).
-- `BudgetExhausted.attempts`: attempts consumed (Brent: `max_retries`; a distinguished-point run
-  reports 1); `steps`: total walk steps. `max_retries = 0` gives `{ attempts: 0, steps: 0 }`.
-- `check_prime_order_input` order: G = ∞ → `GeneratorAtInfinity`; G, Q off curve →
-  `GeneratorNotOnCurve` / `TargetNotOnCurve`; `n` not prime via `shared_numth::is_prime`
-  (deterministic Miller–Rabin over all of u64; n ∈ {0, 1} → `OrderNotPrime`); n·G ≠ ∞ →
-  `WrongGeneratorOrder`; n·Q ≠ ∞ → `TargetOutsideSubgroup`. `ZeroOrder` exists for the
-  composite-order Pohlig–Hellman check (row 4); the prime-order check never emits it.
-- `Inconsistent` and `InvariantFailure` are both the invariant-failure class: surfaced, never
-  retried or masked. Degenerate collisions (no inverse of the b-difference) are not failures;
-  they consume an attempt.
-
-Prose invariants: every `Ok` (including `Trivial`) passes `verify_log`; solvers obtain `k` from the
-evidence and verify before constructing `DlogSolution`.
-
-Design decisions (deviations from the sharding draft, each reconciled against rows 2–5):
-- **`lambda_power` dropped.** Every endomorphism walk in the tree folds the orbit map into the
-  tracked scalars before comparing points: `glv_canonical` (GLV, row 2) and `tau_canonical`
-  (Koblitz, row 5) return adjusted `(a, b)`, and Brent/DP compare canonical representatives. A
-  collision is therefore between identical canonical points and the identity holds with no
-  endomorphism factor; a non-zero power would also need λ, which no evidence carries, so the
-  identity would stop being recheckable from evidence alone. A wrong eigenvalue corrupts the
-  scalars and surfaces as `Inconsistent` (row 5's corrupted-eigenvalue KAT still works). Row 5's
-  "carries the τ-power and sign" is met by the folded identity; it records this, not a field.
-- **`negated` kept**: row 3's plain DP collision at equal full x with opposite y-parity gives
-  a1 + b1·k ≡ −(a2 + b2·k), so k = −(a1 + a2)/(b1 + b2), degenerate when b1 + b2 ≡ 0. Negmap and
-  GLV canonicalise first, so they report `negated: false`.
-- **`steps` added to `Collision`** so row 2 can replace the wall-clock GLV test with a step
-  comparison (row 2 already counts total steps for its budget).
-- **`InvariantFailure` added** for row 2's walker panic / channel loss, which has no `k`;
-  `Inconsistent { k }` stays specific to failed verification. The enum is frozen, so this has to
-  exist before row 2.
-- **`PointNotOnCurve` split** into generator/target variants so the CLI keeps its distinct
-  messages; **`ZeroOrder` added** for row 4's "`n = 0` no longer panics".
-- **`#[non_exhaustive]` on `DlogSolution`** keeps fields readable (the shape of
-  `shor::ecdlp::EcdlpSolution`) while stopping other crates from constructing an unverified
-  solution (rule 1, "where practical").
-
-Over-specification for consumers:
-- Row 2: DP solvers return `Collision { attempt: 0, negated: false, .. }` until row 3; `steps`
-  from the shared budget counter; GLV off-curve → `Unsupported`; walker panic / early channel
-  close → `InvariantFailure`. `coordinator.rs` has its own `submod64` with the same overflow as
-  below; fix it there.
-- Row 3: `negated: true` only on the opposite-parity relation above.
-- Row 4: `DigitMethod::Rho(RhoEvidence)` wraps the evidence unchanged; composite-order input uses
-  `ZeroOrder` and `WrongGeneratorOrder` (with n composite, n·G = ∞ alone does not prove order n;
-  check (n/p)·G ≠ ∞ for each prime p | n, or let CRT verification surface `Inconsistent`).
-- Row 5: binary twins of `verify_log` / input check live in `binary_ecdlp` (types
-  `BinaryCurve`, `BinaryAffinePoint<F: F2m<1>>`, `Uint<1>`); the `Fp<4>` functions here do not
-  cover them. **Every binary and Koblitz fixture has composite n = 4**, and the binary walk uses
-  extended-gcd inversion by design, so the binary check must not require prime n (no
-  `OrderNotPrime`; degeneracy is gcd(Δb, n) ≠ 1). `compute_tau_eigenvalues` panics when τ^k(G) is
-  outside ⟨G⟩ and enumerates all n multiples: map these to `InvalidInput` / `Unsupported`
-  rather than panicking.
-
-Row-1 implementation notes (from the code check):
-- Forced callers are exactly the row's expected files (`mod.rs` inline tests, `cli.rs`,
-  `pohlig.rs`, `rho/tests/{ecdlp_kat,ssa_kat}.rs`, `rho/benches/ecdlp.rs`,
-  `shor/tests/ecdlp_kat.rs`); no other file calls `rho::ecdlp::solve_brent`.
-  `binary_ecdlp::solve_brent` is a separate function and is untouched. Pohlig's interim adaptation
-  keeps its `Option` signature (`.ok().map(|s| s.k)`), so `attacks.rs` and `index_calculus_kat.rs`
-  are not forced.
-- `cli.rs`: until row 2, the DP branches still return `Option<u64>`, so the Brent and DP paths need
-  separate result handling. Drop the re-check on the Brent path only; keep it on the DP path until
-  row 2 makes those solvers verify too.
-- `mod.rs` `submod64` (`a + n - b`) overflows u64 when n > 2^63 (a debug-build panic on valid
-  input). Rewrite it as `n - (b - a)` instead of declaring a domain bound.
-- **Confirmed:** the CLI's `--curve generic` order `GENERIC_N = 9_223_372_037_218_517_353 =
-  7 · 17 · 77_507_328_043_853_087` is composite. Brent on it could never return a verified `k`;
-  after row 1 it reports `InvalidInput(OrderNotPrime)`, which is the honest outcome and stays. No
-  README or PEDAGOGY example uses `generic`. Flagged recommendation (user decision, not row 1):
-  either project G onto the prime-order subgroup or drop `generic` from the CLI.
-- This contract assumes Q ∈ E[n] with n prime implies Q ∈ ⟨G⟩ except when n² | #E. The residual
-  case surfaces as `Inconsistent`, as row 1's subtleties already state.
-
-### C-DpBudget
-
-Compiler + test-enforced. **Frozen at 2 (1dfe746).** Consumed by 3, 12. The four distinguished-point
-solvers return `Result<DlogSolution<RhoEvidence>, DlogError>` and take an explicit total-step
-budget parameter; no input can make them run unboundedly; `solve_dp_glv` returns `Unsupported`
-off its curve.
-
-### C-DpSignedCollision
-
-Test + prose-enforced. **Frozen at 3 (6cf11c8).** Consumed by 12. A distinguished-point collision
-requires equal full x; opposite y-parity yields the negated relation and `negated: true`.
-
-### C-PohligEvidence
-
-Compiler + test-enforced. **Frozen at 4 (71a72a1).** Consumed by 12.
-
-```rust
-pub fn solve_ecdlp_composite<F: Fp<4>>(curve: &Curve, g: &AffinePoint<F>, q: &AffinePoint<F>,
-    n: u64) -> Result<DlogSolution<PohligEvidence>, DlogError>;
-pub struct PohligEvidence { pub components: Vec<PrimePowerComponent> }
-pub struct PrimePowerComponent { pub p: u64, pub e: u32, pub residue: u64,
-                                 pub digits: Vec<DigitMethod> }
-pub enum DigitMethod { SubgroupEnumeration, Rho(RhoEvidence) }  // name per the primary source
-```
-
-(Frozen name: `SubgroupEnumeration` — Pohlig and Hellman 1978 §IV's order-p step is
-trial-and-error enumeration, not a stored table, so the drafted `SubgroupTable` was renamed.)
-
-Prose invariant: the small-subgroup step is the published method's own size-selected sub-step,
-documented with its source; `docs/development.md` rule 5 says so in one sentence.
-
-### C-MovOutcome
-
-Compiler + test-enforced. **Frozen at 6 (3a35174).** Consumed by 12. `mov_reduce ->
-Result<MovSolution<F>, MovError>`; `MovSolution { k_mod_ell, ell, g_pair, h_pair }` (`#[non_exhaustive]`)
-verified k·G == Q; `MovError { InvalidInput(MovInputDefect), DegeneratePairing,
-Dl(gnfs::dl::SolveDlError), Inconsistent { k_mod_ell } }`; `MovInputDefect { EllNotPrime,
-EllDoesNotDivideFieldOrder, GeneratorAtInfinity, GeneratorNotOnCurve, GeneratorNotInTorsion,
-TargetNotOnCurve, TargetNotInTorsion, PairingPointNotOnCurve, PairingPointNotInTorsion }`.
+Prose + test-enforced. Carried from the prior arc unchanged. Consumed by 1–9. Every solver
+follows `docs/development.md` rules 1–6: success only after an exact independent check; typed
+errors separating invalid input, unsupported domain, resource exhaustion, invariant failure
+(surfaced, never retried) and proven negatives. No crate edges to share types.
 
 ### C-SsaOutcome
 
-Compiler + test-enforced. **Frozen at 7 (9154962).** Shape frozen; `Inconsistent` is
-invariant-only once the non-canonical-lift follow-up (see Discoveries & risks) lands — until then it
-can also mark a canonical-lift input. Consumed by 12. `ssa_solve` keeps
-`Result<u64, SsaError>`; `SsaError` gains `Inconsistent` and `Unsupported`; `NotAnomalous` only on
-an exact count.
-
-### C-GhsTransferGuard
-
-Compiler + test-enforced. **Frozen at 8 (dbc33d2).** Consumed by 12.
-`transfer_point -> Result<_, GhsError>` with `NotOnCurve` and `NotInSubfield`. Final
-`GhsError { SubfieldDivisibility, NonDescendable, NotOnCurve, NotInSubfield }`
-(`PointAtInfinity` removed: ∞ maps to the identity divisor `[1, 0]`).
-
-### C-RhoFactorOutcome
-
-Compiler + test-enforced. **Frozen at 9 (a404982).** Consumed by 12. As built: `Factorization` is
-`#[non_exhaustive]`; `FactorEvidence`/`FactorError` also derive `Copy`; public constants
-`MAX_SUPPORTED` (2^80) and `PRIME_PROOF_BOUND` (the 12-base Miller–Rabin proof bound, ≈ 2^78.1); an odd
-n in [`PRIME_PROOF_BOUND`, 2^80) that tests prime is `Unsupported` (cannot be certified). No
-invariant-failure variant (see digest).
+Compiler + test-enforced. **To be frozen at 1 (inflection juncture designs it).** Consumed by 2,
+10. Draft for the juncture:
 
 ```rust
-pub fn factor(n: u128, max_c: u64, batch_size: usize) -> Result<Factorization, FactorError>;
-pub struct Factorization { pub d: u128, pub evidence: FactorEvidence } // 1 < d < n, n % d == 0
-pub enum FactorEvidence { Even, Rho { c: u64 } }
-pub enum FactorError { InvalidInput, Prime, Unsupported, BudgetExhausted { constants: u64 } }
+pub enum SsaError {
+    InvalidInput(SsaInputDefect),
+    NotAnomalous,                    // exact count only
+    Unsupported(&'static str),
+    Inconsistent { k: u64 },         // valuation-1 lift, k fails k·G == Q (invariant class)
+    InvariantFailure(&'static str),  // breached formal-log / divisor-log invariants
+    // juncture: second-lift exhaustion variant, if not provably impossible
+    // juncture: whether LiftFailed / Padic remain reachable after validation
+}
+pub enum SsaInputDefect { GeneratorAtInfinity, GeneratorNotOnCurve, TargetNotOnCurve,
+                          OrderNotFieldPrime, WrongGeneratorOrder, TargetOutsideSubgroup }
 ```
 
-### C-EcmOutcome
+### C-SsaLift
 
-Compiler + test-enforced. **Frozen at 10 (54c393a).** As built: `EcmError { InvalidInput, Prime,
-Unsupported, CurvesExhausted { curves: u32 } }` (Copy; `Unsupported` is a unit variant);
-`ecm_factor(n: &Uint<4>, b1: u64, b2: u64, max_curves: u32)`; `pub const MILLER_RABIN_PROOF_BOUND`
-(ψ₁₃) re-exported from `shared-numth`. Consumed by 12.
-`ecm_factor -> Result<Uint<4>, EcmError>` with `InvalidInput`, `Prime`, `CurvesExhausted { curves }`,
-and (added after row 9's discovery, by juncture verdict) `Unsupported`: an odd probable prime at or
-above the proven Miller–Rabin bound (ψ₁₃ ≈ 2^81.5 once base 41 is added) cannot be certified.
+Test + prose-enforced. To be frozen at 2. Consumed by 10. `ssa_solve` lifts the curve once
+(a ↦ a + p·s) and uses that one lifted curve for point lifting and multiplication by p; k is the
+raw quotient on a lift with p·G̃ ∈ E₁ \ E₂; no halved candidate exists.
 
-### C-ShorFactorOutcome
+### C-GhsSubfieldIdentification
 
-Compiler + test-enforced. **Frozen at 11 (c20ef50).** Consumed by 12. As built: `CommonFactor` is
-NOT in the enum (the driver draws only bases coprime to n, so the variant could never occur;
-producing it would turn the base scan into trial division — rule 5); `ShorFactorization` is
-`#[non_exhaustive]`; public constants `MAX_QUBITS = 25` (admits n ≤ 4096), `MAX_BASES = 20`,
-`SEEDS_PER_BASE = 8`; `Unsupported { qubits }` = `n_bits(n) + n_bits(n + 1)`; n ≤ 2 → `NotComposite`;
-check order: n ≤ 2, even, prime power, qubit ceiling, trial-division primality, order-finding loop (so
-a large odd prime beyond the ceiling is `Unsupported`, not `NotComposite`).
+Compiler + test-enforced. To be frozen at 3. Consumed by 10. Transfer and curve extraction
+identify GF(2^l) ⊂ GF(2^m) through `shared_gf2m::restrict`; parameters outside `restrict`'s domain
+or with `poly_l` ≠ minpoly(β) are a typed `GhsError`; the transfer constants have provenance
+independent of the code.
 
-```rust
-pub fn factor(n: u64, seed: u64) -> Result<ShorFactorization, ShorFactorError>;
-pub struct ShorFactorization { pub p: u64, pub q: u64, pub evidence: ShorEvidence } // p·q == n
-pub enum ShorEvidence { Even, PrimePower { prime: u64, exponent: u32 },
-                        OrderFinding { a: u64, seed: u64, s: u64, r: u64 } }
-pub enum ShorFactorError { NotComposite, Unsupported { qubits: usize },
-                           AttemptsExhausted { attempts: usize } }
-```
+### C-MovDomain
 
-Prose invariant: `order_from_phase` returns the multiplicative order, not a multiple.
+Compiler + test-enforced. To be frozen at 4. Consumed by 10. `MovError` gains
+`Unsupported(&'static str)`; p ≥ 2^64 is rejected before arithmetic; no silent single-limb
+truncation remains on the `mov_reduce` path.
+
+### C-EcmStage1
+
+Test + prose-enforced. To be frozen at 5. Consumed by 6, 10. Stage 1 applies each prime power
+≤ B1 separately; no product scalar is formed; correct at every B1.
+
+### C-FactorInconsistent
+
+Compiler + test-enforced. To be frozen at 6. Consumed by 7, 10. `FactorError::Inconsistent { d }`,
+`EcmError::Inconsistent { d }`; trivial d is a failed attempt, any other failed divisor check is
+surfaced at once.
+
+### C-RhoPrimeBound
+
+Compiler + test-enforced. To be frozen at 7. Consumed by 10. Odd probable primes below
+`MAX_SUPPORTED` are `Prime`, justified by a compile-time `MAX_SUPPORTED ≤
+MILLER_RABIN_PROOF_BOUND`; `PRIME_PROOF_BOUND` removed.
+
+### C-GenericSubgroup
+
+Test-enforced. To be frozen at 8. Consumed by 9, 10. The `generic` curve's generator has proven
+prime order n′ = 77_507_328_043_853_087 (checked in-tree).
+
+### C-BenchFixture
+
+Test + prose-enforced. To be frozen at 9. Consumed by 10. Every ECDLP bench solves its instance
+before timing; any fixture it adds has in-tree prime-order proof and recorded provenance.
 
 ## Progress ledger
 
-Bindings: PLAN = `docs/PLAN.md`; VERIFY_TYPES = `cargo check --workspace`; VERIFY_TEST = `cargo test
---workspace`; plus `cargo dep-policy`, `cargo audit`, `cargo coverage` per "Verify gate" (separate
-commands, not combined). Run config: no `may-reshard`, no `halt-at-boundaries`.
+Bindings: PLAN = `docs/PLAN.md`; VERIFY_TYPES = `cargo check --workspace`; VERIFY_TEST =
+`cargo test --workspace`; boundary check = `cargo coverage`; freshness checks = `cargo
+dep-policy`, `cargo audit` (separate commands, never combined). Cadence per "Verify gate".
 
-Notes: row 1 — `rho/benches/ecdlp.rs` needed no edit (compiles unchanged on `Result`). Commit
-7e48f9b carries a malformed `Co-authored-by: @build <build@opencode.local>` trailer (should be
-`Claude Sonnet 5.5 <noreply+claude-sonnet@anthropic.com>`); history is not rewritten by the chain —
-fix with `@git-editor` after the run. Later commits pass the exact identity string. Ledger commit
-ba81676's body is also unwrapped (cosmetic; same `@git-editor` pass).
+Gate evidence (one line per check: check, outcome passed/reused/deferred, command and working
+directory, exit status, time, log reference, input identity, environment; deferred → next
+checkpoint): *(none yet)*
 
-Boundary ◆ (after row 12): anneal gate over the arc's 42 durable files ran, one `@build` anneal-fix
-(6252f6a) cleared the real hits; juncture fork returned `still-on-intent` (no halt). Ledger vs plan
-contracts reconciled: Froze column matches the contract headers; sanctioned drift = C-DlogOutcome
-reshaped at the inflection, C-PohligEvidence `SubgroupEnumeration`, C-EcmOutcome `+Unsupported`,
-C-ShorFactorOutcome `−CommonFactor`, C-SsaOutcome `Inconsistent` semantics qualified. The fork found
-the gate regexes too narrow (misses "C-F2m", "Cat-C", "principle 4", "the plan's", Greek
-phase/session ids) and named 18 stale-claim/vocabulary corrections; they ride in row 13 (run, not
-skipped). Out-of-arc "principle-N"/"C1"/ROADMAP survivors (~300 hits, ~70 files, e.g.
-`gnfs/docs/PEDAGOGY.md`) are left and surfaced — the plan classes them additive-reshard.
+Pending checks: *(none)*
 
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
-| 1 | Define a verified rho discrete-log outcome and adopt it in Brent rho | done | 7e48f9b | C-DlogOutcome |
-| 2 | Bound the distinguished-point rho solvers and verify their results | done | 1dfe746 | C-DpBudget |
-| 3 | Recover the log from negated distinguished-point collisions | done | 6cf11c8 | C-DpSignedCollision |
-| 4 | Verify Pohlig–Hellman results and name the small-subgroup method | done | 71a72a1 | C-PohligEvidence |
-| 5 | Verify binary-field rho and Koblitz results | done | 9293b1e | — |
-| 6 | Verify MOV results and type its failure classes | done | 3a35174 | C-MovOutcome |
-| 7 | Separate SSA failure classes and handle zero logs and large primes | done | 9154962 | C-SsaOutcome |
-| 8 | Reject off-curve and non-subfield points in the GHS transfer | done | dbc33d2 | C-GhsTransferGuard |
-| 9 | Type rho factoring outcomes and bound each attempt | done | a404982 | C-RhoFactorOutcome |
-| 10 | Type ECM factoring outcomes | done | 54c393a | C-EcmOutcome |
-| 11 | Report Shor factoring provenance and return the minimal order | done | c20ef50 | C-ShorFactorOutcome |
-| 12 | Correct the solver-outcome exposition ◆ | done | 748528e | — |
-| 13 | Anneal cleanup (skippable) | done | 0ba8dff | — |
+| 1 | Type SSA input and invariant failures | pending | | |
+| 2 | Lift SSA curves non-canonically and drop the halved candidate | pending | | |
+| 3 | Identify the GHS conorm subfield with `restrict` | pending | | |
+| 4 | Guard MOV's single-limb field domain in release builds | pending | | |
+| 5 | Apply ECM stage-1 prime powers one ladder call at a time | pending | | |
+| 6 | Report non-dividing factor candidates as `Inconsistent` | pending | | |
+| 7 | Certify rho-factoring primes below 2^80 with the 13-base bound | pending | | |
+| 8 | Project the generic rho-dlog curve onto its prime-order subgroup | pending | | |
+| 9 | Retarget the ECDLP benches to groups that finish | pending | | |
+| 10 | Correct the follow-up exposition ◆ | pending | | |
+| 11 | Anneal cleanup (skippable) | pending | | |
 
 ## Action-frame digest
 
-### 1 — 2026-11-09
-Discovery/flex: Inflection juncture (design-confident) reshaped C-DlogOutcome: `lambda_power` dropped
-(endomorphism orbit folded into tracked scalars before comparison), `Collision` gained `steps`,
-`DlogError` gained `InvariantFailure`, `InputDefect` split/extended (`GeneratorNotOnCurve`,
-`TargetNotOnCurve`, `ZeroOrder`), `DlogSolution` is `#[non_exhaustive]`.
-Affected: C-DlogOutcome (frozen as implemented; no conflict reported by implementation).
-Deferred: yes — row 5: binary/Koblitz fixtures all have composite n = 4, so the binary input check
-must not require prime n; row 5's "τ-power" is met by the folded identity; row 4: composite-order
-n·G = ∞ alone does not prove order n. CLI `--curve generic` has composite order, so Brent reports
-`InvalidInput(OrderNotPrime)` (user decision pending: project onto prime-order subgroup or drop
-`generic`).
-Texture: per-attempt Brent step cap is 2^29 − 1 (`BRENT_MAX_WINDOW`), consuming a retry rather than
-failing at once; `Inconsistent` is only reachable via `verified()` in tests (no fixture yields a
-real non-degenerate bad collision). Ignored shor cross-check takes ~470 s.
-
-### 2 — 2026-11-09
-Discovery/flex: No contract flex. Chosen budgets: tests `1 << 24` steps (≈5000× headroom over the
-measured 1.1k–3.3k steps on `tiny_a`, 20–110 on `tiny_glv`); CLI default `--max-steps` =
-`64·√n + 64·walkers·batch·2^theta` (saturating); bench `1 << 40`. `StepBudget` is one shared atomic
-counter; walkers claim steps before taking them; batch and GLV claim whole batches (≤ batch_size − 1
-steps unused; a budget below batch_size runs no walk, `steps: 0`). `run_dp_search` (scoped threads)
-replaced four spawn/collect copies; a panicking walker stops the others. `solve_dp_glv` checks
-`curve.p, a, b, n` against `secp_k1_toy` (before input validation); generator not compared.
-`glv_fewer_steps_than_negmap` is now a step-count comparison (sum over 20 seeds, 2× margin; observed
-GLV/negmap 0.62–0.77).
-Affected: C-DpBudget (frozen as implemented).
-Deferred: yes — row 3: plain `solve_dp` still keys by x only, so a P/−P collision now surfaces as
-`Inconsistent` (previously a silent wrong k); `Collision` evidence is `attempt: 0, negated: false`
-until row 3. `rho/src/ecdlp/dp.rs` and `shor/tests/ecdlp_kat.rs` needed no edit. The bench's 62-bit
-group needs ≈2.7·10⁹ steps (not practically runnable; pre-existing).
-Texture: a build subagent returned with its ~8-minute ignored shor cross-check still running in the
-background; the driver reran it itself (7 passed, 303 s) — expect orphaned long tests on later rows.
-
-### 3 — 2026-11-09
-Discovery/flex: The inferred wrong-answer path is confirmed, not hypothetical: plain `solve_dp` meets
-−P. Seed search (`tiny_a`, Q = 1234·G, one walker, budget 2^20, seeds 0..100) at HEAD before the
-fix: θ=0 → 42 `Inconsistent` / 58 `Ok`; θ=1 → 28 / 72; θ=2 → 18 / 82; no exhaustions. After the
-fix the same seeds give the same `Ok` counts plus exactly those runs as `Ok` with `negated: true`
-(first affected seed 0 in each case). Committed KAT uses θ=2, seed 0. `DpRecord` now holds a
-`DpPoint` (Infinity, or full 4-word x plus y-parity bit); infinity matches only infinity; the
-b1 + b2 ≡ 0 case is dropped as degenerate; `addmod64` widens to u128.
-Affected: C-DpSignedCollision (frozen as implemented); no frozen shape changed.
-Deferred: no — row 12 should describe distinguished-point collisions as keyed by full x with a sign,
-and may cite this seed-search record.
-Texture: `Inconsistent` looked rare before only because at larger θ P/−P pairs are rarer; at low θ
-almost every walker hit is a distinguished point.
-
-### 4 — 2026-11-09
-Discovery/flex: The enrolled literature check passed (no HALT): Pohlig and Hellman 1978 §IV (read in
-full text from the author's Stanford copy) implements the order-p_i step either as a table lookup
-or as trial-and-error exhaustion over α^g, g = 0..p_i−1. Silver (unpublished) and Pollard 1978 were
-NOT read; citing rho for the large prime is from memory. Variant renamed `SubgroupTable` →
-`SubgroupEnumeration` (the code enumerates; it stores no table). The paper's own large-p step is a
-time–memory lemma (Knuth-style), not rho: the module doc says so, and rule 5's new sentence covers
-only the small-subgroup enumeration. Input check order: infinity/off-curve → `ZeroOrder` →
-n·G ≠ ∞ → (n/p)·G = ∞ for some p | n (both `WrongGeneratorOrder`) → n·Q ≠ ∞; an enumeration with no
-match is `InvalidInput(TargetOutsideSubgroup)`; the post-CRT `Inconsistent` branch is judged
-unreachable (untested defence in depth). Rho digit errors (incl. `BudgetExhausted`) pass through
-unchanged. Fixture `composite_rho_toy`: y² = x³ + 2x + 3 mod 1009, G = (10, 425), n = 1068 =
-2²·3·89; rho solves ≈0.16 s each in debug, so the KAT samples 51 k's (full 1068 sweep run once:
-passed, 367 s).
-Affected: C-PohligEvidence (frozen with the `SubgroupEnumeration` rename).
-Deferred: yes — row 12 must cite Pohlig and Hellman 1978 §IV only for the small-subgroup step, state
-that the large-prime step is rho (not the paper's time–memory step), and fix the nonexistent
-`rho/tests/pohlig_kat.rs` reference (Pohlig tests live in `rho/tests/ecdlp_kat.rs`).
-Texture: none.
-
-### 5 — 2026-11-09
-Discovery/flex: No contract flex; the folded-identity reading of "τ-power and sign" held (no
-`lambda_power`; `negated` always false for binary/Koblitz). Fixture limitation: on the toy Koblitz
-curve every τ-and-negation orbit shares one x-coordinate, so the canonical tie-break always keeps the
-k = 0 member and only λ₀ is ever consulted; the corrupted-eigenvalue KAT therefore corrupts λ₀, and
-τ-powers above 0 are not exercised end to end. Added public surface beyond the plan:
-`verify_binary_log`, `check_binary_order_input` (never emits `OrderNotPrime`),
-`solve_koblitz_with_eigenvalues`, `TAU_EIGENVALUE_MAX_ORDER` (2^20); `compute_tau_eigenvalues` now
-returns `Result<_, DlogError>` (`Unsupported` instead of panicking). Degenerate composite-order
-collisions (gcd(b2−b1, n) > 1) discard the attempt and consume a retry; with gcd = 1 and
-n·G = n·Q = ∞ a failed verification is a genuine fault, never composite-order bad luck. For a target
-outside ⟨G⟩ with n·Q = ∞, baseline binary Brent ends `BudgetExhausted`, the Koblitz fold can end
-`Inconsistent`; no membership check added (no non-cyclic binary fixture). Fixed `sub_mod_n` overflow
-above 2^63 and `inv_mod_n`'s truncating cast; removed duplicated scalar helpers from `koblitz.rs`.
-Affected: none (C-DlogOutcome consumed unchanged).
-Deferred: yes — row 12: do not claim τ-power coverage beyond power 0; document the Koblitz
-targets-outside-⟨G⟩ behaviour only as tested.
-Texture: none.
-
-### 6 — 2026-11-09
-Discovery/flex: `reduced_tate(R, G)` with R = G returns 0, not 1; the old "degenerate" test only
-passed because `solve_dl` then failed with `DescentFailed`. `mov_reduce` now maps a pairing value of
-0 (or 1 for e(G, R); R = ∞) to `DegeneratePairing`. Q = ∞ is h_pair = 1 → k = 0 (Miller loop is
-undefined at ∞). Input checks also cover the pairing point R ∈ E[ℓ] (added beyond the plan). No
-`Display`/`Error` impls on the new types, following `EcdlpError`/`DlogError`. `Inconsistent` is
-reached only through `log_matches` unit tests (the engine is correct on every fixture).
-Affected: C-MovOutcome (frozen with a typed `MovInputDefect`; `Inconsistent` carries the candidate).
-Deferred: yes — (a) row 12: `docs/PEDAGOGY.md` ~line 880 still shows the old `mov_reduce` signature
-and ~line 911 an old example; `docs/BENCHMARKS.md` says "returns k = 2". (b) Unsurfaced risk: the
-p < 2^64 single-limb limit is enforced only by a `debug_assert` in `fpext_to_bigint`; a larger p is
-silently truncated in release builds and the contract has no unsupported-domain variant. Candidate
-additive item for the user (NFS-DL/gnfs-adjacent, so not absorbed here); `reduced_tate` itself was
-left untouched.
-Texture: none.
-
-### 7 — 2026-11-09
-Discovery/flex: The enrolled lifting-defect risk FIRED. The k_raw / k_raw/2 correction is not derived:
-the fixture (y² = x³ + 5 over F_7, a = 0, CM by Z[ζ₃]) is the canonical lift, where p·P̃ has ψ
-valuation 2 (not 1), so k_raw is a lift-dependent second-order artefact (k_raw = 1, 4, 6, 1, 3, 6 for
-k = 1..6); lifting a → 7, 14, 21 gives valuation 1 and k_raw = k with no halving. Verified
-independently by the juncture fork (arithmetic recomputation at 7^10). Juncture verdict:
-`additive-reshard`, not enacted (`may-reshard` off) → row 7 committed as implemented; every `Ok`
-still passes k·G == Q, so no wrong answer escapes. Row 7 also: `Q = ∞ → Ok(0)`; `verify_anomalous`
-returns `Result<bool, SsaError>`, exact via u128 for p < 2^64, `Unsupported(&'static str)` beyond
-one limb or p < 5; u64 products in `fp_divide_logs`/halving moved to u128 `mul_mod_u64`; new KATs
-include y² = x³ + 2 over F_2738941 (anomalous; x³ overflows u64). `Inconsistent` reached only via
-unit tests (`resolve_candidate_*`); which candidate (Raw/Halved) verified is asserted in unit tests
-only (frozen signature carries no evidence). `Inconsistent` rustdoc corrected to say it can occur on
-valid input on a canonical lift.
-Affected: C-SsaOutcome (frozen as shape; `Inconsistent` semantics qualified).
-Deferred: yes — ROW 12 MUST: (a) fix MATHEMATICS §10.2: it applies log_Ê to G̃ ∉ E₁ and claims
-p·G̃ = O in E(Z/p²) (really p·G̃ ∈ E₁); correct statement: for a lift with p·P̃ ∈ E₁ \ E₂ the map
-P ↦ ψ(p·P̃)/p mod p is a lift-independent homomorphism, k = ψ(p·Q̃)/ψ(p·G̃) mod p; on the canonical
-lift p·P̃ ∈ E₂ and the method breaks (cite a source row 12 actually reads, e.g. Leprévost–Monnerat–
-Varrette–Vaudenay 2005 — NOT read by the fork — or label unverified); (b) one clearly labelled
-paragraph: the implementation lifts the curve as stored; on `anomalous_toy` (a = 0) that is the
-canonical lift, the halved candidate is an empirical compensation with no derivation, correctness
-rests on k·G == Q; cite `kat_ssa_solve_recovers_every_k` and `resolve_candidate_*`; never call the
-halving a property of the formal log or CM; (c) `formal_log` computes log(1 + t) (multiplicative),
-not log_Ê — don't call it "the elliptic formal log"; (d) PEDAGOGY names/signature wrong
-(`hensel_lift_point`/`formal_group_log` vs code's `lift_point`/`elliptic_log_proj`; `Curve<F>`,
-`F: Fp`, `p` vs `Curve`, `F: Fp<4>`, `_n`); (e) MATHEMATICS says O(log p) but the multiply-by-p loop
-is O(p) (toy-scale).
-Texture: `SsaError` has no `InvalidInput` (off-curve/G = ∞ come back as `LiftFailed`; odd order →
-no 2-torsion so `LiftFailed` always means bad input); `_n` is ignored.
-
-### 8 — 2026-11-09
-Discovery/flex: The guard is in front of an unchanged reinterpretation. `transfer_point` checks
-`is_on_curve` (→ `NotOnCurve`), maps ∞ to the identity divisor, computes the conorm sum R, and
-requires each coordinate c to satisfy `c^(2^l) == c` (Galois-invariant under the relative Frobenius;
-→ `NotInSubfield`) before the raw-bits reinterpretation. `NotInSubfield` fixture: toy equation with
-a = 0x02 = α ∉ GF(2²), point (0x01, 0x26), toy `curve_c` unchanged. DISCOVERY: the raw-bits
-`from_uint(bits, poly_l)` reinterpretation is valid only by coincidence on the fixture
-(x²+x+1 ∤ x⁶+x+1, so reducing raw bits is not a general field homomorphism); on GF(4) ⊂ GF(2⁶) it
-maps 0x3b→3, 0x3a→2, whereas `shared_gf2m::restrict` maps 0x3b→2, 0x3a→3 (Frobenius conjugate).
-Switching to `restrict` breaks `transfer_sample_point_known_answer` and
-`transfer_g_plus_p_known_answer` (β and β² swap in v) while the homomorphism and log-preservation
-KATs still pass. Kept the raw reinterpretation so existing KATs are unchanged; the helper's doc
-comment notes its fixture-only validity.
-Affected: C-GhsTransferGuard (frozen; shape untouched by the discovery).
-Deferred: yes — row 12: `docs/PEDAGOGY.md` still shows an older `transfer_point` signature; do not
-claim the GHS transfer's field identification is general. Follow-up for the user (not absorbed):
-switch the reinterpretation to `restrict` and rewrite the two expected constants.
-Texture: none.
-
-### 9 — 2026-11-09
-Discovery/flex: `shared_numth::is_prime` (shared/numth/src/prime.rs) uses 12 Miller–Rabin bases
-(2..37) but its last two table rows (bounds ψ₁₂ = 318,665,857,834,031,151,167,461 ≈ 2^78.08 and
-ψ₁₃ = 3,317,044,064,679,887,385,961,981 ≈ 2^81.5) both use the same twelve bases, and its docs say
-"13-witness set" and "≈ 2^81.6". Confirmed by the juncture fork (code + arithmetic: ψ₁₂ =
-399,165,290,221 × 798,330,580,441 passes bases 2..37 and fails 41, so `is_prime(ψ₁₂)` is a false
-"prime"; the Sorenson–Webster constants are from memory, not re-read). All frozen-contract callers
-(rows 1/4/6 `u64`, `smooth.rs`) are unaffected — 12 bases are deterministic over all u64. Row 9
-handled it locally: `PRIME_PROOF_BOUND` in rho/src/factor/rho.rs; odd n below it that tests prime →
-`Prime`; odd n in [bound, 2^80) that tests prime → `Unsupported` (KAT: 2^79 − 67). Row 9 also:
-`factor(2)` = `Prime`; even n > 2 → d = 2 `Even` with no walk; domain check (n ≥ 2^80 `Unsupported`)
-precedes everything else; `batch_size == 0` (formerly an infinite loop) is treated as 1; per-attempt
-step bound `1024 + 64·⌈n^{1/4}⌉` (one step = one evaluation of f; `floyd` charges 3 per iteration; a
-`brent_batched` re-walk after gcd = n is uncharged, so an attempt may exceed the bound by ≤
-`batch_size`); `max_c` = number of constants c = 1..=max_c tried (c ≡ 0 or n − 2 mod n skipped, not
-counted); `BudgetExhausted { constants }` = walks that actually ran and failed; tiny prime powers
-may need several constants (`factor(25)` needs c = 5), so a small `max_c` can exhaust on a
-composite. Prime powers need no special case (no `Square` evidence).
-Affected: C-RhoFactorOutcome (frozen as built); C-EcmOutcome (widened: `Unsupported` added — see
-juncture verdict `internal-continue`).
-Deferred: yes — ROW 10 DISPATCH MUST: (1) fix `shared/numth/src/prime.rs`: add base 41 to the last
-`DETERMINISTIC_WITNESSES` row; correct the module/`miller_rabin`/`is_prime` docs (12 bases proven below
-ψ₁₂ ≈ 2^78.1; 13 below ψ₁₃ ≈ 2^81.5; above that "probable prime" with no proven bound — remove the
-"negligible" wording; log₂ψ₁₃ is ≈ 81.5, not 81.6); optionally export the bound via `lib.rs`; tests:
-`!is_prime(ψ₁₂)` (fails before the fix) and `is_prime(2^79 − 67)`. (2) ECM: `Prime` only when n = 2
-or n odd, below ψ₁₃ and `is_prime`; even n > 2 → checked divisor 2; odd probable prime ≥ ψ₁₃ →
-`Unsupported`; KATs: 2^89 − 1 → `Unsupported`, `ecm_factor(ψ₁₂)` never `Prime`; check the divisor
-(1 < d < n, n % d == 0) with `Uint` arithmetic independent of the gcd that produced it (`ecm.rs`
-calls `is_prime` only in tests; production `ecm_factor` has no primality test and returns `Some(2)`
-for n = 2). (3) mirror row 9: a failed divisor check is a failed attempt (no invariant variant).
-ROW 12 MUST: correct MATHEMATICS "From probabilistic to deterministic" (~line 1095; 12 bases →
-ψ₁₂ ≈ 2^78.1, +41 → ψ₁₃ ≈ 2^81.5; cite Sorenson–Webster and the regression KAT) and "Why this
-matters" (~line 1103; the claim that ECM tests primality of the found factor is false); fix
-`shared/numth/docs/PEDAGOGY.md` §3 (lines 169–175; same 13/12 and 2^81.6 errors; sweep covers it);
-state that a probable prime between ψ₁₂ and 2^80 is `Unsupported` in rho factoring (2^79 − 67 KAT).
-Optional doc-only follow-up: reword `PRIME_PROOF_BOUND`'s rustdoc in rho/src/factor/rho.rs (it says
-`is_prime` uses "exactly those bases … up to its own documented bound") once prime.rs is fixed.
-Flagged for the USER (not halts): (a) after base 41 is added rho could raise its bound to ψ₁₃ and
-certify all primes < 2^80 (2^79 − 67 would flip `Unsupported` → `Prime`; optional behaviour change);
-(b) C-RhoFactorOutcome and C-EcmOutcome have no invariant-failure variant although C-OutcomeShape
-says invariant failures are a separate variant — adding `Inconsistent` to both is a user-level
-contract choice, cheapest before row 10 freezes.
-Texture: none.
-
-### 10 — 2026-11-09
-Discovery/flex: The row-9 primality discovery was resolved here as instructed. Observed before the
-fix: the new `psi_12_rejected` test failed (18 passed / 1 failed) — `is_prime(ψ₁₂)` returned `true`;
-`bc` confirmed ψ₁₂ = 399165290221 × 798330580441; bases 2..37 accept it, base 41 rejects it;
-2^79 − 67 accepted. Sorenson–Webster (2015) constants recalled, NOT re-read (arithmetic + tests are
-the evidence; prime.rs says so). Fix: base 41 added to the last `DETERMINISTIC_WITNESSES` row;
-module/`miller_rabin`/`is_prime` docs corrected (12 bases proven below ψ₁₂ ≈ 2^78.1; 13 below ψ₁₃ ≈
-2^81.456; above that "probable prime", no proven bound); the fallback `FULL_WITNESSES` is now the
-13-base set (beyond the brief; only strengthens the probable-prime verdict); private
-`TWELVE_BASE_PROOF_BOUND`; `pub const MILLER_RABIN_PROOF_BOUND` (ψ₁₃, u128). ECM classification
-order: n ≤ 1 → `InvalidInput`; n = 2 → `Prime`; even n > 2 → `Ok(2)` with no curves; odd n with
-`is_prime` → `Prime` below ψ₁₃, else `Unsupported`; otherwise up to `max_curves` curves (sigma starts
-at 6). Divisor check `verified_divisor` (1 < d < n, n mod d == 0, `Uint` `rem`); a failing candidate
-counts as a failed curve. `CurvesExhausted.curves` = curves actually run. Callers of `ecm_factor`:
-only inline tests (`pohlig.rs` mentions it in comments only).
-Affected: C-EcmOutcome (frozen as built, incl. the added `Unsupported`). rho's `PRIME_PROOF_BOUND`
-stays at ψ₁₂ — now conservative rather than wrong.
-Deferred: yes — (a) NEW RISK (not fixed; outside scope): ECM `stage1_scalar` builds k with
-`wrapping_mul` in `Uint<4>`; the product of prime powers up to B1 is ≈ e^B1, exceeding 256 bits for
-B1 above ≈ 177, after which the scalar is silently wrong and stage 1 is not B1-smooth (existing tests
-use B1 = 200 and 300 and still pass). Every returned factor is still verified, so this affects ECM
-strength, not outcome soundness. Surface to the user; row 12 must not claim B1-smoothness for large
-B1. (b) Row 12 obligations from row 9's entry stand; `shared/numth/docs/PEDAGOGY.md` is also stale on
-`ecm_factor`'s signature (`-> Option<Uint<4>>`), line numbers and the 12/13-witness claims.
-(c) Option (a)/(b) user flags in row 9's entry remain open (note: C-EcmOutcome froze without an
-invariant-failure variant, mirroring C-RhoFactorOutcome).
-Texture: none.
-
-### 11 — 2026-11-09
-Discovery/flex: Contract narrowed (read from the builder's own report; the row entry's "if the driver
-takes that path" allowed it): `ShorEvidence::CommonFactor` dropped — never produced, since bases are
-drawn coprime to n. Previously unenforced "~25 qubits" ceiling is now `MAX_QUBITS = 25`. Attempt
-budget: 20 bases × 8 runs, seeds `seed + 1000·base_index + run_index`; `AttemptsExhausted.attempts` =
-circuit runs actually made (fewer than 160 for small n; n = 15 has 7 coprime bases); a private
-`factor_with_budget` lets a unit test exhaust a tiny budget with no circuit. `order_from_phase`: first
-convergent denominator d ≤ N with a^d ≡ 1, then `reduce_to_order` divides out each prime f | d while
-a^(d/f) ≡ 1 holds (requires N < 2³² so `mod_pow` products fit u64). Fixtures: (15, 0) → a=2, s=4,
-r=4; (21, 0) → 2, 27, 6; (35, 7) → 2, 59, 12 (renamed `factor_35_seed7`; the old `factor_35_seed8`
-passed only via a retry at seed 13); (91, 1) → 2, 53, 12. `find_order_returns_valid_order` is
-non-vacuous (five cases); `find_order(2, 15, 1)` is `None`; `factor_returns_valid_factorization`
-removed (fixtures cover it). Register width stays n_bits(N); rustdoc states the 2^t ≥ N² bound and
-that sufficiency is empirical. Gate: `factor_kat` 33 passed in ≈ 12 s; the ignored cross-check
-(`find_seed_for_91`) run by the driver: 1 passed, 18.6 s. shor still has no direct `shared-numth`
-edge (a transitive one pre-exists; no manifest changed).
-Affected: C-ShorFactorOutcome (frozen as built, `CommonFactor` removed).
-Deferred: yes — row 12: shor PEDAGOGY's factoring chapter and `docs/MATHEMATICS.md:3906` (still names
-`shor/src/shor.rs`); describe the check order, the ceiling constant, and `n ≤ 2 → NotComposite`.
-Texture: none.
-
-### 12 — 2026-11-09
-Discovery/flex: Docs-only row; seven files (`shared/numth/docs/PEDAGOGY.md` added to the sweep by the
-juncture verdict). Every behaviour claim cites an existing test by file + name (driver spot-checked 14
-of them by grep) or is labelled: "no test / code reading" (Brent per-attempt cap 2²⁹−1, rho-factoring
-step bound and skipped constants, ECM stage-1 overflow, binary/Koblitz targets outside ⟨G⟩, Pohlig
-`n·Q ≠ ∞`, MOV p < 2^64, SSA `p < 5`), "exploratory" (SSA k_raw sequence 1,4,6,1,3,6 and the E₂
-observation; GLV/negmap ratio 0.62–0.77), "unverified" (the SSA attack fails on the canonical lift;
-no source cited), "arithmetic only, benches not run" (~2.7·10⁹-step estimate). Overclaims removed
-(ECM "used inside NFS/Pohlig", "certify found factors", "(or a divisor of r)", the √3 GLV speedup as
-tested, "all five rho variants on secp_k1_toy"). BENCHMARKS' Shor-factoring section was substantially
-wrong (seed 7 not 8; wrong amplitude and qubit counts) and was rewritten. Contract-vs-code
-disagreements (code authoritative): rho factoring's step bound is ⌊n^{1/4}⌋+1 (digest/ledger said
-⌈n^{1/4}⌉); C-SsaOutcome's "invariant-only after follow-up" holds only after the lift fix (docs say
-`Inconsistent` can occur on valid input on the canonical lift); `factor(25)` "needs c = 5" is not pinned
-by any test and is uncited. Other surfaced facts: `ecm_factor` has no in-tree caller except its own
-tests; by arithmetic the default `rho-dlog` Brent run on `secp-toy` (and `bench_brent`) would most
-likely end `BudgetExhausted` (per-attempt cap 2²⁹−1 vs expected ≈ 2.7·10⁹) — not run; pre-existing
-behaviour (previously `None`).
-STALE SOURCE COMMENTS (not edited — outside row 12's files; for the anneal sweep): `rho/src/factor/rho.rs:46-47`
-("uses exactly those bases … proof only below this value": `is_prime` now uses 13 bases from ψ₁₂;
-"≈ 2^78.0" should be 78.1), `:95` and `:389` ("⌈n^{1/4}⌉"), `:5` ("the plan's 30–80-bit target range");
-`rho/src/ssa/formal_log.rs:1,4,14,36` and `reduce.rs:8,70,147` ("elliptic formal-group logarithm" — it
-is log(1 + t)), `formal_log.rs:84` ("should not happen"), `ssa/mod.rs:3` ("polynomial time" — O(p));
-`rho/tests/ssa_kat.rs:370-372,410` (factor 2 attributed to CM); `rho/src/ecdlp/mod.rs:1804`
-("demonstrating the √3 speedup" — test asserts ≤ 2×) and `:1018` (√6/√3 as fact); `rho/benches/ecdlp.rs:4,14-17`
-("≈ sqrt(k)" — cost is √n); `shared/numth/src/ecm.rs:387-388` (Montgomery-ladder comment beside the
-wrapping scalar); `rho/src/ecdlp/pohlig.rs:41-42,104-105` ("`ecm_factor` available as a fallback" —
-unused, and "fallback" contradicts rule 5); `rho/src/ghs/descent.rs:384` ("should not happen");
-`rho/src/binary_ecdlp/mod.rs:4,54` ("parallel implementation") and `koblitz.rs:350` (√(2m) speedup as
-fact). PLAN-vocabulary in source (pre-existing denylist hits): "Principle-4 annotation/boundary" in
-~40 places across `rho/src/{ssa,ghs,pairing,semaev,binary_curve,ecdlp/pohlig.rs}` and tests;
-`C-PadicLog`/`C-Padic`/`C-Hensel` in `rho/src/ssa`; `C-F2m` and "Cat-C baseline rule" in
-`rho/src/binary_ecdlp/koblitz.rs:5,35`; `C-ModExp` in `shor/src/shor/mod.rs:9,22`; "principle 4" in
-`shor/tests/factor_kat.rs`; and in `shared/numth/docs/PEDAGOGY.md` lines 23, 24, 44-48, 130, 233-240,
-361, 397, 404, 452-455, 460-462 (session ids, `G.C`/`D.A`/`E.K`/…, "Phase α", "Contract C1",
-"ROADMAP"); `docs/development.md:25` references `docs/NOTES.md`. Other pre-existing drift: README rho
-layout lists nonexistent `field/`, `util/`; `docs/PEDAGOGY.md` cites `src/util/batch_inv.rs`.
-Affected: none (every frozen contract consumed as built).
-Deferred: no — hand the stale-comment and denylist lists above to the boundary anneal gate / row 13.
-Texture: none.
-
-### 12 boundary — 2026-11-09
-Discovery/flex: Fork verdict `still-on-intent`. Purpose met: every in-scope solver verifies before
-returning, with typed errors; DP walks budgeted; the P/−P wrong-answer path and the Miller–Rabin
-false prime at ψ₁₂ fixed; provenance recorded where several paths can succeed. New findings:
-`rho/src/ssa/formal_log.rs:82-86` reports a breached invariant (v_p(t) < 1 after the curve is proven
-anomalous) as `SsaError::Padic(InvalidParams { k: 0 })` — a class mislabel, inferred unreachable on
-valid input; fold into the SSA follow-up. SSA naming defect is description-only (inferred:
-log(1+t) − t has valuation ≥ 2·v_p(t); E's formal log is t + O(t⁵) for short Weierstrass curves, so
-the leading-unit quotient is unchanged). `shor/src/lib.rs:12,74`, `shor/tests/ecdlp_kat.rs:46`,
-`shor/tests/factor_kat.rs:426`, `rho/src/binary_ecdlp/koblitz.rs:5,35`, `shared/numth/docs/PEDAGOGY.md`
-(:11,13,129-130,256,263,403) carry plan vocabulary the gate regexes missed.
-Affected: none (frozen contracts consumed as built).
-Deferred: yes — ROW 13 carries the fork's 18 corrections (comments/rustdoc/docs only; no behaviour
-change; files outside the arc's lists allowed): rho/src/factor/rho.rs:46-48,95,389,5; factor_kat.rs:9;
-factor/mod.rs:3; ssa/formal_log.rs (all labels + :84); ssa/reduce.rs:8,70,147,331,(126); ssa/mod.rs:3;
-ssa_kat.rs:370-374,410; ecdlp/mod.rs:1803-1805 (and label :1018, cli.rs:35, README.md:323,
-optionally glv.rs:9-10, benches/ecdlp.rs:164-165 as "expected, not measured"); koblitz.rs:350-351,5,35;
-binary_ecdlp/mod.rs:4; benches/ecdlp.rs (34-bit not 35; drop "demonstrating the speedup"; cost ∝ √n ≈
-2.7·10⁹ steps; Brent bench likely `BudgetExhausted`); ecm.rs:373-376,387-388; pohlig.rs:41-42,104-105
-(drop "fallback"); shor lib.rs/test "principle 4"; numth PEDAGOGY items. Harmless: decompose.rs:229,
-descent.rs:384 (stale, optional), binary_ecdlp/mod.rs:54, ssa_kat.rs:165, `shared/padic` and
-`rho/src/lib.rs:26` "formal-group logarithm", prime.rs:198 "13-witness set" (now true),
-`docs/SURVEY.md`, [S09] keys, "Phase 64/256".
-Texture: the first anneal pass was green by the gate's own regexes yet left real leaks — treat the
-widened denylist in Notes for executors as the standard.
-
-### 13 — 2026-11-09
-Discovery/flex: Not skipped: the ◆ anneal gate was green only by its own narrow regexes, and the
-boundary fork named 18 stale-claim/vocabulary corrections that rode here (22 files, comments/rustdoc/
-docs only; the driver confirmed zero non-comment code-line changes and no changed test functions).
-Judged against the code, three prescribed statements were softened by the builder: Koblitz — "only the
-τ-power-0 representative is exercised" was unverifiable (the toy group has order 4 and τ acts as ±1,
-so orbits have ≤ 2 points; the larger collapse is not exercised); the Brent bench "most likely
-`BudgetExhausted`" holds only roughly (per-attempt cap 2²⁹ − 1 ≈ 5.4·10⁸ steps ≈ 0.25·√n, ≤ ~3% per
-attempt by a crude birthday estimate; not run); `Fp::sqrt`/`legendre` never call `is_prime`
-(numth PEDAGOGY now says neither checks primality). `formal_log.rs` (`elliptic_log_proj` not renamed)
-was rewritten around log(1 + t) at t = −X/Y; `ghs/descent.rs` heading renamed; `ecdlp/glv.rs`,
-`rho/src/lib.rs` and README touched. Widened denylist over the arc's 42 files plus the 22 touched:
-only domain terms remain (bibliography keys/section refs, quantum "Phase 64/256").
-Affected: none.
-Deferred: yes (user-facing, for the exit report) — (a) ~100 "principle 4"/"Principle-4" and ~300
-total plan-label survivors outside the arc's files (`gnfs/`, `shared/padic`, `shared/gf2m`,
-`rho/src/{semaev,ghs,hyperelliptic,binary_curve,pairing,ssa/lift.rs}`, `shor/src/{sparse,qft,statevec,
-arith}`, `shor/tests/qft_kat.rs`, `shared/numth` outside PEDAGOGY, `gnfs/docs/PEDAGOGY.md`); (b)
-`docs/PEDAGOGY.md` 590–731 state √3/√6 walk-length reductions as theory-derived expectations (lines
-604, 630, 702, 712, 731 without the word "expected"; not contradicted by any test); (c) a stale
-`git stash` entry (`stash@{0}`, "WIP on master: d50ab68", the row-8 builder's `restrict` experiment —
-the work it mirrors is committed in dbc33d2; left in place, drop it if unwanted).
-Texture: none.
+*(none yet)*
 
 ## Discoveries & risks
 
-- **Boundary ◆ (after row 12):** still-on-intent; user sign-off items now listed in the exit report
-  (SSA follow-up + `SsaError::InvalidInput`; GHS `restrict`; MOV p < 2^64; ECM stage-1 overflow; CLI
-  `generic`; `rho-dlog` default Brent on `secp-toy`; rho/ECM invariant variant; rho bound ψ₁₃;
-  `@git-editor` trailer fix; `formal_log.rs` `Padic` mislabel; README layout/`util` drift).
-- **Row 10 (risk, surfaced):** ECM stage-1 scalar silently overflows 256 bits for B1 ≳ 177 (strength
-  only; returned factors are verified). Not fixed; surface to the user.
-- **Row 9 (internal-continue, verified by juncture fork):** `shared_numth::is_prime` returns a false
-  "prime" for ψ₁₂ and between ψ₁₂ and ψ₁₃ (docs wrong; fix scheduled in row 10; see digest).
-- **Row 8 (risk, surfaced):** GHS transfer's GF(2^l) reinterpretation is a fixture coincidence, not
-  a general homomorphism; correct fix (`restrict`) rewrites two known-answer constants. Not enrolled;
-  surface to the user.
-- **Row 7 (additive-reshard verdict, NOT enacted — `may-reshard` off; SURFACE TO USER):** the SSA
-  halving masks a degenerate canonical lift. Proposed follow-up (Cat B, T1, after the run): files
-  `rho/src/ssa/{reduce.rs,lift.rs,mod.rs}`, `rho/tests/ssa_kat.rs`, plus the SSA paragraphs in
-  MATHEMATICS §10.2 and PEDAGOGY §11. Lift the curve non-canonically (a → a + p·s; `lift_point` must
-  use the same lifted curve as the multiply-by-p loop); delete the halving and the `Candidate` enum;
-  rule 4 permits a second lift if the first lands in E₂ (prob ≈ 1/p); re-check whether precision 8
-  is still needed; KATs: every k on the fixture comes out Raw with valuation 1, the stored a = 0 lift
-  is shown to land in E₂, and at least one second anomalous fixture with a ≠ 0. Also flagged for
-  the user: whether `SsaError` should gain `InvalidInput` (contract change; user's call). Rows 8–11
-  are independent of SSA and proceed.
-- **Row 6 (risk, surfaced):** MOV's p < 2^64 limit is a `debug_assert`-only domain check (silent
-  truncation in release); `reduced_tate(R, G)` with R = G returns 0. Neither fixed; see digest.
-- **Row 4 (confirmed, no HALT):** literature supports the order-p enumeration claim (see digest).
-- **Row 3 (confirmed):** the P/−P defect is real (see digest); fixed in row 3.
-- **Row 1 (internal-continue):** CLI `--curve generic` order `9_223_372_037_218_517_353` is composite
-  (7 · 17 · 77_507_328_043_853_087); Brent on it is now `InvalidInput(OrderNotPrime)`. Flagged for
-  the user: project G onto the prime-order subgroup or drop `generic`; not an enrolled row.
+Carried down from ROADMAP and the sharding survey; phrased for adjudication.
 
-- **Inferred (sharding), enrolled 3:** plain `solve_dp` keys distinguished points by the low x
-  word only, so a P/−P collision may return a wrong k. If the walk provably never meets −P:
-  internal-continue (keep the synthetic KAT; record why).
-- **Inferred, enrolled 4:** the Pohlig–Hellman/Silver order-p step is a table over the subgroup.
-  If the primary source does not support this: **destructive-HALT** — the user's choice to keep
-  the enumeration rests on it; the alternatives (rho on tiny groups, baby-step giant-step) are a
-  scope decision.
-- **Inferred, enrolled 5:** a wrong τ eigenvalue would give a silently wrong Koblitz k. If
-  verification fails on a fixture: internal-continue fix within `binary_ecdlp`; record.
-- **Inferred, enrolled 7:** the SSA k_raw/2 correction's mathematical source is unstated. If it
-  masks a lifting defect: additive-reshard (surface, do not absorb).
-- **Confirmed:** Pohlig–Hellman's end-to-end tests never reach rho (all primes ≤ 5); Shor
-  factoring's `order_from_phase` returns multiples (its own test expects 8 for order 4); no rho
-  solver verifies k·G == Q internally except SSA.
-- **Internal-continue:** call-site-only adaptation in a file outside a row's expected files when
-  the compiler forces it; budget defaults and seed re-selection by a bounded recorded search;
-  replacing the wall-clock GLV test with a step comparison.
-- **Additive-reshard (surface, do not absorb):** MOV's k=2 log engine and NFS-DL's `solve_dl`;
-  Shor factoring register width; deduplicating `iqft_on_qubits`; principle-N label survivors
-  outside a row's files; any new crate edge.
-- **Destructive-HALT:** verification shows a solver returning wrong answers on existing fixtures
-  in a way not fixable inside its module; or a contract needs a crate edge to hold.
-- **Preflight:** PLAN and ROADMAP will be dirty after sharding; commit them before `/plan-run`.
+- **Inferred (survey), enrolled 4:** `tate.rs:147` truncates the final exponent (p^k−1)/ℓ to u64;
+  for k = 2 it exceeds 2^64 once p ≳ 2^32·√ℓ, so supported inputs may get a wrong pairing value.
+  Verification catches any wrong k. Internal-continue; record whether a fixture was affected.
+- **Confirmed (survey), enrolled 3:** the two GHS transfer constants have no independent
+  provenance; `extract_ghs_curve` uses the same raw-bits reinterpretation. If an independent
+  derivation disagrees with both the raw and the `restrict` outputs: **destructive-HALT** (the
+  transfer itself is suspect).
+- **Inferred (ROADMAP, recalled literature), enrolled 2:** a non-canonical lift gives valuation 1.
+  If shifted lifts still land in E₂ generically: **destructive-HALT** (the repair's premise is
+  wrong). If the a ≠ 0 fixture search fails inside its bound: internal-continue, record, narrow
+  the KAT.
+- **Recalled (ROADMAP), enrolled 7:** Sorenson–Webster constants. If the paper cannot be read or
+  disagrees: additive-reshard — keep ψ₁₂ behaviour, surface; never raise the bound on a recalled
+  constant.
+- **Confirmed (survey), enrolled 8:** `GENERIC_N` = 7·17·77_507_328_043_853_087 ("Computed by
+  Sage"). If n′·G′ ≠ ∞: additive-reshard (surface; dropping `generic` is the user's fallback
+  decision).
+- **Inferred, enrolled 5:** Z ≡ 0 modulo a factor persists through later ladder calls, so the
+  final gcd still detects it; if stage 2 depends on stage 1's point semantics, internal-continue.
+- **Internal-continue:** call-site adaptation outside a row's files when the compiler forces it;
+  bounded recorded fixture searches; test-seam additions for unreachable invariant variants.
+- **Additive-reshard (surface, do not absorb):** NFS-DL `solve_dl` and MOV's k=2 engine; Shor
+  register width; ECM removal; benchmark re-measurement; plan-label survivors outside the rows'
+  files (project-wide anneal scope); `@git-editor` trailer fix and the stale stash.
+- **Destructive-HALT:** an `Ok` returns a wrong answer on an existing fixture that the module
+  cannot fix; a contract needs a new crate or dependency edge.
+- **Preflight:** commit the working-tree cadence edits (`AGENTS.md`, `docs/development.md`) and
+  the new PLAN/ROADMAP before `/plan-run`.
 
 ## Notes for executors
 
 **Sizing.**
-- (1) Ambient complexity is moderate-high: `rho/src/ecdlp/mod.rs` is 1432 lines with threaded
-  walkers; the other modules are small.
-- (2) The floor is set by row 1's signature change (all callers at once) and row 2's shared
-  coordinator; neither is a split candidate.
-- (3) Cost of a design error is high for row 1 (consumed by rows 2–5), which put an inflection
-  juncture on it; moderate elsewhere.
-- (4) Correctness-criticality is high: the arc exists because results go unchecked. This drove
-  the 2|3 split.
-- (5) Inner-loop bandwidth is high for rho and numth (fast tests), low for Shor factoring
-  (circuit runs).
+- (1) Ambient complexity is moderate: SSA and GHS are small modules with intricate mathematics.
+- (2) The floor is row 2: the shared lift, `Candidate` removal, fixture search and §10.2
+  correction are one unit — not split.
+- (3) Cost of a design error is highest for the `SsaError` shape (consumed by row 2), which drove
+  the 1|2 split at the enum freeze and the inflection juncture on row 1.
+- (4) Correctness-criticality is high, as in the prior arc.
+- (5) Inner-loop bandwidth is high: rho and numth tests are fast; no row touches Shor circuits.
 
-Outlier check: rows 6, 7, 8 and 10 are below the usual band; they stay separate because they are
-independent modules (no catch-all row). Row 1's eight files are one atomic signature change, mostly
-call-site edits. No row uses F/C: the rows are small and tightly steered.
+Outlier check: rows 6 and 7 are small and share `rho.rs`; kept separate because 7 carries its own
+literature read and behaviour flip (user decision). Rows 8 and 9 kept separate (different
+surfaces; 9's fixture search is its own experiment). Row 10 is the only cross-module row and is
+prose. No row uses F/C: rows are small and the coverage floor is workspace-wide.
 
 **Routing.** T1 implements every row; T0 runs the row-1 inflection juncture and the ◆ boundary
 fork.
 
-**Outcome contract.** `docs/development.md`, "Solver outcomes and fallbacks", is the authority;
-`shor/src/ecdlp/mod.rs` is the worked reference shape.
-
-**Register.** State the property or invariant, never the plan coordinate. Exposition goes in the
-sections row 12 names; no new chapters.
+**Register.** State the property or invariant, never the plan coordinate. Each row corrects the
+exposition its change falsifies, in the sections named; no new chapters.
 
 **Anneal denylist** (grep enrolled durable files at ◆, excluding PLAN/ROADMAP/NOTES/SURVEY/AGENTS):
 
     \bS[0-9]+\b
-    sub-track|frozen contract|action-frame|◆|\bCat [ABCI]\b
-    \bC-[A-Z][A-Za-z]+\b
-    \b[A-H]\.[A-Z0-9]+\b|[Pp]rinciple-?[0-9]+
-    \bTrack [A-Z]\b|\bPhase [0-9]+\b
-    (PLAN|ROADMAP|NOTES|SURVEY)(\.md)?\b|plan-(run|shard|juncture)
+    sub-track|frozen contract|action-frame|◆|\bCat-?[ABCI]\b
+    \bC-[A-Z][A-Za-z0-9]+\b
+    \b[A-H]\.[A-Z0-9]+\b|[Pp]rinciple[- ]?[0-9]+
+    \bTrack [A-Z]\b|\bPhase [0-9]+\b|\bPhase [α-ω]|[α-ω]\.[0-9]+
+    (PLAN|ROADMAP|NOTES|SURVEY)(\.md)?\b|plan-(run|shard|juncture)|\b(the|per the) plan\b
 
-Widened at the row-12 boundary (the originals missed these variants):
-
-    \bC-[A-Z][A-Za-z0-9]+\b|\bCat-?[ABCI]\b
-    [Pp]rinciple[- ]?[0-9]+
-    \bPhase [α-ω]|[α-ω]\.[0-9]+
-    \b(the|per the) plan\b
-
-KAT, algorithmic step numbers, group notation (S₃, S4), bibliography keys ([S09]) and quantum
-phase terminology are domain terms: classify collisions, do not rename.
+KAT, algorithmic step numbers, group notation (S₃, S4), bibliography keys ([S09]), E₁/E₂
+filtration indices and quantum phase terminology are domain terms: classify collisions, do not
+rename.
 
 **First run:** after committing the planning docs, from `@plan-admin`:
 
-    /plan-run docs/PLAN.md halt-at-boundaries
+    /plan-run docs/PLAN.md
