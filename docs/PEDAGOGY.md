@@ -1106,7 +1106,7 @@ pub fn mov_reduce<F: Fp<4>>(
 
 pub struct MovSolution<F> { pub k_mod_ell: u64, pub ell: u64,
                             pub g_pair: FpExt<F>, pub h_pair: FpExt<F> }  // #[non_exhaustive]
-pub enum MovError { InvalidInput(MovInputDefect), DegeneratePairing,
+pub enum MovError { InvalidInput(MovInputDefect), DegeneratePairing, Unsupported(&'static str),
                     Dl(gnfs::dl::SolveDlError), Inconsistent { k_mod_ell: u64 } }
 ```
 
@@ -1121,11 +1121,15 @@ holds in the returned solution.
 | `Ok(MovSolution { k_mod_ell, ell, g_pair, h_pair })` | verified `k mod ℓ`; `g_pair^k = h_pair`, `g_pair ≠ 1`, `g_pair^ℓ = 1` | `mov_reduce_recovers_k1`, `mov_reduce_recovers_k2`, `mov_reduce_recovers_k0_for_target_at_infinity` (`rho/tests/mov_kat.rs`) |
 | `Err(InvalidInput(defect))` | `ℓ` not prime, `ℓ ∤ p^k − 1`, `G = ∞`, or `G`, `Q`, `R` off the curve or outside `E[ℓ]` | `mov_reduce_rejects_composite_ell`, `mov_reduce_rejects_ell_not_dividing_field_order`, `mov_reduce_rejects_infinite_generator`, `mov_reduce_rejects_off_curve_points`, `mov_reduce_rejects_points_outside_e_ell` |
 | `Err(DegeneratePairing)` | `R = ∞`, `e(G, R) = 1`, or a Miller evaluation of `0` (as for `R = G`): `R` is not a μ_ℓ-generator for `G` | `mov_reduce_degenerate_r_is_degenerate_pairing`, `mov_reduce_infinite_r_is_degenerate_pairing` |
+| `Err(Unsupported(..))` | `p ≥ 2^64` (a non-zero word above the lowest), reported before any arithmetic on `p` | `mov_reduce_rejects_field_above_one_limb` |
 | `Err(Dl(..))` | the `solve_dl` error, passed through unchanged | not exercised |
 | `Err(Inconsistent { k_mod_ell })` | the engine's value fails `k·G == Q`; an invariant failure | `log_matches_accepts_only_the_true_log` (unit, `src/pairing/mov.rs`; checks the verifier, no fixture reaches it) |
 
-The single-limb limit `p < 2^64` of the bridge is checked only by a `debug_assert`, so a release
-build would truncate a larger `p` silently; no test covers it.
+The single-limb limit `p < 2^64` of the bridge is enforced by `mov_reduce` as an error
+(`Unsupported`), in release builds too, so no later conversion truncates. The final exponent
+`(p^k − 1)/ℓ` is computed exactly (it can exceed one limb even for a one-limb `p`);
+`reduced_tate_with_exponent_above_one_limb_lands_in_mu_ell` (`src/pairing/mov.rs`) checks it on
+`y² = x³ + 1` over `F_68719476767`.
 
 The pairing infrastructure:
 - `rho::pairing::miller` — Miller's algorithm (the efficient pairing evaluation).

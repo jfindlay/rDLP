@@ -31,8 +31,10 @@
 //!
 //! # Scale limits
 //!
-//! The `Uint<4> → BigInt` conversion assumes p < 2^64 (single limb). This is a toy-scale
-//! limit: at crypto scale (p ~ 2^256), the full limb vector would be needed.
+//! The `Uint<4> → BigInt` conversion assumes p < 2^64 (single limb), the domain of the
+//! finite-field log engine behind it. [`mov_reduce`] rejects any larger `p` with
+//! [`MovError::Unsupported`] before doing arithmetic on it, so no conversion on its path
+//! truncates silently. Supporting larger fields would need the full limb vector.
 //!
 //! The recovered log is `k mod ℓ` (the subgroup log). A full composite-order lift via
 //! Pohlig–Hellman is possible but not wired here.
@@ -164,6 +166,11 @@ pub enum MovError {
     /// μ_ℓ-generator for `G` and the finite-field log carries no information about `k`. A property
     /// of the supplied `R`, not a solver failure.
     DegeneratePairing,
+    /// The instance lies outside the reduction's supported domain: the field characteristic `p`
+    /// has a non-zero word above the lowest (`p ≥ 2^64`), which the single-limb bridge to the
+    /// finite-field log engine cannot represent. Reported before any arithmetic on `p`; says
+    /// nothing about whether the instance is valid.
+    Unsupported(&'static str),
     /// The finite-field log engine failed; its error is passed through unchanged.
     Dl(gnfs::dl::SolveDlError),
     /// The log engine returned a value that fails `k·G == Q` in `E[ℓ]`.
@@ -212,7 +219,9 @@ fn check_mov_input<F: Fp<4>>(
     if !is_prime(&Uint::<4>::from(ell)) {
         return defect(MovInputDefect::EllNotPrime);
     }
-    // ℓ | p^k − 1  ⇔  p^k ≡ 1 (mod ℓ).
+    // ℓ | p^k − 1  ⇔  p^k ≡ 1 (mod ℓ). Reading `p` as its lowest word is exact: `mov_reduce`
+    // rejects p ≥ 2^64 before calling this.
+    debug_assert!(p.as_words()[1..].iter().all(|&w| w == 0), "check_mov_input: p >= 2^64");
     if pow_mod(p.as_words()[0] % ell, k, ell) != 1 {
         return defect(MovInputDefect::EllDoesNotDivideFieldOrder);
     }
@@ -283,6 +292,7 @@ fn check_mov_input<F: Fp<4>>(
 ///
 /// # Errors
 ///
+/// - [`MovError::Unsupported`] if `p ≥ 2^64` (checked before anything else).
 /// - [`MovError::InvalidInput`] with the first [`MovInputDefect`] found: ℓ not prime;
 ///   `ℓ ∤ p^k − 1`; `G = ∞`; or `G`, `Q`, `R` off the curve or outside `E[ℓ]`.
 /// - [`MovError::DegeneratePairing`] if `R = ∞`, `e(G, R) = 1`, or a pairing evaluation is 0.
@@ -302,9 +312,17 @@ pub fn mov_reduce<F: Fp<4>>(
     r_point: &PairingPoint<F>,
     ell: u64,
 ) -> Result<MovSolution<F>, MovError> {
+    // The domain guard comes first: every later single-limb conversion of `p` (input checks, the
+    // final exponent, the bridge to the log engine) relies on it, in release builds as well.
+    let p_uint = curve.p;
+    let p_words = p_uint.as_words();
+    if p_words[1..].iter().any(|&w| w != 0) {
+        return Err(MovError::Unsupported("field characteristic p >= 2^64 (single-limb only)"));
+    }
+    let p_u64: u64 = p_words[0];
+
     check_mov_input(curve, modulus, g_point, q_point, r_point, ell)?;
 
-    let p_uint = curve.p;
     let k = modulus.degree();
 
     // e(R, ∞) = 1 and the Miller loop is undefined at a point at infinity, so handle R = ∞ and
@@ -334,9 +352,6 @@ pub fn mov_reduce<F: Fp<4>>(
     if h_pair.is_zero(&p_uint) {
         return Err(MovError::DegeneratePairing);
     }
-
-    // Toy-only: p < 2^64, single limb; a crypto-scale p needs the full limb vector.
-    let p_u64: u64 = p_uint.as_words()[0];
 
     // Encode both pairing outputs as base-p BigInt via the MOV bridge. The modulus-consistency
     // guard in fpext_to_bigint ensures the pairing's modulus matches what solve_dl uses
@@ -539,6 +554,76 @@ mod tests {
         assert_eq!(pow_mod(7, 3, 1), 0);
         // Residues near 2^64 must not overflow.
         assert_eq!(pow_mod(u64::MAX - 1, 2, u64::MAX), 1);
+    }
+
+    // ── Final exponent above one limb ─────────────────────────────────────────
+
+    /// `p = 68719476767`, `p ≡ 11 (mod 12)` and just above `2^36`, so `(p² − 1)/3 > 2^64`: the
+    /// final-exponentiation exponent does not fit one limb.
+    const LARGE_P: u64 = 68_719_476_767;
+
+    /// The curve `y² = x³ + 1` over `F_LARGE_P` (supersingular, `#E = p + 1`, divisible by 3) with
+    /// `F_{p²} = F_p[u]/(u² + 1)`, `G = (0, 1) ∈ E(F_p)[3]`, and
+    /// `R = (x₀ω, 2ω + 1) ∈ E(F_{p²})[3] \ E(F_p)`.
+    ///
+    /// Here `ω` is a primitive cube root of unity and `x₀³ = −4`, so `R` has `y² = −3 = x³ + 1`
+    /// and `x(R)` is a root of the 3-division polynomial `x(x³ + 4)`. Coordinates computed offline
+    /// and checked with `3·R = ∞`.
+    fn large_exponent_fixture() -> (
+        Curve,
+        IrreducibleModulus<FpNaive<4>>,
+        PairingPoint<FpNaive<4>>,
+        PairingPoint<FpNaive<4>>,
+    ) {
+        let p = Uint::<4>::from(LARGE_P);
+        let c = |v: u64| FpNaive::<4>::from_u64(v, &p);
+        let curve = Curve {
+            p,
+            a: Uint::<4>::from(0u64),
+            b: Uint::<4>::from(1u64),
+            n: Uint::<4>::from(3u64),
+            gx: Uint::<4>::from(0u64),
+            gy: Uint::<4>::from(1u64),
+        };
+        let modulus = IrreducibleModulus::new(vec![c(1), c(0), c(1)], &p);
+        let g = PairingPoint::new(
+            FpExt::from_base(c(0), 2, &p),
+            FpExt::from_base(c(1), 2, &p),
+        );
+        let r = PairingPoint::new(
+            FpExt { coeffs: vec![c(55_629_843_007), c(11_542_864_339)] },
+            FpExt { coeffs: vec![c(0), c(32_645_870_166)] },
+        );
+        (curve, modulus, g, r)
+    }
+
+    /// With a final exponent above `2^64` the reduced Tate pairing lands in `μ_3` and is bilinear.
+    ///
+    /// A final exponent cut down to its low word lands outside `μ_3` almost surely, so
+    /// `e³ = 1` and `e(R, 2G) = e(R, G)²` fail unless the whole exponent is applied.
+    #[test]
+    fn reduced_tate_with_exponent_above_one_limb_lands_in_mu_ell() {
+        let (curve, modulus, g, r) = large_exponent_fixture();
+        let p = curve.p;
+        let ell = 3;
+        assert!(
+            (u128::from(LARGE_P) * u128::from(LARGE_P) - 1) / u128::from(ell)
+                > u128::from(u64::MAX),
+            "fixture assumption: the final exponent exceeds 2^64"
+        );
+        let a = FpExt::from_base(FpNaive::<4>::from_u64(0, &p), 2, &p);
+        let b = FpExt::from_base(FpNaive::<4>::from_u64(1, &p), 2, &p);
+        assert!(g.is_on_curve(&a, &b, &modulus, &p) && r.is_on_curve(&a, &b, &modulus, &p));
+        assert!(g.scalar_mul(ell, &a, &modulus, &p).is_infinity());
+        assert!(r.scalar_mul(ell, &a, &modulus, &p).is_infinity());
+
+        let e_g = reduced_tate::<FpNaive<4>>(&curve, &modulus, &r, &g, ell);
+        assert!(!e_g.is_one(&p) && !e_g.is_zero(&p), "e(G, R) is a nontrivial value");
+        assert!(e_g.pow_u64(ell, &modulus, &p).is_one(&p), "e(G, R)^3 = 1");
+
+        let g2 = g.scalar_mul(2, &a, &modulus, &p);
+        let e_g2 = reduced_tate::<FpNaive<4>>(&curve, &modulus, &r, &g2, ell);
+        assert_eq!(e_g2, e_g.square(&modulus, &p), "e(2G, R) = e(G, R)^2");
     }
 
     // ── KAT 4: pairing_toy fixture integration ────────────────────────────────

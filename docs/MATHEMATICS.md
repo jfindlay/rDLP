@@ -3648,15 +3648,25 @@ apart:
   $R$ is not a $\mu_\ell$-generator for $G$ and the finite-field logarithm carries no information
   about $k$; it is a property of the supplied $R$, not a solver failure
   (`mov_reduce_degenerate_r_is_degenerate_pairing`, `mov_reduce_infinite_r_is_degenerate_pairing`).
+- *Unsupported domain* (`MovError::Unsupported`): the field characteristic has a non-zero word
+  above the lowest ($p \ge 2^{64}$), which the single-limb bridge to the log engine cannot
+  represent. It is reported before any arithmetic on $p$, so no later conversion truncates
+  (`mov_reduce_rejects_field_above_one_limb`, run in both debug and release builds).
 - *Engine failure* (`MovError::Dl`): the error of `gnfs::dl::solve_dl` is passed through unchanged.
   The code calls it with extension degree $2$ only.
 - *Invariant failure* (`MovError::Inconsistent`): the engine's value fails $k \cdot G = Q$. No
   fixture reaches it through `mov_reduce`; only a unit test of the check does
   (`log_matches_accepts_only_the_true_log` in `rho/src/pairing/mov.rs`).
 
-One domain limit is not enforced as an error: the bridge from a pairing value to the base-$p$
-encoding assumes $p < 2^{64}$ (a single limb), checked only by a debug assertion, so a release
-build would truncate a larger $p$ silently. No test covers this.
+The final exponent $(p^k - 1)/\ell$ is computed exactly, whatever its size: for one-limb $p$ it
+already exceeds $2^{64}$ once $p^2 > 3 \cdot 2^{64}$ (for $\ell = 3$, $k = 2$). Cutting it to its
+low word lands the result outside $\mu_\ell$. On $y^2 = x^3 + 1$ over $\mathbb{F}_p$,
+$p = 68719476767$ (supersingular, $\#E = p + 1 \equiv 0 \bmod 3$), with $G = (0, 1)$ and a point $R$
+of $E(\mathbb{F}_{p^2})[3] \smallsetminus E(\mathbb{F}_p)$, the reduced Tate pairing satisfies
+$e^3 = 1$ and $e(2G, R) = e(G, R)^2$ only with the full exponent
+(`reduced_tate_with_exponent_above_one_limb_lands_in_mu_ell`, `rho/src/pairing/mov.rs`). The
+log engine (`gnfs::dl::solve_dl`) scans all of $\mathbb{F}_p$ when it picks a modulus, so
+`mov_reduce` itself does not finish at that $p$; the pairing is tested directly.
 
 #### Why this is a polynomial-time reduction
 

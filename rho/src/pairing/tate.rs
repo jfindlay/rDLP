@@ -47,6 +47,8 @@
 //! by construction of the fixture.
 
 use crypto_bigint::Uint;
+use num_bigint::BigUint;
+use num_traits::{One, Zero};
 use shared_field::Fp;
 
 use crate::curve::Curve;
@@ -110,8 +112,8 @@ pub fn tate_pairing<F: Fp<4>>(
 ///
 /// # Panics
 ///
-/// Panics if `ell < 2`, or if `ell` does not divide `p^k − 1` (the
-/// embedding-degree condition is violated).
+/// Panics if `ell < 2`, if `ell` does not divide `p^k − 1` (the
+/// embedding-degree condition is violated), or if `(p^k − 1)/ℓ` does not fit 256 bits.
 pub fn reduced_tate<F: Fp<4>>(
     curve: &Curve,
     modulus: &IrreducibleModulus<F>,
@@ -127,24 +129,33 @@ pub fn reduced_tate<F: Fp<4>>(
     // f = f_{ℓ,P}(Q) — one Miller call.
     let f = tate_pairing(curve, modulus, p_point, q_point, ell);
 
-    // Compute p^k as a u128 first to avoid overflow for small toy parameters.
-    // For the fixture: p=47, k=2 → p^k = 2209, p^k - 1 = 2208.
-    let p_u64: u64 = p.as_words()[0]; // safe for toy p < 2^64
-    let pk: u128 = (p_u64 as u128).pow(k as u32);
-    let pk_minus_1: u128 = pk - 1;
+    // p^k − 1 exactly: for the fixture p = 47, k = 2 → 2208. Even for a one-limb p the exponent
+    // (p^k − 1)/ℓ can exceed one limb (and p^k can exceed 128 bits), so no fixed-width integer
+    // is used here.
+    let p_big = p
+        .as_words()
+        .iter()
+        .rev()
+        .fold(BigUint::zero(), |acc, &w| (acc << 64u32) + BigUint::from(w));
+    let k = u32::try_from(k).expect("extension degree fits u32");
+    let pk_minus_1 = p_big.pow(k) - BigUint::one();
+    let ell_big = BigUint::from(ell);
 
     // Precondition: ℓ | p^k − 1 (the embedding-degree condition).
-    assert_eq!(
-        pk_minus_1 % (ell as u128),
-        0,
+    assert!(
+        (&pk_minus_1 % &ell_big).is_zero(),
         "reduced_tate: ell = {ell} must divide p^k − 1 = {pk_minus_1} \
          (embedding-degree condition violated)"
     );
 
-    let exp_u128 = pk_minus_1 / (ell as u128);
+    let exp_big = pk_minus_1 / ell_big;
 
-    // Convert the exponent to Uint<4> for FpExt::pow.
-    let exp = Uint::<4>::from(exp_u128 as u64);
+    // Convert the exponent to Uint<4> for FpExt::pow, refusing one that does not fit.
+    let digits = exp_big.to_u64_digits();
+    assert!(digits.len() <= 4, "reduced_tate: final exponent exceeds 256 bits");
+    let mut words = [0u64; 4];
+    words[..digits.len()].copy_from_slice(&digits);
+    let exp = Uint::<4>::from_words(words);
 
     f.pow(&exp, modulus, p)
 }

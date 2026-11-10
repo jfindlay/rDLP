@@ -16,7 +16,7 @@
 //!    `g_pair^k == h_pair` are rechecked from the returned fields.
 //! 3. **Failure classes** — a degenerate R is `DegeneratePairing`; a composite ℓ, an ℓ that does
 //!    not divide `p² − 1`, and points off the curve or outside `E[ℓ]` are `InvalidInput` with the
-//!    specific defect.
+//!    specific defect; a field characteristic `p ≥ 2^64` is `Unsupported`, before any arithmetic.
 //!
 //! # Fixture
 //!
@@ -366,6 +366,25 @@ fn mov_reduce_rejects_points_outside_e_ell() {
         defect_of(3, None, None, Some(outside_torsion())),
         MovInputDefect::PairingPointNotInTorsion
     );
+}
+
+// ── Field domain: single-limb p only ──────────────────────────────────────────
+
+/// A field characteristic with a non-zero word above the lowest (so `p ≥ 2^64`) is outside the
+/// supported domain: the reduction reports it before any arithmetic touches `p`, in release and
+/// debug builds alike.
+#[test]
+fn mov_reduce_rejects_field_above_one_limb() {
+    let (mut curve, modulus, ell, p_point, q_point) = pairing_toy();
+    // 2^64 + 13, and a value whose only non-zero word is each higher limb in turn.
+    for words in [[13u64, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1], [u64::MAX, u64::MAX, 0, 0]] {
+        curve.p = Uint::<4>::from_words(words);
+        let result = mov_reduce::<FpNaive<4>>(&curve, &modulus, &p_point, &p_point, &q_point, ell);
+        assert!(
+            matches!(result, Err(MovError::Unsupported(_))),
+            "p words {words:?}: expected Unsupported, got {result:?}"
+        );
+    }
 }
 
 // ── PARI cross-check (dev-only, #[ignore]) ────────────────────────────────────
