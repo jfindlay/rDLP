@@ -16,8 +16,9 @@
 //!
 //! - **Elliptic Curve Method** ([`ecm`]): Lenstra's ECM for integer
 //!   factorization using Montgomery-form curves (Suyama parameterization).
-//!   Used as a sub-step inside NFS large-prime variations (`gnfs::sieve`) and as a
-//!   fallback for factoring composite group orders in Pohlig–Hellman (`rho::ssa`).
+//!   No other crate in the workspace calls it; it is exercised by its own unit tests.
+//!   (Pohlig–Hellman in `rho::ecdlp` factors its u64 group order by trial division; ECM would
+//!   be the natural step for larger orders, but none is wired.)
 //!
 //! # Re-exports
 //!

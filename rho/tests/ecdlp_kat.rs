@@ -4,9 +4,10 @@
 //!
 //! 1. **Group-law identity laws** — the four ring axioms hold on both curves.
 //! 2. **Reference-matched scalar multiples** — hardcoded Python-verified multiples
-//!    of G on both curves.
-//! 3. **n·G = ∞** on `secp_k1_toy` (the only curve where the group order n is
-//!    explicitly embedded in the struct).
+//!    of G on `secp_k1_toy` and of the original point `P₀` on the `generic` curve.
+//! 3. **n·G = ∞** on `secp_k1_toy` (where `n` is the order of the whole group) and on `generic`
+//!    (where `n` = 561_103 is the prime order of the stored generator's subgroup, not of the curve;
+//!    `generic_generator_has_exact_prime_order_and_descends_from_p0`).
 //! 4. **Endomorphism KAT** — `φ(G) = λ·G` on `secp_k1_toy`.
 //! 5. **Linearity** — `(a+b)·G = a·G + b·G` on both curves for small a, b.
 //! 6. **k256 group-law cross-check** — the same scalar mult on a shared scalar

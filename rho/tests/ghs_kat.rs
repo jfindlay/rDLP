@@ -115,8 +115,9 @@
 //! - Subfield: `GF(2^2)` with irreducible `x²+x+1` (poly = 0x7).
 //! - Binary curve `E/GF(2^6)`: `y²+xy = x³+x²+1` (`a=1`, `b=1`).
 //!
-//! The algorithms are crypto-scale-correct; only the parameters are toy
-//! (m=6, l=2, genus 1).
+//! The parameters are toy (m=6, l=2, genus 1). The construction does not depend on this
+//! fixture, but the end-to-end tests all use this `(m, l)`; other parameters are exercised
+//! only by the identification check and the rejection tests.
 
 use crypto_bigint::Uint;
 use rho::binary_curve::{BinaryAffinePoint, BinaryCurve};
@@ -942,7 +943,7 @@ fn extracted_curve_zero_divisor_is_valid() {
 /// Even `m/l` is rejected with `NonDescendable`.
 ///
 /// The imaginary model requires odd `m/l`.  Even `m/l` yields the real/split
-/// model, which the frozen [`rho::hyperelliptic::HyperellipticCurve`] does not handle.
+/// model, which [`rho::hyperelliptic::HyperellipticCurve`] does not handle.
 ///
 /// We test with m=4, l=2, n=2 (even).
 #[test]
@@ -1124,8 +1125,8 @@ fn transfer_sample_point_is_valid_divisor() {
 ///    Hence `4P = ∞` and `3P = −P = (x, y+x) = (1, β²+1) = (1, β)`.
 /// 4. `R = (1, β)`: `x_R = 1 ↦ 1`, `y_R = β ↦ 2`.  So `D_P = [X+1, 2]`.
 ///
-/// The earlier value `v = 3` came from reducing the raw bits of `β = 0x3b` modulo `x²+x+1`,
-/// which names `β²` instead of `β`; the basis-coordinate reading gives `2`.  (PARI/GP
+/// Reducing the raw bits of `β = 0x3b` modulo `x²+x+1` would give `v = 3`, which names `β²`
+/// instead of `β`; the basis-coordinate reading gives `2`.  (PARI/GP
 /// `ellmul` on the same curve over `GF(2^6)` returns `3P = (1, 0x3b)`, matching step 3.)
 #[test]
 fn transfer_sample_point_known_answer() {
@@ -1280,8 +1281,8 @@ fn transfer_homomorphism_identity_element() {
 ///    `4P = ∞`): `R = (1, β²)`.
 /// 3. `x_R = 1 ↦ 1`, `y_R = β² ↦ 3`.  So `D_{G+P} = [X+1, 3]`.
 ///
-/// The earlier value `v = 2` came from reducing the raw bits of `β² = 0x3a` modulo `x²+x+1`
-/// (which names `β`); the basis-coordinate reading gives `3`.  PARI/GP `ellmul` on the same
+/// Reducing the raw bits of `β² = 0x3a` modulo `x²+x+1` would give `v = 2` (which names `β`);
+/// the basis-coordinate reading gives `3`.  PARI/GP `ellmul` on the same
 /// curve over `GF(2^6)` returns `3(G+P) = (1, 0x3a)`.
 ///
 /// Consistency with the homomorphism: `D_G + D_P = [X, 1] + [X+1, 2] = [X+1, 3]`.

@@ -282,11 +282,13 @@ fn pow_mod(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
 ///
 /// # Panics (debug)
 ///
-/// Panics in debug mode if the upper limbs are non-zero (p ≥ 2^64).
+/// Panics in debug mode if the upper limbs are non-zero (p ≥ 2^64); a release build would read
+/// the lowest limb only. `ssa_solve` reports such a prime as [`SsaError::Unsupported`] before it
+/// gets here, so the assertion guards direct callers of the lift helpers.
 ///
 /// # Scale limits
 ///
-/// SCALE: toy-scale only — crypto-scale p would need full Uint<4>→BigInt conversion.
+/// Single-limb only: a larger `p` would need the full `Uint<4>→BigInt` conversion.
 pub(crate) fn uint4_to_u64(u: &Uint<4>) -> u64 {
     let words = u.as_words();
     debug_assert!(
@@ -301,7 +303,7 @@ pub(crate) fn uint4_to_u64(u: &Uint<4>) -> u64 {
 ///
 /// # Scale limits
 ///
-/// SCALE: toy-scale only — crypto-scale p would need the full limb vector.
+/// Single-limb only (see [`uint4_to_u64`]): a larger `p` would need the full limb vector.
 pub(crate) fn uint4_to_bigint(u: &Uint<4>) -> BigInt {
     BigInt::from(uint4_to_u64(u))
 }

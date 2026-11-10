@@ -217,6 +217,15 @@ fn line_secant<F: Fp<4>>(
 ///
 /// Returns 1 if `T` is the point at infinity (the divisor is at infinity and
 /// contributes nothing to the rational function).
+///
+/// If `x_Q = x_T`, then `Q = ±T` lies on the support of the vertical's divisor and the Miller
+/// value at `Q` is undefined (the denominator is 0). The function returns 1 there only so the
+/// caller's inversion does not divide by zero; that 1 is not a pairing value. This happens when
+/// the evaluation point `Q` is a multiple of the Miller base point `P`. For `Q = P` the first
+/// tangent-line value `y_Q − y_T − λ·(x_Q − x_T)` is already 0, so `f_{ℓ,P}(Q)` comes out as 0 and
+/// `mov_reduce` reports `MovError::DegeneratePairing`
+/// (`mov_reduce_degenerate_r_is_degenerate_pairing`). Other `Q ∈ ⟨P⟩` are not exercised by any
+/// test, and nothing here guarantees a 0 result for them.
 fn vertical_at<F: Fp<4>>(
     t: &PairingPoint<F>,
     q: &PairingPoint<F>,
@@ -229,24 +238,11 @@ fn vertical_at<F: Fp<4>>(
         (_, PairingPoint::Infinity) => FpExt::one(k, p),
         (PairingPoint::Finite { x: xt, .. }, PairingPoint::Finite { x: xq, .. }) => {
             let diff = xq.sub(xt, p);
-            // If x_Q = x_T the vertical vanishes at Q; this is a degenerate case
-            // (Q shares an x-coordinate with T).  The fixture is chosen to avoid
-            // this, but we return 1 defensively rather than dividing by zero.
             if diff.is_zero(p) {
                 FpExt::one(k, p)
             } else {
-                // Vertical function is x_Q - x_T; we need to return it so the
-                // caller can divide by it.  But we also need to handle the case
-                // where the result of the vertical is used as a denominator.
-                // Return x_Q - x_T directly; the caller inverts it.
-                // NOTE: we must NOT invert here — the caller does that.
-                // However, the function signature says "evaluate vertical at Q",
-                // so we return x_Q - x_T.
-                // The caller does: f = f * line / vertical, i.e. f * line * vertical.inv()
-                // So we return x_Q - x_T and the caller inverts.
-                // But wait — we need to check: if diff is zero, we'd be dividing by zero.
-                // The fixture guarantees this doesn't happen for the toy parameters.
-                // We already handled the zero case above.
+                // The vertical function is x_Q − x_T; the caller divides by it (multiplies by
+                // the inverse), so it is returned uninverted.
                 let _ = modulus; // modulus not needed for subtraction
                 diff
             }

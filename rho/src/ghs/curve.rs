@@ -3,7 +3,7 @@
 //! This module implements the curve-extraction step of the GHS Weil-descent
 //! construction: given the Artin–Schreier data and Weil-restriction parameters
 //! from [`crate::ghs::descent`], it produces the descended hyperelliptic curve
-//! `C/GF(2^l)` as a frozen [`HyperellipticCurve`].
+//! `C/GF(2^l)` as a [`HyperellipticCurve`].
 //!
 //! # Mathematical background
 //!
@@ -52,13 +52,14 @@
 //! | 5 | 2 | crypto-scale genus-2 |
 //! | 7 | 3 | crypto-scale genus-3 |
 //!
-//! # Principle-4 annotation
+//! # Scale limit
 //!
 //! The toy fixture (m=6, l=2, n=3) gives genus 1 — a genus-1 hyperelliptic
-//! curve (an elliptic curve in Weierstrass-hyperelliptic form).  This is NOT the
-//! crypto-scale case (genus ≥ 2 is needed for the GHS attack to be effective).
-//! The construction is mathematically correct; only the parameters are toy for
-//! auditability.  Crypto-scale GHS uses n ≥ 5 (genus ≥ 2).
+//! curve (an elliptic curve in Weierstrass-hyperelliptic form), so the transfer gains
+//! nothing against the original ECDLP.  Genus ≥ 2 (n ≥ 5) is needed for the GHS attack
+//! to be effective.  The construction itself does not depend on the fixture: the subfield
+//! is identified through `shared_gf2m::restrict` for any parameters that pass
+//! [`check_subfield_identification`], and the curve coefficients must lie in `GF(2^l)`.
 //!
 //! # Contracts
 //!
@@ -83,8 +84,8 @@ use crate::hyperelliptic::HyperellipticCurve;
 /// ```
 ///
 /// This formula holds for the imaginary (ramified) hyperelliptic model, which
-/// requires odd `n`.  Even `n` yields the real/split model (not handled by the
-/// frozen [`crate::hyperelliptic::HyperellipticCurve`]).
+/// requires odd `n`.  Even `n` yields the real/split model (not handled by
+/// [`crate::hyperelliptic::HyperellipticCurve`]).
 ///
 /// # Arguments
 ///
@@ -95,10 +96,10 @@ use crate::hyperelliptic::HyperellipticCurve;
 ///
 /// Panics if `l` is zero or does not divide `m`.
 ///
-/// # Principle-4 annotation
+/// # Scale limit
 ///
 /// For the toy fixture (m=6, l=2, n=3), this returns 1 — a genus-1 curve.
-/// Crypto-scale GHS uses n ≥ 5 (genus ≥ 2).
+/// Genus ≥ 2 (n ≥ 5) is needed for the GHS attack to be effective.
 pub fn ghs_genus(m: usize, l: usize) -> usize {
     assert!(l > 0 && m % l == 0, "ghs_genus: l must divide m (l={l}, m={m})");
     let n = m / l;
@@ -111,7 +112,7 @@ pub fn ghs_genus(m: usize, l: usize) -> usize {
 ///
 /// Given the GHS parameters (source field `GF(2^m)`, subfield `GF(2^l)`, binary
 /// elliptic curve `E/GF(2^m)`), constructs the descended hyperelliptic curve
-/// `C: Y²+H(X)Y = F(X)` over `GF(2^l)` as a frozen [`HyperellipticCurve<1>`].
+/// `C: Y²+H(X)Y = F(X)` over `GF(2^l)` as a [`HyperellipticCurve<1>`].
 ///
 /// # Construction
 ///
@@ -141,12 +142,14 @@ pub fn ghs_genus(m: usize, l: usize) -> usize {
 /// - [`GhsError::NonDescendable`] if any coefficient of `f_AS` is not in
 ///   `GF(2^l)` (the descent requires subfield coefficients for this construction).
 ///
-/// # Principle-4 annotation
+/// # Scale limit
 ///
 /// For the toy fixture (m=6, l=2, n=3), the extracted curve has genus 1 — a
-/// genus-1 hyperelliptic curve (an elliptic curve in hyperelliptic form).  This
-/// is NOT the crypto-scale case (genus ≥ 2).  The construction is correct; only
-/// the parameters are toy.
+/// genus-1 hyperelliptic curve (an elliptic curve in hyperelliptic form), not the
+/// genus ≥ 2 case in which the GHS attack is effective.  The extraction is not specific
+/// to the fixture: it reads the coefficients through `restrict` for any parameters that
+/// pass the subfield-identification check
+/// (`curve_and_transfer_share_the_subfield_identification`, `rho/tests/ghs_kat.rs`).
 pub fn extract_ghs_curve(params: GhsParams) -> Result<HyperellipticCurve<1>, GhsError> {
     // The subfield identification must be sound before any coefficient is read.
     check_subfield_identification(params.l, params.poly_m(), &params.poly_l)?;

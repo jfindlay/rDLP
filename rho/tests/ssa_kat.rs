@@ -55,8 +55,7 @@
 //! - `c = x₀³ + b = 27 + 5 = 32` (the RHS of the curve equation at x=3).
 //! - Hensel-solve `g(y) = y² − 32 = 0` starting from `y₀ = 2`:
 //!   - Step 1 (mod 49): y = 2 − (4−32)/4 = 2 + 7 = 9.
-//!   - Step 2 (mod 343): y = 9 − (81−32)/(18) mod 343 = 9 − 49/18 mod 343.
-//!     18⁻¹ mod 343 = 248 (18·248 = 4464 = 13·343 + 5 ≠ 1 — let me recompute).
+//!   - Later steps lift `y` to modulus 343 and then 2401.
 //!   - Final: `ỹ = 940` (verified: 940² mod 2401 = 32 ✓).
 //!
 //! Verification: `940² = 883600`, `883600 mod 2401 = 32`. ✓

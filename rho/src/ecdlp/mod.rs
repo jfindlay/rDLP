@@ -618,8 +618,11 @@ fn run_walker<F: Fp<4>>(
 /// every step, adjusts `(a, b)` via [`negate_scalars`] when the negation fires,
 /// and uses a [`FruitlessCycleDetector`] to escape period-2 cycles.
 ///
-/// The negation map halves the effective group size, reducing the expected
-/// number of steps to collision by a factor of ~√2.
+/// The negation map halves the effective group size, which would reduce the expected
+/// number of steps to collision by a factor of ~√2. That is the theoretical figure, not an
+/// observed one: in the sizing runs recorded in `rho/benches/ecdlp.rs` this solver took several
+/// times the step count of [`solve_dp`] on a 25-bit prime-order group and did not finish on a
+/// 31-bit one. Its results are still verified, so a success is correct whatever the step count.
 ///
 /// # Walker count and the budget
 ///

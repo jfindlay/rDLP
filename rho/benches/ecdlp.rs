@@ -148,7 +148,10 @@ fn bench_solve_dp(c: &mut Criterion) {
 /// Compare `solve_dp` and `solve_dp_negmap` at 2 walkers on the same DLP.
 ///
 /// The negation map identifies `P` with `−P`, halving the effective group, which by itself would
-/// reduce the expected steps; the bench measures wall time on this one group only.
+/// reduce the expected steps by a factor of about √2. That is the expected cost, not an observed
+/// one: in the sizing run described in the module docs `solve_dp_negmap` took several times the
+/// plain-walk step count, so this bench shows no speedup. It measures wall time on this one group
+/// only.
 fn bench_negmap_vs_dp(c: &mut Criterion) {
     let (curve, q) = make_q();
     let g: AffinePoint<FpMonty> = curve.generator();
@@ -187,7 +190,8 @@ fn bench_negmap_vs_dp(c: &mut Criterion) {
 /// at 2 walkers on the same DLP.
 ///
 /// With `batch_size = 16`, each thread performs 1 inversion + 45 multiplications instead of 16
-/// inversions per 16 steps, reducing the dominant per-step cost.
+/// inversions per 16 steps, which should reduce the dominant per-step cost. That saving is the
+/// expected one; no timing recorded here confirms it on this group.
 fn bench_batch_vs_negmap(c: &mut Criterion) {
     let (curve, q) = make_q();
     let g: AffinePoint<FpMonty> = curve.generator();

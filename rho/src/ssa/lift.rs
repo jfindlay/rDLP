@@ -22,11 +22,11 @@
 //!
 //! The returned `(x̃, ỹ)` satisfies `ỹ² ≡ x̃³ + ã·x̃ + b (mod p^k)`.
 //!
-//! # Principle-4 boundary
+//! # Scale limit
 //!
-//! Toy-scale only: `Uint<4>` coordinates at toy `p` fit one `u64` limb. The limb extraction
-//! `as_words()[0]` is correct only at toy scale. Crypto-scale `p` would need the full
-//! `Uint<4>→BigInt` path.
+//! The `Uint<4>` coordinates are read through their lowest limb (`as_words()[0]`), which is
+//! exact only for `p < 2^64`; `ssa_solve` reports a larger `p` as `SsaError::Unsupported`
+//! before any lift. Supporting a larger `p` would need the full `Uint<4>→BigInt` path.
 
 use num_bigint::BigInt;
 use shared_numfield::poly::IntPoly;
@@ -123,11 +123,10 @@ pub fn lifted_a(curve: &Curve, shift: u64) -> BigInt {
 ///   lift not applicable).
 /// - [`LiftError::Padic`] for Z/p^k arithmetic errors.
 ///
-/// # Principle-4 annotation
+/// # Scale limit
 ///
-/// SCALE: toy-scale only — `Uint<4>` coordinates at toy `p` fit one `u64` limb; the
-/// `as_words()[0]` extraction is correct only when `p < 2^64`. Crypto-scale `p` would
-/// need the full `Uint<4>→BigInt` conversion.
+/// The `as_words()[0]` extraction of the `Uint<4>` coordinates is exact only when `p < 2^64`
+/// (see the module docs); a larger `p` would need the full `Uint<4>→BigInt` conversion.
 pub fn lift_point<F: Fp<4>>(
     point: &AffinePoint<F>,
     curve: &Curve,
@@ -140,7 +139,7 @@ pub fn lift_point<F: Fp<4>>(
         AffinePoint::Finite { x, y } => (x.to_uint(), y.to_uint()),
     };
 
-    // SCALE: toy-scale only — crypto-scale p would need full Uint<4>→BigInt conversion.
+    // Single-limb conversion: exact only for p < 2^64 (see the module docs).
     let x0 = uint4_to_bigint(&x0_uint);
     let y0 = uint4_to_bigint(&y0_uint);
     let p_big = uint4_to_bigint(&curve.p);

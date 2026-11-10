@@ -171,17 +171,21 @@ tables (Pomerance–Selfridge–Wagstaff, with refinements by Jaeschke and Soren
 twelve prime bases {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37} are a deterministic test for all
 n < ψ₁₂ = 318,665,857,834,031,151,167,461 (about 2^78.1); adding the base 41, the thirteen bases are
 a deterministic test for all n < ψ₁₃ = 3,317,044,064,679,887,385,961,981 (about 2^81.5), exported as
-`MILLER_RABIN_PROOF_BOUND`. The constants are recalled from Sorenson–Webster, not re-read; the tests
-verify the boundary, not the exhaustive search behind it: ψ₁₂ = 399,165,290,221 · 798,330,580,441 is
-composite, the twelve bases accept it, and base 41 rejects it (`psi_12_is_the_product_it_claims`,
-`twelve_bases_accept_psi_12_but_base_41_rejects_it`, `psi_12_rejected`).
+`MILLER_RABIN_PROOF_BOUND`. The constants are Theorem 1.1 of Sorenson and Webster, "Strong
+pseudoprimes to twelve prime bases", *Math. Comp.* 86 (2017), arXiv:1509.00864, which was read for
+them; the tests verify the boundary, not the exhaustive search behind it: ψ₁₂ =
+399,165,290,221 · 798,330,580,441 is composite, the twelve bases accept it, and base 41 rejects it
+(`psi_12_is_the_product_it_claims`, `twelve_bases_accept_psi_12_but_base_41_rejects_it`,
+`psi_12_rejected`).
 
 The public entry point `is_prime` selects the minimal sufficient witness set for the magnitude of n,
 using the thirteen-base set from ψ₁₂ up. For n at or above ψ₁₃ (which still fits in `Uint<4>`) the
 same thirteen bases give only a *probable-prime* verdict with no proven error bound. A "composite"
 verdict is always a proof; a "prime" verdict is a proof only below ψ₁₃. Callers that need a proof
-(rho factoring, ECM) therefore compare against a bound before reporting a prime, and report
-`Unsupported` otherwise (§5).
+therefore relate their domain to that bound. `ecm_factor` compares a prime verdict against it and
+reports `Unsupported` at or above it (§5). Rho factoring's supported range ends at 2^80, below ψ₁₃,
+so every prime verdict there is a proof, and a compile-time assertion keeps the range from growing
+past the bound.
 
 ```rust
 pub fn is_prime(n: &Uint<4>) -> bool;
@@ -314,18 +318,25 @@ returning early with a factor if any of the constructions hits a non-invertible 
 | `diff_add` / `point_double` | `ecm.rs` | Montgomery differential addition and doubling |
 | `run_stage1` / `run_stage2` | `ecm.rs` | the two stages (below) |
 
-**What `ecm_factor` returns.** `EcmError` is `InvalidInput`, `Prime`, `Unsupported`, or
-`CurvesExhausted { curves }`. `ecm_factor` classifies `n` first, in this order: `n ≤ 1` is
-`InvalidInput` (`zero_and_one_are_invalid_input`); `n = 2` is `Prime` (`two_is_prime`); an even
-`n > 2` yields the divisor 2 with no curve run (`even_n_yields_divisor_two`); an odd `n` is tested
-for primality, and a prime is `Prime` below `MILLER_RABIN_PROOF_BOUND` (`odd_primes_are_prime`) but
-`Unsupported` at or above it, where the verdict is only "probably prime" (`2^89 − 1` in
-`prime_above_proof_bound_is_unsupported`). The composite ψ₁₂ is never certified prime
-(`composite_psi_12_is_never_prime`). Only an odd composite reaches the curves. A divisor is returned
-only after `1 < d < n` and `n mod d = 0` are checked in `Uint` arithmetic, independently of the gcd
-that produced it (`divisor_check_rejects_improper_candidates`); a candidate that fails the check
-counts as a failed curve. `CurvesExhausted { curves }` counts the curves that ran, is a resource
-outcome and proves nothing about `n` (`zero_max_curves_is_exhausted_at_zero`,
+**What `ecm_factor` returns.** `EcmError` is `InvalidInput`, `Prime`, `Unsupported`,
+`CurvesExhausted { curves }`, or `Inconsistent { d }`. `ecm_factor` classifies `n` first, in this
+order: `n ≤ 1` is `InvalidInput` (`zero_and_one_are_invalid_input`); `n = 2` is `Prime`
+(`two_is_prime`); an even `n > 2` yields the divisor 2 with no curve run
+(`even_n_yields_divisor_two`); an odd `n` is tested for primality, and a prime is `Prime` below
+`MILLER_RABIN_PROOF_BOUND` (`odd_primes_are_prime`) but `Unsupported` at or above it, where the
+verdict is only "probably prime" (`2^89 − 1` in `prime_above_proof_bound_is_unsupported`). The
+composite ψ₁₂ is never certified prime (`composite_psi_12_is_never_prime`). Only an odd composite
+reaches the curves. A divisor is returned only after `1 < d < n` and `n mod d = 0` are checked in
+`Uint` arithmetic, independently of the gcd that produced it
+(`judge_candidate_classifies_trivial_and_proper`). A curve that yields no candidate, or only `1`
+or `n` (a gcd that is not proper), is a failed curve that consumes one of `max_curves`
+(`search_trivial_candidates_consume_curves`). Any other candidate that does not divide `n` is
+`Inconsistent { d }`: a gcd with `n` always divides `n`, so this is a breach of the divisor
+invariant, reported at once and never retried (`judge_candidate_flags_non_dividing_candidates`,
+`search_surfaces_inconsistent_candidate_without_retrying`,
+`search_inconsistent_after_failed_curves`); the tests drive it through a stubbed curve, since no
+input reaches it. `CurvesExhausted { curves }` counts the curves that ran, is a resource outcome
+and proves nothing about `n` (`zero_max_curves_is_exhausted_at_zero`,
 `exhaustion_counts_curves_run`). `ecm_factor` does not test the divisor it finds for primality.
 All of these are unit tests in `shared/numth/src/ecm.rs`.
 
@@ -340,8 +351,9 @@ succeeds when |E(F_p)| is fully B1-smooth.
 cannot live in a fixed-width integer at larger B1. `run_stage1` therefore never forms it: it applies
 each prime power q = p^⌊log_p B1⌋ to the running point with its own `montgomery_ladder` call, one
 prime at a time, and (q₁·q₂·…)·P is the same point however the factors are grouped. The test
-`stage1_per_prime_power_equals_single_product_ladder` checks that for B1 up to 178 the result
-equals the single-scalar ladder (compared projectively, X₁Z₂ = X₂Z₁), and
+`stage1_per_prime_power_equals_single_product_ladder` checks that for B1 up to 178 (every fifth
+bound, plus 177 and 178) the result equals the single-scalar ladder (compared projectively,
+X₁Z₂ = X₂Z₁), and
 `single_product_scalar_overflows_at_179` pins where the single product stops fitting. The test
 `stage1_prime_power_above_overflow_point_finds_factor` (N = (2^61 − 1)·1009, σ = 15, B1 = 250)
 finds 1009 with the per-prime ladder while the product truncated mod 2^256 does not.
@@ -445,7 +457,8 @@ QR tests are in `shared/field/tests/sqrt_legendre_kat.rs`; the `numth` tests are
 | `zero_and_one_are_invalid_input`, `two_is_prime`, `odd_primes_are_prime` | numth/ecm | `InvalidInput`, and `Prime` for 2 and for odd primes below the proof bound |
 | `even_n_yields_divisor_two` | numth/ecm | an even n > 2 gives the divisor 2 with no curve |
 | `prime_above_proof_bound_is_unsupported`, `composite_psi_12_is_never_prime` | numth/ecm | 2^89 − 1 is `Unsupported`; the composite ψ₁₂ is never certified prime |
-| `zero_max_curves_is_exhausted_at_zero`, `exhaustion_counts_curves_run`, `divisor_check_rejects_improper_candidates` | numth/ecm | `CurvesExhausted` counts the curves run; a divisor is returned only after the `1 < d < n`, `n mod d = 0` check |
+| `zero_max_curves_is_exhausted_at_zero`, `exhaustion_counts_curves_run`, `judge_candidate_classifies_trivial_and_proper`, `search_trivial_candidates_consume_curves` | numth/ecm | `CurvesExhausted` counts the curves run; a divisor is returned only after the `1 < d < n`, `n mod d = 0` check; the trivial candidates `1` and `n` consume a curve |
+| `judge_candidate_flags_non_dividing_candidates`, `search_surfaces_inconsistent_candidate_without_retrying`, `search_inconsistent_after_failed_curves` | numth/ecm | a candidate other than `1` or `n` that does not divide `n` is `Inconsistent { d }`, ends the search at once and is never retried (stubbed curves; no input reaches it) |
 | `psi_12_is_the_product_it_claims`, `twelve_bases_accept_psi_12_but_base_41_rejects_it`, `psi_12_rejected` | numth/prime | ψ₁₂ = 399165290221·798330580441 is accepted by the twelve bases, rejected by base 41 and by `is_prime` |
 | `prime_above_twelve_base_bound_accepted` | numth/prime | the prime 2^79 − 67, between ψ₁₂ and ψ₁₃, is accepted |
 | `batch_inv_matches_individual` | bigint | batched inverse of a 10-element batch matches individual `inv` calls |
@@ -490,7 +503,8 @@ confirmed sufficient for toy-scale norms in the number-field arithmetic.
 5. **Pomerance, C., Selfridge, J. L., and Wagstaff, S. S. Jr. (1980).** "The pseudoprimes to
    25·10⁹." *Mathematics of Computation*, 35(151), 1003–1026. The witness-set tables behind
    deterministic Miller–Rabin, with later refinements by Jaeschke (1993) and Sorenson–Webster
-   (2015; the constants used here are recalled from that work, not re-read).
+   (2017, "Strong pseudoprimes to twelve prime bases", *Mathematics of Computation*, 86; its
+   Theorem 1.1 gives ψ₁₂ and ψ₁₃).
 
 6. **Bach, E., and Shallit, J. (1996).** *Algorithmic Number Theory, Vol. 1.* MIT Press. The
    quadratic-residue machinery (Legendre/Jacobi symbols, Euler's criterion) and the least-non-residue

@@ -17,7 +17,7 @@
 //! - [`generic`] — a Weierstrass curve over a 63-bit prime field whose stored generator has prime
 //!   order 561_103 (a 20-bit subgroup, about 2¹⁹). It is a runnable demonstration fixture, not a
 //!   large-group performance baseline; base and target points must lie in that subgroup.
-//! - [`secp_k1_toy`] — a downsized GLV-friendly secp256k1-style curve (64-bit order) with
+//! - [`secp_k1_toy`] — a downsized GLV-friendly secp256k1-style curve (63-bit prime order) with
 //!   an explicit order-3 endomorphism (λ, β) for the GLV endomorphism optimization.
 
 pub mod generic;

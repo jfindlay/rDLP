@@ -231,7 +231,8 @@ fn mov_reduce_recovers_k0_for_target_at_infinity() {
 
 /// MOV reduction reports `DegeneratePairing` when R is a base-field point (R = G).
 ///
-/// With R = G the Miller evaluation point meets the Miller function's divisor, and
+/// With R = G the Miller evaluation point lies on the support of the Miller function's divisor,
+/// where the value is undefined (the first tangent-line numerator vanishes), and
 /// `reduced_tate(R, G, ell)` evaluates to 0 rather than a nontrivial ℓ-th root of unity. The log
 /// would then be unconstrained, so the reduction must say so rather than silently computing a
 /// wrong log, and must not report it as a failure of the log engine.
@@ -244,9 +245,9 @@ fn mov_reduce_degenerate_r_is_degenerate_pairing() {
     // Q' = 1·G.
     let q_prime: PairingPoint<FpNaive<4>> = p_point.scalar_mul(1, &a, &modulus, &p);
 
-    // R = G (a base-field point) — degenerate: e(G, G) = reduced_tate(G, G, ell) = 1.
-    // (The Tate pairing t_ℓ(P, Q) = 1 when Q ∈ ℓ·E(F_{p^k}); for a base-field point
-    // used as both arguments, the result is trivial.)
+    // R = G (a base-field point) — degenerate: the evaluation point of f_{ℓ,R}(G) is R itself,
+    // on the support of the Miller divisor, where the value is undefined. The first tangent-line
+    // numerator vanishes there, so `reduced_tate(G, G, ell)` is 0 rather than a root of unity.
     let r_degenerate = p_point.clone();
 
     let result =

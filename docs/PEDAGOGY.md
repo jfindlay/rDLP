@@ -508,10 +508,11 @@ steps per walker between DPs (more time before a collision is detected). The tex
 **Code reference:** `src/ecdlp/dp.rs::is_distinguished`, `src/ecdlp/dp.rs::DpPoint`,
 `src/ecdlp/dp.rs::DpRecord`, `src/ecdlp/coordinator.rs`, `src/ecdlp/mod.rs::solve_dp`.
 
-**Speedup:** N× (linear in thread count). This is the second pedagogical moment: the speedup from
-parallelism is linear, not √N. Each additional walker independently explores the group, and the
-birthday bound applies to the combined pool of DPs. Doubling the number of walkers halves the
-expected time to collision.
+**Speedup:** N× (linear in thread count) in the expected time to collision. This is the expected
+ratio, not a measured one: no timing recorded in this repository shows it. This is the second
+pedagogical moment: the speedup from parallelism is linear, not √N. Each additional walker
+independently explores the group, and the birthday bound applies to the combined pool of DPs.
+Doubling the number of walkers halves the expected time to collision.
 
 ---
 
@@ -541,9 +542,14 @@ breaks the cycle because 2W is generically not in the same {W, −W} pair.
 **Code reference:** `src/ecdlp/negmap.rs::canonical_rep`, `src/ecdlp/negmap.rs::negate_scalars`,
 `src/ecdlp/negmap.rs::FruitlessCycleDetector`, `src/ecdlp/mod.rs::solve_dp_negmap`.
 
-**Speedup:** ~√2 ≈ 1.41× reduction in expected walk steps vs distinguished points alone. The
-fruitless-cycle overhead is small in practice (escapes are rare for a well-mixing walk), so the net
-speedup is close to the theoretical √2.
+**Speedup:** ~√2 ≈ 1.41× reduction in expected walk steps vs distinguished points alone. That is
+the theoretical figure, and the repository does not show it realised. In the sizing runs recorded
+in the `ecdlp` bench's module comment, `solve_dp_negmap` took several times the step count of
+`solve_dp` on a 25-bit prime-order group (about 3·10⁴–7·10⁴ steps against about 2·10³–10⁴), and
+did not finish within 60–120 s on a 31-bit one, where `solve_dp` finished in seconds. Those were
+wall-clock checks, not benchmark results, and this text does not explain the gap; the negation-map
+solver is correct (it passes its KATs and every success is verified) but its step count on these
+groups is far above the expected cost.
 
 ---
 
@@ -579,10 +585,11 @@ and batch-inverting them reduces the inversion count from B to 1 per round of B 
 **Code reference:** `src/util/batch_inv.rs::batch_invert`, `src/ecdlp/walk.rs::BatchedWalker`,
 `src/ecdlp/walk.rs::BatchedWalker::step_all`, `src/ecdlp/mod.rs::solve_dp_batch`.
 
-**Speedup:** 2–4× reduction in wall time per step, depending on batch size B and the relative cost
-of inversion vs multiplication on the target hardware. Typical batch sizes are B = 8–32; beyond
-B ≈ 32 the marginal gain diminishes as the inversion cost becomes negligible relative to the
-3(B−1) multiplications.
+**Speedup:** an expected 2–4× reduction in wall time per step, depending on batch size B and the
+relative cost of inversion vs multiplication on the target hardware; this range is an estimate,
+not a measurement (no timing recorded here compares `solve_dp_batch` with the unbatched solvers).
+Typical batch sizes are B = 8–32; beyond B ≈ 32 the marginal gain diminishes as the inversion
+cost becomes negligible relative to the 3(B−1) multiplications.
 
 ---
 
@@ -715,6 +722,10 @@ Notes:
   "B-factor") depends on the ratio of inversion cost to multiplication cost on the target hardware,
   and on the batch size B. It composes multiplicatively with the walk-length reductions from the
   negation map and the GLV endomorphism.
+- Every ratio in the table is an expected one. None is a measured result: the `ecdlp` bench
+  records no Criterion medians, and its sizing runs found the negation-map solver taking several
+  times the plain distinguished-point step count (see the negation-map section above), the
+  opposite of the √2 reduction. The 1/2/4-walker timings also depend on the machine's core count.
 
 ---
 
@@ -766,7 +777,7 @@ directly), and the negation map and GLV endomorphism have no factoring analogue.
 pub fn factor(n: u128, max_c: u64, batch_size: usize) -> Result<Factorization, FactorError>;
 // Factorization { d, evidence } with 1 < d < n and n % d == 0, checked before it is returned
 // FactorEvidence::{ Even, Rho { c } };  FactorError::{ InvalidInput, Prime, Unsupported,
-//                                                     BudgetExhausted { constants } }
+//                                BudgetExhausted { constants }, Inconsistent { d } }
 ```
 
 `factor` classifies `n` first, in this order: `n ≤ 1` is `InvalidInput`
@@ -793,8 +804,14 @@ budget of sixteen succeeds). The primitives `floyd`, `brent` and `brent_batched`
 (`primitives_fail_when_the_step_bound_is_spent`); a batch size of zero is treated as one
 (`brent_batched_zero_batch_size_terminates`). Squares and prime powers need no special case: the
 returned divisor is checked, and `factor_squares_and_prime_powers_give_proper_divisors` covers them.
-All of these tests are in `rho/tests/factor_kat.rs`. The `rho-factor` CLI reports each class
-separately (README, "CLIs").
+A walk's candidate `d` of `1` or `n` (gcd = 1 or `n`) is a failed attempt that consumes a constant
+(`search_trivial_candidates_consume_attempts`); any other candidate that does not divide `n` is
+`Inconsistent { d }`, an invariant failure reported at once and never retried
+(`judge_candidate_flags_non_dividing_candidates`,
+`search_surfaces_inconsistent_candidate_without_retrying`,
+`search_inconsistent_beats_failed_attempts`; unit tests in `rho/src/factor/rho.rs`, since a real gcd
+with `n` always divides `n` and no input reaches it). The other tests are in
+`rho/tests/factor_kat.rs`. The `rho-factor` CLI reports each class separately (README, "CLIs").
 
 **Code reference:** `src/factor/rho.rs` — `floyd`, `brent`, `brent_batched`, `factor`.
 
@@ -825,18 +842,20 @@ trusting benchmark results.
 cargo bench --bench ecdlp
 ```
 
-This benches each solver variant: `solve_brent` (single-threaded baseline), `solve_dp`
-(distinguished points), `solve_dp_negmap` (negation map), `solve_dp_batch` (batched inversion), and
-`solve_dp_glv` (GLV endomorphism), all on `secp_k1_toy` with `Q = 12_345_678_901·G`. That group has
-a 63-bit prime order, and a collision in it takes about 1.25·√n ≈ 2.7·10⁹ walk steps (arithmetic
-from n, not a measurement), so these benches are not practically runnable: the cumulative speedup
-is demonstrated at test scale by the 20-bit KATs, not by this suite. Each bench body unwraps its
-solver, so a budget-exhausted or otherwise failed solve aborts the bench rather than being
-timed. The distinguished-point benches pass a step budget of 2⁴⁰ ≈ 1.1·10¹², a safety cap a few
-hundred times the expected cost; the Brent bench passes 20 attempts, each capped at 2²⁹ − 1 ≈
-5.4·10⁸ steps, below the expected cost of one collision, so by that arithmetic it would most
-likely end as budget exhaustion and abort. These figures are arithmetic on the code and the group
-order; the benches were not run to produce them.
+This benches `solve_brent` (single-threaded baseline), `solve_dp` (distinguished points; 1, 2 and 4
+walkers), `solve_dp_negmap` (negation map) and `solve_dp_batch` (batched inversion), all on
+`prime_order_25` (`y² = x³ − 3x + 72` over the 25-bit field `p = 16_777_259`, whole group of prime
+order `n = 16_777_729`) with `Q = (12_345_678_901 mod n)·G`. A collision there takes about
+1.25·√n ≈ 5·10³ walk steps (arithmetic from `n`, not a measurement). `solve_dp_glv` is not benched:
+it supports only `secp_k1_toy`, whose group takes about 2.7·10⁹ steps per solve, and the 25-bit
+fixture has no GLV endomorphism. Each bench solves its instance once before timing and asserts the
+result, so a solver that fails aborts the bench rather than being timed. The distinguished-point
+benches pass a step budget of 2²² ≈ 4.2·10⁶ (a safety cap) at `θ = 4`; the Brent bench passes 20
+attempts of at most 2²⁹ − 1 steps. The group size was chosen so that each variant finishes in
+about two seconds or less per solve in a release build, which the sizing runs checked; they are
+wall-clock checks, not benchmark results, and no Criterion median is recorded. The bench therefore
+does not demonstrate the cumulative speedup of the optimisation layers on this group
+(`docs/BENCHMARKS.md`, cross-attack harness section, has the setup and the sizing observations).
 
 ### CLI: stepping through the optimization layers
 
@@ -963,7 +982,7 @@ bound. The table below names the structure, the module that realises it, and the
 
 | Attack | Curve structure exploited | Module surface | Toy fixture |
 |--------|--------------------------|----------------|-------------|
-| Pollard rho (baseline) | None — generic group | `rho::ecdlp` (`solve_brent`, `solve_dp`, `solve_dp_negmap`, `solve_dp_batch`, `solve_dp_glv`) | `tiny_a`, `tiny_b` (20-bit prime order) in the KATs; `secp_k1_toy` (63-bit, prime order) in the benches and CLI |
+| Pollard rho (baseline) | None — generic group | `rho::ecdlp` (`solve_brent`, `solve_dp`, `solve_dp_negmap`, `solve_dp_batch`, `solve_dp_glv`) | `tiny_a`, `tiny_b` (20-bit prime order) in the KATs; `prime_order_25` (25-bit field, prime group order) in the benches; `secp_k1_toy` (63-bit, prime order) and `generic` (a 63-bit field with a prime-order subgroup of about 2¹⁹) in the CLI |
 | Pohlig–Hellman | Composite group order $n = \prod p_i^{e_i}$ | `rho::ecdlp::pohlig` (`solve_ecdlp_composite`) | `composite_toy()` ($n = 60 = 2^2 \cdot 3 \cdot 5$); `composite_rho_toy()` ($n = 1068 = 2^2 \cdot 3 \cdot 89$) |
 | MOV/Frey–Rück | Small embedding degree $k$; $\ell \mid p^k - 1$ | `rho::pairing::mov` (`mov_reduce`) | `pairing_toy()` ($\ell = 3$, $k = 2$, $\mathbb{F}_{47^2}$) |
 | Smart–Satoh–Araki (SSA) | Anomalous curve: $\#E(\mathbb{F}_p) = p$ (trace = 1) | `rho::ssa` (`ssa_solve`) | `anomalous_toy()` ($y^2 = x^3 + 5 \bmod 7$, $\#E = 7 = p$) |
@@ -1132,7 +1151,7 @@ holds in the returned solution.
 |---------|---------|--------------|
 | `Ok(MovSolution { k_mod_ell, ell, g_pair, h_pair })` | verified `k mod ℓ`; `g_pair^k = h_pair`, `g_pair ≠ 1`, `g_pair^ℓ = 1` | `mov_reduce_recovers_k1`, `mov_reduce_recovers_k2`, `mov_reduce_recovers_k0_for_target_at_infinity` (`rho/tests/mov_kat.rs`) |
 | `Err(InvalidInput(defect))` | `ℓ` not prime, `ℓ ∤ p^k − 1`, `G = ∞`, or `G`, `Q`, `R` off the curve or outside `E[ℓ]` | `mov_reduce_rejects_composite_ell`, `mov_reduce_rejects_ell_not_dividing_field_order`, `mov_reduce_rejects_infinite_generator`, `mov_reduce_rejects_off_curve_points`, `mov_reduce_rejects_points_outside_e_ell` |
-| `Err(DegeneratePairing)` | `R = ∞`, `e(G, R) = 1`, or a Miller evaluation of `0` (as for `R = G`): `R` is not a μ_ℓ-generator for `G` | `mov_reduce_degenerate_r_is_degenerate_pairing`, `mov_reduce_infinite_r_is_degenerate_pairing` |
+| `Err(DegeneratePairing)` | `R = ∞`, `e(G, R) = 1`, or a Miller evaluation of `0`. A `0` means the evaluation point lies on the support of the Miller divisor, where the value is undefined; for `R = G` the first tangent-line numerator vanishes. `R` is not a μ_ℓ-generator for `G` | `mov_reduce_degenerate_r_is_degenerate_pairing`, `mov_reduce_infinite_r_is_degenerate_pairing` |
 | `Err(Unsupported(..))` | `p ≥ 2^64` (a non-zero word above the lowest), reported before any arithmetic on `p` | `mov_reduce_rejects_field_above_one_limb` |
 | `Err(Dl(..))` | the `solve_dl` error, passed through unchanged | not exercised |
 | `Err(Inconsistent { k_mod_ell })` | the engine's value fails `k·G == Q`; an invariant failure | `log_matches_accepts_only_the_true_log` (unit, `src/pairing/mov.rs`; checks the verifier, no fixture reaches it) |
@@ -1141,7 +1160,9 @@ The single-limb limit `p < 2^64` of the bridge is enforced by `mov_reduce` as an
 (`Unsupported`), in release builds too, so no later conversion truncates. The final exponent
 `(p^k − 1)/ℓ` is computed exactly (it can exceed one limb even for a one-limb `p`);
 `reduced_tate_with_exponent_above_one_limb_lands_in_mu_ell` (`src/pairing/mov.rs`) checks it on
-`y² = x³ + 1` over `F_68719476767`.
+`y² = x³ + 1` over `F_68719476767`. That check is of the pairing alone: `mov_reduce` accepts such
+a field, but the degree-2 log engine behind it scans `F_p` to choose its modulus, so it does not
+finish at that size (read from `find_irreducible_degree2` in `gnfs`, not measured).
 
 The pairing infrastructure:
 - `rho::pairing::miller` — Miller's algorithm (the efficient pairing evaluation).
@@ -1292,8 +1313,9 @@ The bench pre-check in `rho/benches/attacks.rs` (`bench_ssa`) asserts this befor
 
 ### Cross-reference
 
-For the mathematical development — the formal group, the lift-independent homomorphism that makes
-the quotient meaningful, and the complexity of the algorithm — see `docs/MATHEMATICS.md` §10.2.
+For the mathematical development — the formal group, the homomorphism (independent of the lift of
+the point, though not of the lift of the curve) that makes the quotient meaningful, and the
+complexity of the algorithm — see `docs/MATHEMATICS.md` §10.2.
 
 ---
 
@@ -1634,6 +1656,9 @@ implemented head-on, not stubbed, and exercised by KATs on a toy fixture.
   `dp_glv_is_unsupported_off_its_curve`); a full solve of that 63-bit group is not practically
   runnable. Every solver returns a verified logarithm with its collision evidence or a typed error
   that keeps invalid input, unsupported domain, budget exhaustion and invariant failure apart.
+  None of these tests shows an optimisation layer reducing the step count: the speedups are
+  expected ratios, and the sizing runs for the benches saw `solve_dp_negmap` take more steps than
+  `solve_dp` (§2, negation map).
 
 - **Pohlig–Hellman.** `solve_ecdlp_composite` with `factor_order` and
   `project_to_subgroup` — composite-order ECDLP via CRT, exercised on `composite_toy()`
@@ -1643,13 +1668,15 @@ implemented head-on, not stubbed, and exercised by KATs on a toy fixture.
 - **MOV/Frey–Rück.** `mov_reduce` with the full pairing infrastructure (Miller's
   algorithm, reduced Tate pairing, $\mathbb{F}_{p^k}$ arithmetic, the bridge to
   `gnfs::dl::solve_dl`) — exercised on `pairing_toy()` ($\ell = 3$, $k = 2$). The result is
-  verified `k·G == Q`, and a degenerate pairing is reported as such.
+  verified `k·G == Q`, a degenerate pairing is reported as such, and a field characteristic
+  `p ≥ 2^64` is rejected as `Unsupported` (§10).
 
 - **Smart–Satoh–Araki.** `ssa_solve` with Hensel lift and an evaluation of $\log(1 + t)$ on
   $p \cdot \tilde{P}$ — anomalous-curve attack, exercised on `anomalous_toy()` ($p = 7$,
-  $\#E = 7$). The algorithm is polynomial in $\log p$; this implementation is $O(p)$. Every
-  returned value is verified, and the solver's second candidate (the quotient times $2^{-1}$) is an
-  empirical compensation for that fixture (§11).
+  $\#E = 7$) and on a second anomalous curve with $a \neq 0$. The algorithm is polynomial in
+  $\log p$; this implementation is $O(p)$. Every returned value is verified. The quotient of
+  logarithms is the only candidate, taken on a lift of the curve with $p \cdot \tilde{G} \in E_1
+  \setminus E_2$; a degenerate lift is replaced by a second one, not compensated for (§11).
 
 - **GHS/Weil descent.** `ghs_descend`, `verify_log_preservation`, `transfer_point` —
   binary-curve transfer to hyperelliptic Jacobian, exercised on `ghs_toy_curve()`

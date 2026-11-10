@@ -58,6 +58,11 @@ use crate::pairing::tate::reduced_tate;
 /// modulus-consistency guard to the gnfs-side helper
 /// [`gnfs::dl::ext::target::fpext_coeffs_to_dl_target`].
 ///
+/// The single-limb check on the coefficients is a `debug_assert`, so it is absent from release
+/// builds. [`mov_reduce`] does not rely on it: it rejects `p ≥ 2^64` with [`MovError::Unsupported`]
+/// first, which keeps every reduced coefficient below `2^64`. A direct caller passing coefficients
+/// with a non-zero upper limb gets a silently truncated encoding in a release build.
+///
 /// # Arguments
 ///
 /// - `elem`: The pairing output element in F_{p^k}.
@@ -161,8 +166,10 @@ pub enum MovInputDefect {
 pub enum MovError {
     /// The instance does not satisfy the reduction's preconditions.
     InvalidInput(MovInputDefect),
-    /// A pairing value is unusable: `e(G, R) = 1`, or a Miller evaluation returned 0 (the
-    /// evaluation point met the Miller function's divisor, e.g. `R = G`). `R` is then not a
+    /// A pairing value is unusable: `e(G, R) = 1`, or a Miller evaluation returned 0. A 0 arises
+    /// when the evaluation point lies on the support of the Miller function's divisor, where the
+    /// value is undefined: for `R = G` the first tangent-line numerator vanishes at the
+    /// evaluation point (`mov_reduce_degenerate_r_is_degenerate_pairing`). `R` is then not a
     /// μ_ℓ-generator for `G` and the finite-field log carries no information about `k`. A property
     /// of the supplied `R`, not a solver failure.
     DegeneratePairing,
@@ -336,8 +343,9 @@ pub fn mov_reduce<F: Fp<4>>(
     // This is the non-degenerate direction for the toy fixture (see `test_curves` module).
     //
     // A usable pairing value is a unit of F_{p^k}. The value 1 is the trivial pairing; the value
-    // 0 is what the Miller evaluation returns when the evaluation point meets the divisor of the
-    // Miller function (R = G), where the pairing is undefined. Neither carries a log.
+    // 0 is what the Miller evaluation returns when the evaluation point lies on the support of
+    // the Miller function's divisor (R = G), where the pairing is undefined. Neither carries a
+    // log.
     let g_pair: FpExt<F> = reduced_tate(curve, modulus, r_point, g_point, ell);
     if g_pair.is_one(&p_uint) || g_pair.is_zero(&p_uint) {
         return Err(MovError::DegeneratePairing);

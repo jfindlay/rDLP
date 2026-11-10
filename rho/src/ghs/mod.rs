@@ -37,12 +37,14 @@
 //! - Binary curve `E/GF(2^6)`: `y²+xy = x³+x²+1` (a=1, b=1 over GF(2^6)).
 //!
 //! Odd `m/l` keeps the descent in the imaginary/ramified hyperelliptic model
-//! that the frozen [`crate::hyperelliptic::HyperellipticCurve`] handles.
+//! that [`crate::hyperelliptic::HyperellipticCurve`] handles.
 //!
 //! # Scale limits
 //!
-//! The fixture is toy-scale (m=6, l=2). The algorithms are crypto-scale-correct;
-//! only the parameters are small for auditability.
+//! The fixture is toy-scale (m=6, l=2). The construction does not depend on it: the subfield
+//! is identified through `shared_gf2m::restrict` and checked by [`check_subfield_identification`]
+//! for any parameters, and the field arithmetic is single-limb, so `m ≤ 63`. Only genus ≥ 2
+//! (`m/l ≥ 5`) would make the transfer useful against a real ECDLP, and no such fixture is tested.
 
 pub mod curve;
 pub mod descent;
@@ -72,7 +74,7 @@ pub enum GhsError {
     /// The curve does not admit a GHS descent.
     ///
     /// For example, the extension degree `m/l` is even for the imaginary model
-    /// (even `m/l` yields the real/split model, which the frozen
+    /// (even `m/l` yields the real/split model, which
     /// [`crate::hyperelliptic::HyperellipticCurve`] does not handle).
     NonDescendable,
     /// The point does not satisfy the Weierstrass equation of `E`.

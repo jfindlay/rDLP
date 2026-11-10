@@ -4,9 +4,12 @@
 //! that all variants (Floyd, Brent, brent_batched, and the parallel `factor`)
 //! return a correct non-trivial factor.  The check is: `1 < d < n` and
 //! `n % d == 0`.  `factor` additionally reports which path produced the divisor, and its
-//! error variants (invalid input, prime, unsupported, exhausted budget) are pinned separately.
+//! error variants (invalid input, prime, unsupported, exhausted budget, inconsistent candidate)
+//! are pinned separately.
 //!
-//! Semiprimes span 30–80 bits to cover the supported range up to 2^80.
+//! The semiprimes span about 20–64 bits; the supported range reaches 2^80, and the only
+//! composite above 64 bits that is factored is ψ₁₂ ≈ 2^78.1
+//! (`factor_splits_psi_12_instead_of_certifying_it`); primes up to 2^80 are only certified.
 //! For each semiprime the factors are listed but not asserted — rho may return
 //! either factor; both are correct.
 

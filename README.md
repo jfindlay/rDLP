@@ -178,7 +178,7 @@ cargo build --release --workspace
 cargo bench                          # all bench targets
 cargo bench --bench field            # FpNaive vs FpMonty mul/square/inv
 cargo bench --bench factor           # Floyd vs Brent vs Brent+batched-GCD
-cargo bench --bench ecdlp            # rho baseline → DPs → negmap → batched-inv → GLV
+cargo bench --bench ecdlp            # rho baseline → DPs → negmap → batched-inv (25-bit group)
 cargo bench --bench attacks          # algebraic ECDLP attacks (cross-attack harness)
 ```
 
@@ -193,11 +193,14 @@ cargo run --release --bin rho-factor -- <N>
 cargo run --release --bin rho-factor -- <N> --threads 4 --batch-size 128
 ```
 
-On success it prints `N = p × q` (exit 0). A certified prime prints `N is prime` (exit 0). The
-other outcomes go to stderr with exit 1 and are kept distinct: `N ≤ 1` is invalid input; `N ≥ 2^80`,
-or an odd `N` above the proven Miller–Rabin bound that tests prime, is outside the supported range
-and cannot be certified; and spending every `c`-value without a factor is reported as exhaustion,
-which does not show that `N` is prime (`docs/PEDAGOGY.md` §5 lists the tests).
+On success it prints `N = p × q` (exit 0). A certified prime prints `N is prime` (exit 0); the
+verdict is a proof for every `N` below 2^80, because the Miller–Rabin bases used are proven
+sufficient below ψ₁₃ ≈ 2^81.5 (`factor_certifies_primes_up_to_the_supported_limit`). The other
+outcomes go to stderr with exit 1 and are kept distinct: `N ≤ 1` is invalid input; `N ≥ 2^80` is
+outside the supported range; spending every `c`-value without a factor is reported as exhaustion,
+which does not show that `N` is prime; and a candidate that does not divide `N` is an internal
+error (the divisor invariant broke), reported at once and never retried (`docs/PEDAGOGY.md` §5
+lists the tests).
 
 **Solve an ECDLP** (`Q = k·P`, prints `k`) with Pollard rho:
 
@@ -294,7 +297,7 @@ rho/
   benches/
     field.rs            # FpNaive vs FpMonty
     factor.rs           # Floyd vs Brent vs Brent+batched-GCD
-    ecdlp.rs            # baseline → DPs → negmap → batched-inv → GLV
+    ecdlp.rs            # baseline → DPs → negmap → batched-inv on a 25-bit group (no GLV bench)
     attacks.rs          # algebraic ECDLP attack harness
   tests/
     factor_kat.rs       # known semiprimes 15–2^64, all four factor variants, typed outcomes
@@ -323,9 +326,9 @@ rho/
 | r-adding walk (Teske)               | r = 20; partition by low bits of x-coord              |
 | Brent's cycle detection             | Single-threaded baseline; DPs supersede it            |
 | Distinguished points (vOW)          | Predicate: low θ bits of x-coord = 0                  |
-| Parallel collision search           | N walkers + 1 coordinator; speedup scales as N        |
+| Parallel collision search           | N walkers + 1 coordinator; expected speedup N (unmeasured) |
 | DP hash table + match-on-insert     | keyed by full x; a y-parity bit separates P from −P   |
-| Negation map (±P equivalence)       | Canonical rep = point with smaller y (≤ p/2)          |
+| Negation map (±P equivalence)       | Canonical rep = point with smaller y (≤ p/2); expected ~√2 step saving, not observed on the bench groups (see `docs/BENCHMARKS.md`) |
 | Fruitless-cycle detection + escape  | 16-entry sliding window; BKNS deterministic escape    |
 | Batched field inversion             | Montgomery's trick: B inversions → 1 inv + 3(B−1) mul |
 | Affine coordinates                  | Viable once inversions are amortised via batching     |

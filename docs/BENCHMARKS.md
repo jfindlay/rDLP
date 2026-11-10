@@ -501,14 +501,17 @@ comparison holds only for this one group. The group size was chosen so that ever
 in about two seconds or less per solve in a release build; a sizing run on a 31-bit prime-order
 group showed `solve_dp_negmap` not finishing within 60–120 s (see the bench's module comment for
 the sizing observations). The sizing runs were wall-clock checks that each solve finishes, not
-benchmark results.
+benchmark results. They also showed `solve_dp_negmap` taking several times the step count of
+`solve_dp` on the 25-bit group (about 3·10⁴–7·10⁴ against 2·10³–10⁴), well above the expected
+cost, so the √2 saving expected from the negation map is not observed here and nothing in this
+section claims a negation-map or batched-inversion speedup. The cause is not investigated.
 
-The bench previously ran on the 63-bit `secp_k1_toy` group (about 2.7·10⁹ expected steps per
-solve), where the solves could not finish in practice; no timing from that setup exists. No
-Criterion median is recorded for the new setup either: the `~N µs` entries below stand for figures
-not yet measured, and re-measurement belongs to the benchmark-tooling work.
+An earlier version of the bench ran on the 63-bit `secp_k1_toy` group (about 2.7·10⁹ expected
+steps per solve), where the solves could not finish in practice; no timing from that setup exists.
+No Criterion median is recorded for the current setup either: the `~N µs` entries below stand for
+figures not yet measured.
 
-The new bench file `rho/benches/attacks.rs` adds five Criterion bench functions, one per
+The bench file `rho/benches/attacks.rs` has five Criterion bench functions, one per
 algebraic attack. Each bench body asserts the solver returns the known correct answer before
 timing — the bench doubles as a no-regression smoke test (every benched attack still solves, or
 for GHS transfers, its toy instance).
