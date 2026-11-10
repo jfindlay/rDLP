@@ -332,16 +332,25 @@ All of these are unit tests in `shared/numth/src/ecm.rs`.
 ### Stage 1 and Stage 2
 
 **Stage 1** computes Q = k·P with k = ∏ { q^⌊log_q(B1)⌋ : q prime ≤ B1 } — every prime power up to
-B1. After the ladder, gcd(Z-coordinate, N) is tested; a non-trivial gcd is the factor. Stage 1
+B1. After each ladder call, gcd(Z-coordinate, N) is tested; a non-trivial gcd is the factor. Stage 1
 succeeds when |E(F_p)| is fully B1-smooth.
 
-*Implementation limit.* The code builds k in a 256-bit integer with wrapping multiplication. The
-product is lcm(1, …, B1) ≈ e^B1, which exceeds 2^256 once B1 passes about 177 (256·ln 2 ≈ 177), so
-for larger B1 the scalar the ladder uses is not the B1-smooth multiple described above. This is
-arithmetic on the code, not something a test exercises; it can only weaken ECM (a factor may be
-missed), because `ecm_factor` checks every divisor it returns. The tests that use B1 = 200 or 300
-(`ecm_factors_28891`, `ecm_factors_small_semiprimes`) assert that a factor is found, not that the
-scalar is smooth.
+*No product scalar.* The product k = lcm(1, …, B1) ≈ e^B1 exceeds 2^256 once B1 reaches 179
+(256·ln 2 ≈ 177; the product first passes 256 bits when the prime 179 is multiplied in), so it
+cannot live in a fixed-width integer at larger B1. `run_stage1` therefore never forms it: it applies
+each prime power q = p^⌊log_p B1⌋ to the running point with its own `montgomery_ladder` call, one
+prime at a time, and (q₁·q₂·…)·P is the same point however the factors are grouped. The test
+`stage1_per_prime_power_equals_single_product_ladder` checks that for B1 up to 178 the result
+equals the single-scalar ladder (compared projectively, X₁Z₂ = X₂Z₁), and
+`single_product_scalar_overflows_at_179` pins where the single product stops fitting. The test
+`stage1_prime_power_above_overflow_point_finds_factor` (N = (2^61 − 1)·1009, σ = 15, B1 = 250)
+finds 1009 with the per-prime ladder while the product truncated mod 2^256 does not.
+
+Testing gcd(Z, N) after every prime rather than once at the end is safe because once Z ≡ 0 (mod r)
+for a prime r | N it stays 0: doubling and differential addition of points with Z ≡ 0 return
+Z ≡ 0. It is also better, since the gcd is a proper divisor only while Z vanishes mod some primes of
+N and not others; testing per prime reports the factor before every prime of N has reached the
+identity.
 
 **Stage 2** is the standard refinement for the common case where |E(F_p)| is B1-smooth *except for
 one* prime factor q in (B1, B2]. Rather than raising B1 (which re-does all the work), stage 2 walks

@@ -1283,17 +1283,19 @@ point has a specific structure that makes stage 1 more likely to succeed.
 #### Stage 1 and stage 2
 
 **Stage 1.** Compute $Q = kP$ with $k = \prod \{q^{\lfloor \log_q B_1 \rfloor} : q \text{ prime}
-\leq B_1\}$ — every prime power up to $B_1$. After the ladder, test $\gcd(Z, N)$; a non-trivial
-gcd is the factor. Stage 1 succeeds when $|E(\mathbb{F}_p)|$ is fully $B_1$-smooth.
+\leq B_1\}$ — every prime power up to $B_1$. After each ladder call, test $\gcd(Z, N)$; a
+non-trivial gcd is the factor. Stage 1 succeeds when $|E(\mathbb{F}_p)|$ is fully $B_1$-smooth.
 
-*Implementation limit.* The code multiplies these prime powers into a 256-bit integer with wrapping
-multiplication. The product is $\mathrm{lcm}(1, \ldots, B_1) \approx e^{B_1}$, which exceeds
-$2^{256}$ once $B_1$ passes about $177$ ($256 \ln 2 \approx 177$), so for larger $B_1$ the scalar
-the ladder uses is not the $B_1$-smooth multiple described above. This is arithmetic on the code,
-not something a test exercises; it can only weaken ECM (a factor may be missed), because
-`ecm_factor` returns a divisor only after checking $1 < d < N$ and $N \bmod d = 0$. The tests that
-use $B_1 = 200$ or $300$ (`ecm_factors_28891`, `ecm_factors_small_semiprimes` in
-`shared/numth/src/ecm.rs`) assert that a factor is found, not that the scalar is smooth.
+*No product scalar.* The product is $\mathrm{lcm}(1, \ldots, B_1) \approx e^{B_1}$, which first
+exceeds $2^{256}$ at $B_1 = 179$ ($256 \ln 2 \approx 177$), so it does not fit a fixed-width
+integer at larger $B_1$. The code never forms it: it multiplies the running point by each prime
+power $q = p^{\lfloor \log_p B_1 \rfloor}$ in its own ladder call, giving the same point
+$(q_1 q_2 \cdots)P$ at every $B_1$. Once $Z \equiv 0 \pmod r$ for a prime $r \mid N$, doubling and
+differential addition keep $Z \equiv 0$, so testing the gcd after each prime is sound, and it
+reports a factor before every prime of $N$ has reached the identity (which would make the gcd
+improper). The tests in `shared/numth/src/ecm.rs` check that the result equals the single-scalar
+ladder for $B_1$ up to $178$ and that $N = (2^{61}-1) \cdot 1009$ with $\sigma = 15$, $B_1 = 250$
+yields $1009$, which a scalar truncated mod $2^{256}$ misses.
 
 **Stage 2.** The standard refinement for the common case where $|E(\mathbb{F}_p)|$ is $B_1$-smooth
 *except for one* prime factor $q \in (B_1, B_2]$. Rather than raising $B_1$ (which re-does all

@@ -26,9 +26,10 @@
 //!
 //! # Stage 1 and Stage 2
 //!
-//! **Stage 1**: compute ``k * P`` where ``k = ∏ { q^⌊log_q(B1)⌋ : q prime, q ≤ B1 }``.
-//! A factor is found if ``gcd(Z-coordinate, N) > 1`` at any point during the
-//! ladder.
+//! **Stage 1**: compute ``k * P`` where ``k = ∏ { q^⌊log_q(B1)⌋ : q prime, q ≤ B1 }``, by
+//! applying each prime power ``q`` to the running point with its own ladder call (the product
+//! ``k ≈ e^B1`` is never formed).  A factor is found if ``gcd(Z-coordinate, N)`` is a proper
+//! divisor after any of those calls.
 //!
 //! **Stage 2**: given the stage-1 result ``Q = k * P``, check primes ``q`` in
 //! ``(B1, B2]``.  If ``q * Q`` is the identity mod ``p`` for some ``p | N``,
@@ -369,53 +370,53 @@ fn suyama_param(sigma: u64, n: &Uint<4>) -> SuyamaResult {
 
 // ── Stage 1 ───────────────────────────────────────────────────────────────────
 
-/// Compute the stage-1 scalar: ``k = ∏ { q^⌊log_q(B1)⌋ : q prime, q ≤ B1 }``.
+/// Return the largest power of the prime ``p`` that is ≤ ``b1``: ``p^⌊log_p(B1)⌋``.
 ///
-/// This is the product of prime powers ≤ ``B1``.  Multiplying a point by ``k``
-/// ensures that if ``|E(F_p)|`` is ``B1``-smooth, the point becomes the identity
-/// mod ``p`` — provided ``k`` is exactly that product.  The product is accumulated with
-/// ``wrapping_mul`` in a ``Uint<4>``, so once it passes 256 bits (roughly ``B1 ≳ 177``) ``k`` is
-/// reduced mod 2^256 and is no longer the ``B1``-power-smooth product: stage 1 then no longer
-/// guarantees reaching the identity.  Returned factors are still verified independently.
-fn stage1_scalar(b1: u64) -> Uint<4> {
-    let primes = factor_base_up_to(b1);
-    let mut k = Uint::<4>::ONE;
-    for p in primes {
-        // Compute q = p^⌊log_p(B1)⌋: the largest power of p that is ≤ B1.
-        let mut q = p;
-        while q <= b1 / p {
-            // q * p <= b1 (checked to avoid overflow)
-            q *= p;
-        }
-        // Multiply k by q.  `wrapping_mul` reduces k mod 2^256 once the product of prime powers
-        // passes 256 bits (B1 ≳ 177); see the function documentation for the consequence.
-        k = k.wrapping_mul(&Uint::<4>::from(q));
+/// Requires ``2 ≤ p ≤ b1``.  The power always fits in a ``u64`` because it is ≤ ``b1``.
+fn largest_prime_power_le(p: u64, b1: u64) -> u64 {
+    let mut q = p;
+    // `q <= b1 / p` is `q * p <= b1` without the overflow.
+    while q <= b1 / p {
+        q *= p;
     }
-    k
+    q
 }
 
 /// Run stage 1 of ECM on a single curve.
 ///
-/// Computes ``k * P`` where ``k`` is the stage-1 scalar.  Returns ``Ok(point)``
-/// if stage 1 completed without finding a factor, or ``Err(factor)`` if a
-/// non-trivial factor of ``N`` was found.
+/// Applies ``q = p^⌊log_p(B1)⌋`` to the point, one prime ``p ≤ B1`` at a time, each with its own
+/// ladder call.  The composite scalar ``∏ q = lcm(1, …, B1)`` grows like ``e^B1`` and never fits
+/// a fixed-width integer for large ``B1``; applying the prime powers separately yields the same
+/// multiple ``(∏ q) * P`` at every ``B1`` without forming that product.  If ``|E(F_r)|`` is
+/// ``B1``-power-smooth for a prime ``r | N``, the point becomes the identity mod ``r``.
 ///
-/// A factor is detected by checking ``gcd(Z, N)`` after the ladder completes.
-/// The ladder itself never fails (no inversions are needed).
+/// After each ladder call ``gcd(Z, N)`` is tested.  Once ``Z ≡ 0 (mod r)`` the point stays at
+/// the identity mod ``r`` (every doubling and differential addition of a point with ``Z ≡ 0``
+/// has ``Z ≡ 0``), so the test could be deferred to the end; testing per prime instead returns
+/// the factor as soon as it appears, before a second prime of ``N`` also reaches the identity
+/// and makes the gcd with ``N`` improper.
+///
+/// Returns ``Ok(point)`` if stage 1 completed without finding a proper factor, or
+/// ``Err(factor)`` for a non-trivial factor of ``N``.  If ``Z ≡ 0 (mod N)`` the identity is
+/// returned immediately: every later multiple is the identity as well.
 fn run_stage1(
     p: &MontPoint,
     a24: &Uint<4>,
     b1: u64,
     n: &Uint<4>,
 ) -> Result<MontPoint, Uint<4>> {
-    // Build the stage-1 scalar and run the ladder.
-    let k = stage1_scalar(b1);
-    let q = montgomery_ladder(p, &k, a24, n);
+    let mut q = p.clone();
+    for prime in factor_base_up_to(b1) {
+        let power = Uint::<4>::from(largest_prime_power_le(prime, b1));
+        q = montgomery_ladder(&q, &power, a24, n);
 
-    // Check gcd(Z, N).
-    let g = gcd(q.z, *n);
-    if g > Uint::<4>::ONE && g < *n {
-        return Err(g);
+        let g = gcd(q.z, *n);
+        if g == *n {
+            return Ok(q);
+        }
+        if g > Uint::<4>::ONE {
+            return Err(g);
+        }
     }
 
     Ok(q)
@@ -829,6 +830,116 @@ mod tests {
         // B1 = 10: very tight — stage 1 only catches 10-smooth group orders.
         // B2 = 200: stage 2 catches primes up to 200.
         prime_divisor_of(&n, 10, 200, 50);
+    }
+
+    // ── Stage 1: one ladder call per prime power ──────────────────────────────
+
+    /// Model of a single-product stage-1 scalar accumulated in a fixed 256-bit integer.
+    ///
+    /// Returns ``Some(k)`` with ``k = ∏ q^⌊log_q(B1)⌋`` only while the exact product fits in
+    /// ``Uint<4>``, and ``None`` once it would not.  `wrapping` selects the overflowing variant
+    /// (the product reduced mod 2^256), returned as ``Some`` unconditionally.
+    fn single_product_scalar(b1: u64, wrapping: bool) -> Option<Uint<4>> {
+        let mut k = Uint::<4>::ONE;
+        for p in factor_base_up_to(b1) {
+            let q = Uint::<4>::from(largest_prime_power_le(p, b1));
+            let (lo, hi) = k.widening_mul(&q);
+            if hi != Uint::<4>::ZERO && !wrapping {
+                return None;
+            }
+            k = lo;
+        }
+        Some(k)
+    }
+
+    /// ``true`` when ``a`` and ``b`` are the same projective point mod ``n``: ``X1 Z2 = X2 Z1``.
+    fn projectively_equal(a: &MontPoint, b: &MontPoint, n: &Uint<4>) -> bool {
+        mul_mod(&a.x, &b.z, n) == mul_mod(&b.x, &a.z, n)
+    }
+
+    /// ``largest_prime_power_le`` returns ``p^⌊log_p(B1)⌋`` on known values and at the extremes.
+    #[test]
+    fn largest_prime_power_known_values() {
+        assert_eq!(largest_prime_power_le(2, 100), 64);
+        assert_eq!(largest_prime_power_le(3, 100), 81);
+        assert_eq!(largest_prime_power_le(5, 100), 25);
+        assert_eq!(largest_prime_power_le(7, 100), 49);
+        assert_eq!(largest_prime_power_le(97, 100), 97);
+        // The power equals b1 exactly, and the product would overflow a naive `q * p` check.
+        assert_eq!(largest_prime_power_le(2, 64), 64);
+        assert_eq!(largest_prime_power_le(3, u64::MAX), 12_157_665_459_056_928_801);
+    }
+
+    /// For ``B1`` up to 178 (every fifth bound, plus 177 and 178) the per-prime-power point
+    /// equals the single-product ladder point (as a projective point), because the product
+    /// still fits in 256 bits there.
+    ///
+    /// ``n`` is a product of two 61- and 89-bit Mersenne primes, so no factor can appear at
+    /// these tiny bounds and ``run_stage1`` always returns its point.
+    #[test]
+    fn stage1_per_prime_power_equals_single_product_ladder() {
+        let n = ((Uint::<4>::ONE << 61u32).wrapping_sub(&Uint::<4>::ONE))
+            .widening_mul(&(Uint::<4>::ONE << 89u32).wrapping_sub(&Uint::<4>::ONE))
+            .0;
+        for sigma in [6u64, 7, 123] {
+            let (a24, p) = match suyama_param(sigma, &n) {
+                SuyamaResult::Ok { a24, p } => (a24, p),
+                SuyamaResult::Factor(_) => panic!("unexpected factor in curve construction"),
+            };
+            for b1 in (2..=178u64).step_by(5).chain([177, 178]) {
+                let k = single_product_scalar(b1, false)
+                    .unwrap_or_else(|| panic!("product must fit in 256 bits at B1 = {b1}"));
+                let reference = montgomery_ladder(&p, &k, &a24, &n);
+                let q = run_stage1(&p, &a24, b1, &n)
+                    .unwrap_or_else(|g| panic!("no factor expected at B1 = {b1}, got {g:?}"));
+                assert!(
+                    projectively_equal(&q, &reference, &n),
+                    "sigma = {sigma}, B1 = {b1}: per-prime point differs from single product"
+                );
+            }
+        }
+    }
+
+    /// The exact product of prime powers stops fitting in 256 bits at ``B1 = 179``, where the
+    /// prime 179 first multiplies it past ``2^256``.
+    #[test]
+    fn single_product_scalar_overflows_at_179() {
+        assert!(single_product_scalar(178, false).is_some());
+        assert!(single_product_scalar(179, false).is_none());
+    }
+
+    /// A factor that only appears once prime powers above the single-product overflow point are
+    /// applied.
+    ///
+    /// ``n = (2^61 − 1) · 1009`` with Suyama ``sigma = 15``.  The search that found it ran
+    /// primes ``r ∈ (1000, 3000]`` in increasing order, ``n = (2^61 − 1) · r``,
+    /// ``sigma ∈ [6, 300)``, and ``B1 ∈ {200, 250, 300, 400}``, keeping the first triple where
+    /// stage 1 (i) finds nothing at ``B1 = 178`` (the last bound whose scalar fits in 256 bits),
+    /// (ii) finds exactly ``r`` at ``B1``, and (iii) finds nothing when the scalar is the product
+    /// reduced mod 2^256.  The first hit is ``r = 1009``, ``sigma = 15``, ``B1 = 250``.
+    #[test]
+    fn stage1_prime_power_above_overflow_point_finds_factor() {
+        let n = ((Uint::<4>::ONE << 61u32).wrapping_sub(&Uint::<4>::ONE))
+            .widening_mul(&u(1009))
+            .0;
+        let (sigma, b1) = (15u64, 250u64);
+        let (a24, p) = match suyama_param(sigma, &n) {
+            SuyamaResult::Ok { a24, p } => (a24, p),
+            SuyamaResult::Factor(_) => panic!("unexpected factor in curve construction"),
+        };
+
+        // Within the exact single-product range stage 1 does not reach the identity mod 1009.
+        assert!(run_stage1(&p, &a24, 178, &n).is_ok());
+
+        // The truncated product loses the factor...
+        let wrapped = single_product_scalar(b1, true).unwrap();
+        let old = montgomery_ladder(&p, &wrapped, &a24, &n);
+        let g_old = gcd(old.z, n);
+        assert!(g_old == u(1) || g_old == n, "truncated scalar must not find a factor");
+
+        // ...and the per-prime-power ladder finds 1009, through the public entry points too.
+        assert_eq!(run_stage1(&p, &a24, b1, &n).err(), Some(u(1009)));
+        assert_eq!(ecm_one_curve(&n, sigma, b1, b1), EcmResult::Factor(u(1009)));
     }
 
     // ── Property tests ────────────────────────────────────────────────────────
