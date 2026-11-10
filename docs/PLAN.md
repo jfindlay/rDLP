@@ -492,6 +492,16 @@ Notes: row 1 — `rho/benches/ecdlp.rs` needed no edit (compiles unchanged on `R
 fix with `@git-editor` after the run. Later commits pass the exact identity string. Ledger commit
 ba81676's body is also unwrapped (cosmetic; same `@git-editor` pass).
 
+Boundary ◆ (after row 12): anneal gate over the arc's 42 durable files ran, one `@build` anneal-fix
+(6252f6a) cleared the real hits; juncture fork returned `still-on-intent` (no halt). Ledger vs plan
+contracts reconciled: Froze column matches the contract headers; sanctioned drift = C-DlogOutcome
+reshaped at the inflection, C-PohligEvidence `SubgroupEnumeration`, C-EcmOutcome `+Unsupported`,
+C-ShorFactorOutcome `−CommonFactor`, C-SsaOutcome `Inconsistent` semantics qualified. The fork found
+the gate regexes too narrow (misses "C-F2m", "Cat-C", "principle 4", "the plan's", Greek
+phase/session ids) and named 18 stale-claim/vocabulary corrections; they ride in row 13 (run, not
+skipped). Out-of-arc "principle-N"/"C1"/ROADMAP survivors (~300 hits, ~70 files, e.g.
+`gnfs/docs/PEDAGOGY.md`) are left and surfaced — the plan classes them additive-reshard.
+
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
 | 1 | Define a verified rho discrete-log outcome and adopt it in Brent rho | done | 7e48f9b | C-DlogOutcome |
@@ -796,8 +806,38 @@ Affected: none (every frozen contract consumed as built).
 Deferred: no — hand the stale-comment and denylist lists above to the boundary anneal gate / row 13.
 Texture: none.
 
+### 12 boundary — 2026-11-09
+Discovery/flex: Fork verdict `still-on-intent`. Purpose met: every in-scope solver verifies before
+returning, with typed errors; DP walks budgeted; the P/−P wrong-answer path and the Miller–Rabin
+false prime at ψ₁₂ fixed; provenance recorded where several paths can succeed. New findings:
+`rho/src/ssa/formal_log.rs:82-86` reports a breached invariant (v_p(t) < 1 after the curve is proven
+anomalous) as `SsaError::Padic(InvalidParams { k: 0 })` — a class mislabel, inferred unreachable on
+valid input; fold into the SSA follow-up. SSA naming defect is description-only (inferred:
+log(1+t) − t has valuation ≥ 2·v_p(t); E's formal log is t + O(t⁵) for short Weierstrass curves, so
+the leading-unit quotient is unchanged). `shor/src/lib.rs:12,74`, `shor/tests/ecdlp_kat.rs:46`,
+`shor/tests/factor_kat.rs:426`, `rho/src/binary_ecdlp/koblitz.rs:5,35`, `shared/numth/docs/PEDAGOGY.md`
+(:11,13,129-130,256,263,403) carry plan vocabulary the gate regexes missed.
+Affected: none (frozen contracts consumed as built).
+Deferred: yes — ROW 13 carries the fork's 18 corrections (comments/rustdoc/docs only; no behaviour
+change; files outside the arc's lists allowed): rho/src/factor/rho.rs:46-48,95,389,5; factor_kat.rs:9;
+factor/mod.rs:3; ssa/formal_log.rs (all labels + :84); ssa/reduce.rs:8,70,147,331,(126); ssa/mod.rs:3;
+ssa_kat.rs:370-374,410; ecdlp/mod.rs:1803-1805 (and label :1018, cli.rs:35, README.md:323,
+optionally glv.rs:9-10, benches/ecdlp.rs:164-165 as "expected, not measured"); koblitz.rs:350-351,5,35;
+binary_ecdlp/mod.rs:4; benches/ecdlp.rs (34-bit not 35; drop "demonstrating the speedup"; cost ∝ √n ≈
+2.7·10⁹ steps; Brent bench likely `BudgetExhausted`); ecm.rs:373-376,387-388; pohlig.rs:41-42,104-105
+(drop "fallback"); shor lib.rs/test "principle 4"; numth PEDAGOGY items. Harmless: decompose.rs:229,
+descent.rs:384 (stale, optional), binary_ecdlp/mod.rs:54, ssa_kat.rs:165, `shared/padic` and
+`rho/src/lib.rs:26` "formal-group logarithm", prime.rs:198 "13-witness set" (now true),
+`docs/SURVEY.md`, [S09] keys, "Phase 64/256".
+Texture: the first anneal pass was green by the gate's own regexes yet left real leaks — treat the
+widened denylist in Notes for executors as the standard.
+
 ## Discoveries & risks
 
+- **Boundary ◆ (after row 12):** still-on-intent; user sign-off items now listed in the exit report
+  (SSA follow-up + `SsaError::InvalidInput`; GHS `restrict`; MOV p < 2^64; ECM stage-1 overflow; CLI
+  `generic`; `rho-dlog` default Brent on `secp-toy`; rho/ECM invariant variant; rho bound ψ₁₃;
+  `@git-editor` trailer fix; `formal_log.rs` `Padic` mislabel; README layout/`util` drift).
 - **Row 10 (risk, surfaced):** ECM stage-1 scalar silently overflows 256 bits for B1 ≳ 177 (strength
   only; returned factors are verified). Not fixed; surface to the user.
 - **Row 9 (internal-continue, verified by juncture fork):** `shared_numth::is_prime` returns a false
@@ -882,6 +922,13 @@ sections row 12 names; no new chapters.
     \b[A-H]\.[A-Z0-9]+\b|[Pp]rinciple-?[0-9]+
     \bTrack [A-Z]\b|\bPhase [0-9]+\b
     (PLAN|ROADMAP|NOTES|SURVEY)(\.md)?\b|plan-(run|shard|juncture)
+
+Widened at the row-12 boundary (the originals missed these variants):
+
+    \bC-[A-Z][A-Za-z0-9]+\b|\bCat-?[ABCI]\b
+    [Pp]rinciple[- ]?[0-9]+
+    \bPhase [α-ω]|[α-ω]\.[0-9]+
+    \b(the|per the) plan\b
 
 KAT, algorithmic step numbers, group notation (S₃, S4), bibliography keys ([S09]) and quantum
 phase terminology are domain terms: classify collisions, do not rename.
