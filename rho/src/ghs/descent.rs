@@ -332,7 +332,7 @@ impl WeilRestriction {
 /// Panics if `l` does not divide `m = poly_m.bit_len() − 1` (delegated to
 /// `frobenius_subfield_orbit`).
 ///
-/// # Principle-4 annotation
+/// # Scale limits
 ///
 /// The `restrict` call uses Gaussian elimination over GF(2) (O(m·l) per coefficient).
 /// For the toy fixture (m=6, l=2), this is negligible. Crypto-scale would use a
@@ -380,10 +380,9 @@ pub fn weil_restrict_poly(
         // For a subfield element aᵢ ∈ GF(2^l), all orbit elements equal aᵢ,
         // so restrict(orbit[j]) = aᵢ for all j.
         for (j, conj) in orbit.iter().enumerate() {
-            // Project the j-th conjugate to GF(2^l).
-            // If conj ∉ GF(2^l), this returns None — which should not happen
-            // for the Frobenius orbit elements of a GF(2^m) element restricted
-            // to GF(2^l) coordinates.
+            // Take the j-th coordinate of aᵢ in GF(2^l). `project_to_subfield` returns the
+            // GF(2^l) element directly (there is no failure case); it ignores `conj` and
+            // computes the coordinate from aᵢ itself.
             //
             // CORRECTNESS NOTE: The Frobenius orbit elements aᵢ^(2^(j·l)) are
             // in GF(2^m) but not necessarily in GF(2^l). The Weil restriction

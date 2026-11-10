@@ -6,8 +6,8 @@
 //! `{P, φ(P), φ²(P), −P, −φ(P), −φ²(P)}` — a set of size 6 (for generic P).
 //!
 //! Collapsing this 6-orbit to a single canonical representative reduces the
-//! effective group size by a factor of 6, dropping the expected rho steps by √6
-//! vs the plain walk and √3 vs the negation-map-only walk.
+//! effective group size by a factor of 6, which is expected (heuristic, not measured) to drop
+//! the rho steps by √6 vs the plain walk and √3 vs the negation-map-only walk.
 //!
 //! # Canonical representative
 //!

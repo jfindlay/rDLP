@@ -1014,8 +1014,9 @@ fn is_secp_k1_toy_group(curve: &Curve, n: u64) -> bool {
 ///
 /// Each walker applies [`glv_canonical`] after every step, collapsing the
 /// 6-orbit `{W, φ(W), φ²(W), −W, −φ(W), −φ²(W)}` to a single canonical
-/// representative.  This reduces the effective group size by a factor of 6,
-/// giving a √6 speedup vs the plain walk and √3 vs the negation-map-only walk.
+/// representative.  This reduces the effective group size by a factor of 6, which heuristically
+/// gives about a √6 speedup vs the plain walk and √3 vs the negation-map-only walk (expected,
+/// not measured here).
 ///
 /// The batched-inversion infrastructure is reused: each thread
 /// owns a [`BatchedWalker`] with `batch_size` walk states, and a `step_all` claims `batch_size`
@@ -1798,11 +1799,12 @@ mod tests {
         assert!(is_secp_k1_toy_group(&toy, SECP_N));
     }
 
-    /// GLV takes fewer total walk steps than negmap on the tiny GLV curve.
+    /// GLV's total walk steps stay within a no-regression bound of negmap's on the tiny GLV curve.
     ///
     /// Runs both solvers on the same DLP instance over many seeds and compares the step counts
-    /// they report in their collision evidence, demonstrating the √3 speedup vs the
-    /// negation-map-only walk.
+    /// they report in their collision evidence. The test checks only that GLV's summed steps are
+    /// at most 2× the negation-map-only walk's; the expected √3 reduction is a heuristic and is
+    /// not asserted here.
     ///
     /// Uses the tiny GLV curve (n=1093) so the test completes quickly. The walkers race, so a
     /// single run's count varies; the sum over many seeds is compared with a generous margin.

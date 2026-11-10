@@ -5,7 +5,7 @@
 //! 1. Verify the curve is anomalous.
 //! 2. Lift G and Q to Z_p via Hensel ([`crate::ssa::lift::lift_point`]).
 //! 3. Multiply both lifts by p using projective-coordinate point addition over Z/p^k.
-//! 4. Apply the elliptic formal-group log to both results.
+//! 4. Apply log(1 + t) at t = −X/Y to both results.
 //! 5. Divide in F_p to recover k.
 //!
 //! # Projective coordinates for multiply-by-p
@@ -67,7 +67,7 @@ use crate::ssa::{SsaError, curve_params_u64, uint4_to_bigint, verify_anomalous};
 /// Solve the ECDLP `Q = k·G` on an anomalous curve via the Smart–Satoh–Araki reduction.
 ///
 /// Implements the SSA reduction: lift G and Q to Z_p, multiply both by p to land in the
-/// kernel of reduction, apply the elliptic formal-group log, and divide in F_p.
+/// kernel of reduction, apply log(1 + t) at t = −X/Y, and divide in F_p.
 ///
 /// # Arguments
 ///
@@ -124,8 +124,9 @@ pub fn ssa_solve<F: Fp<4>>(
     // Precision k=8 for the toy fixture (p^8 = 7^8 = 5764801).
     //
     // We use k=8 rather than k=4 because the formal group parameter T = −X/Y has v_p(T) = 2
-    // for this curve (CM by Z[ζ₃]). At k=4, T mod p^{k−2} = T mod p^2 = 0, which makes the
-    // log trivially 0. At k=8, T mod p^6 is non-zero and the log gives a useful value.
+    // on the stored a = 0 lift of this curve (the canonical lift; see the module documentation).
+    // At k=4, T mod p^{k−2} = T mod p^2 = 0, which makes the log trivially 0. At k=8,
+    // T mod p^6 is non-zero and the log gives a useful value.
     //
     // SCALE: toy-scale only — crypto-scale would need k proportional to log(n).
     let k: u32 = 8;
@@ -144,7 +145,7 @@ pub fn ssa_solve<F: Fp<4>>(
     let pg_proj = multiply_by_p_proj(&x_g, &y_g, &a_big, &b_big, &p_big, k, p)?;
     let pq_proj = multiply_by_p_proj(&x_q, &y_q, &a_big, &b_big, &p_big, k, p)?;
 
-    // Step 4: apply the elliptic formal-group log to both p·G̃ and p·Q̃.
+    // Step 4: apply log(1 + t) at t = −X/Y to both p·G̃ and p·Q̃.
     //
     // The formal group parameter is t = −X/Y (from projective coords).
     // After multiply-by-p, v_p(t) ≥ 1, so log(1 + t) converges.
@@ -328,7 +329,7 @@ fn proj_double_std(
 
 // ─── F_p division of log values ──────────────────────────────────────────────
 
-/// Divide two formal-group log values in F_p to recover k.
+/// Divide two log(1 + t) values (at t = −X/Y) in F_p to recover k.
 ///
 /// Both `psi_g` and `psi_q` are in `p^v·Z_p` for some `v ≥ 1`. Extracts the unit parts
 /// (divides by `p^v`), then computes `(psi_q / p^v) · (psi_g / p^v)⁻¹ mod p`.

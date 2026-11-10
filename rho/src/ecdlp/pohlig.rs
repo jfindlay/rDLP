@@ -37,9 +37,8 @@
 //!
 //! Toy-order-scoped (u64 group orders). `factor_order` uses trial division via
 //! `shared_numth::trial_smooth` over a `√n` factor base, with an `is_prime`
-//! short-circuit on the cofactor. For orders beyond u64 (not needed here),
-//! `shared_numth::ecm_factor` is available as a fallback, but it is not wired
-//! here.
+//! short-circuit on the cofactor. Group orders beyond u64 would need a factoring step
+//! and none is wired here: `shared_numth::ecm_factor` exists but has no in-tree caller.
 
 use crypto_bigint::Uint;
 
@@ -101,8 +100,8 @@ pub struct PohligEvidence {
 /// Uses trial division over a `√n` factor base (`factor_base_up_to(isqrt(n))`)
 /// with an `is_prime` short-circuit on the remaining cofactor.
 ///
-/// Toy-order-scoped (u64). For orders that require ECM, `shared_numth::ecm_factor`
-/// is available as a fallback, but it is not wired here.
+/// Toy-order-scoped (u64). Group orders beyond u64 would need a factoring step and none is
+/// wired here: `shared_numth::ecm_factor` exists but has no in-tree caller.
 ///
 /// # Panics
 ///

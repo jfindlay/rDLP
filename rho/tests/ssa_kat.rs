@@ -27,13 +27,14 @@
 //! 16. `verify_anomalous` counts exactly where `x³` overflows `u64` (an anomalous curve over a
 //!     prime above `2^21.4`, and the same curve with a tampered coefficient).
 //!
-//! # Note on the fixture curve's CM structure
+//! # Note on the fixture's lift
 //!
-//! The curve `y² = x³ + 5` over `F_7` has complex multiplication by `Z[ζ₃]` (since `a = 0`
-//! and `p ≡ 1 mod 3`). This causes the SSA formula `k_raw = ψ(p·Q̃)/ψ(p·G̃) mod p` to give
-//! `2k mod p` for `k ∈ {2,3,4,5}`. The `ssa_solve` implementation checks `k·G = Q` in `E(F_p)`
-//! for the quotient and for its half before returning; the candidate selection itself is
-//! unit-tested in `rho::ssa::reduce`.
+//! The curve `y² = x³ + 5` over `F_7` has `a = 0`, so its stored lift to Z_7 is the canonical
+//! lift (`j = 0`). On that lift the quotient `k_raw` of log leading units was observed to equal
+//! `2k mod p` for `k ∈ {2,3,4,5}`; the `rho::ssa::reduce` module documentation explains why that
+//! is an empirical artefact of the lift rather than a general law. The `ssa_solve`
+//! implementation checks `k·G = Q` in `E(F_p)` for the quotient and for its half before
+//! returning; the candidate selection itself is unit-tested in `rho::ssa::reduce`.
 //!
 //! # Hand-computed lift values
 //!
@@ -367,12 +368,14 @@ fn kat_lift_pari_cross_check() {
 /// The anomalous fixture is `y² = x³ + 5` over `F_7`. `G = (3, 2)`, `Q = 3·G = (6, 5)`.
 /// The SSA reduction must recover `k = 3`.
 ///
-/// # Note on CM artifact
+/// # Note on the halved candidate
 ///
-/// This curve has CM by `Z[ζ₃]`. The raw SSA formula gives `k_raw = 2k mod p = 6` for `k = 3`.
-/// The `ssa_solve` implementation computes the quotient of the formal-log leading units and its
-/// half modulo `p`, then accepts whichever candidate satisfies `k·G == Q`, returning 3 as
-/// required.
+/// On this fixture's stored (canonical, `a = 0`) lift the raw quotient is `k_raw = 6` for
+/// `k = 3`, and the halved candidate `k_raw / 2 = 3` is the one that verifies. That is an
+/// empirical compensation on this fixture, not complex multiplication and not a `2k` law in
+/// general (see the `rho::ssa::reduce` module documentation). `ssa_solve` computes the
+/// quotient of the log leading units and its half modulo `p`, then accepts whichever
+/// candidate satisfies `k·G == Q`, returning 3 as required.
 #[test]
 fn kat_ssa_solve_recovers_k3() {
     let curve = anomalous_toy();
@@ -407,7 +410,7 @@ fn kat_ssa_solve_recovers_k1() {
 
 /// `ssa_solve` recovers k=6 (Q = 6·G) on the anomalous fixture.
 ///
-/// `6·G = (3, 5)`. The SSA formula gives k_raw = 6 directly (no CM artifact for k=6).
+/// `6·G = (3, 5)`. Since k = 6 ≡ −1 (mod 7), `Q̃ = −G̃` and `k_raw = 6` directly.
 #[test]
 fn kat_ssa_solve_recovers_k6() {
     let curve = anomalous_toy();

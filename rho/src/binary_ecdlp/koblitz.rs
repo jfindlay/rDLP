@@ -2,7 +2,7 @@
 //!
 //! The Frobenius endomorphism `τ(x, y) = (x², y²)` is a group automorphism of
 //! the binary elliptic curve `y²+xy = x³+ax²+b` over GF(2^m).  It is defined
-//! by applying the field Frobenius (`square`/`frobenius` from C-F2m) to **both**
+//! by applying the field Frobenius (`square`/`frobenius` from `shared-gf2m`) to **both**
 //! coordinates.  This is structurally distinct from `glv.rs`'s `φ(x,y)=(βx,y)`,
 //! which scales only the x-coordinate by a constant.
 //!
@@ -32,10 +32,10 @@
 //! The canonical representative is the orbit member with the lexicographically
 //! smallest `(x_uint, y_uint)` pair.
 //!
-//! # Cat-C baseline rule
+//! # Relation to the baseline walk
 //!
-//! This module **reads** the baseline walk in [`crate::binary_ecdlp`] and
-//! provides a **new** `solve_koblitz` variant.  It does NOT modify the baseline
+//! This module reuses the baseline walk in [`crate::binary_ecdlp`] and
+//! provides a separate `solve_koblitz` variant.  It does not modify the baseline
 //! `solve` / `solve_brent` functions.
 
 use crypto_bigint::Uint;
@@ -348,7 +348,9 @@ pub const TAU_EIGENVALUE_MAX_ORDER: u64 = 1 << 20;
 /// modify `solve` / `solve_brent`.
 ///
 /// The τ-orbit collapse reduces the effective group size by up to 2m (the orbit
-/// size), speeding up collision detection by a factor of √(2m) vs the baseline.
+/// size), so the expected collision work drops by up to √(2m) vs the baseline.  That is a
+/// heuristic expectation, not measured.  On the toy fixture (group order 4) τ acts as ±1 on
+/// `⟨G⟩`, so every orbit has at most two points and the larger collapse is not exercised.
 ///
 /// # Algorithm
 ///

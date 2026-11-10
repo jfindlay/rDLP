@@ -1,7 +1,7 @@
 //! Pollard rho ECDLP solver over binary curves (`F2m` + `BinaryCurve`).
 //!
 //! This module implements the baseline Pollard-rho discrete-logarithm solver
-//! for the binary elliptic curve group law.  It is a **parallel** implementation
+//! for the binary elliptic curve group law.  It is a single-threaded implementation
 //! over [`BinaryCurve`] + [`F2m`], mirroring the structure of `rho::ecdlp` (which
 //! is `Fp<4>` + `Curve`-bound) but consuming `BinaryCurve`'s group law instead.
 //!

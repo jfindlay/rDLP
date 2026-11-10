@@ -43,7 +43,7 @@
 //!
 //! The two-register ECDLP circuit uses 17 qubits:
 //! - 4 (a-register) + 4 (b-register) + 3 (x) + 3 (y) + 3 (λ scratch) = 17
-//! - Well within the ~25-qubit simulator ceiling (principle 4).
+//! - Well within the ~25-qubit simulator ceiling (dense-register memory limit).
 
 use std::f64::consts::PI;
 use std::sync::OnceLock;

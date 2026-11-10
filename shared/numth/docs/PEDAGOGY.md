@@ -8,9 +8,9 @@
 > is the code-tour sibling: it assumes the reader knows the mathematics and focuses on the
 > implementation in Rust.
 
-This chapter explains the three shared crates built in Phase α — `shared-field`, `shared-bigint`,
-and `shared-numth` — which together form the arithmetic and number-theoretic substrate that every
-later track sits on. Like the number-field chapter (`shared/numfield/docs/PEDAGOGY.md`), it is
+This chapter explains the three shared crates `shared-field`, `shared-bigint`, and
+`shared-numth`, which together form the arithmetic and number-theoretic substrate that the
+algorithm crates build on. Like the number-field chapter (`shared/numfield/docs/PEDAGOGY.md`), it is
 organised by the implementation, not by mathematical abstraction: each section states the
 mathematics, then shows how it is realised in code. A reader who has read the `rho` PEDAGOGY chapter
 can read this one without consulting the source.
@@ -126,8 +126,8 @@ fn sqrt(&self, p: &Uint<L>) -> Option<Self>;
 ```
 
 Like `legendre`, `sqrt` is a default method assuming an odd prime modulus; behaviour is unspecified
-for composite p. Both were added in session α.5 (the `Fp` completion patch), deferred from α.1
-because Tonelli–Shanks needs primality testing, which only existed after α.2.
+for composite p. Neither checks that p is prime: Tonelli–Shanks is correct only for an odd prime
+modulus, so a caller that needs that guarantee certifies it first with `shared_numth::is_prime`.
 
 **Code reference:** `shared/field/src/lib.rs:166`.
 
@@ -253,15 +253,15 @@ partial-smoothness path (e.g. 77 = 7·11 over the base {2,3,5,7} leaves cofactor
 
 **Code reference:** `shared/numth/src/smooth.rs:97` (`trial_smooth`), `:145` (`factor_base_up_to`).
 
-**Scale disconnect (principle 4, under-exposed).** `factor_base_up_to` builds the base by calling
+**Scale limit (under-exposed at toy scale).** `factor_base_up_to` builds the base by calling
 `is_prime` on every candidate, which is O(B·√B) in the worst case. For the factor-base bounds used
 at toy scale (B ≤ ~10⁴ in tests) this is invisible. At NFS scale, where B reaches the millions, a
 sieve of Eratosthenes (O(B log log B)) is the correct algorithm, and the trial-division approach
 would dominate setup time. The code carries this as an explicit TODO at the function and module
 level. The *mathematics* of the factor base is unchanged by the choice of construction algorithm;
-only the *performance* shifts, and only at a scale this project does not run at — exactly the
-under-exposed case principle 4 names. The honest annotation is: correct as written, not
-production-scale, and the gap is engineering, not mathematics.
+only the *performance* shifts, and only at a scale this project does not run at, so the gap is
+invisible in the tests. The honest annotation is: correct as written, not production-scale, and
+the gap is engineering, not mathematics.
 
 ---
 
@@ -400,7 +400,7 @@ walks competitive with Jacobian ones.
 ### The `mp` stub
 
 `shared/bigint/src/mp.rs` is an intentional placeholder — module docstring only, no code — reserved
-for multi-precision helpers beyond `crypto-bigint` should later sessions reveal gaps in that API.
+for multi-precision helpers beyond `crypto-bigint` if gaps appear in that API.
 It is noted here so a reader is not surprised by an empty module; it carries no mathematics yet.
 
 **Code reference:** `shared/bigint/src/mp.rs:1`.

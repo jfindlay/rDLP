@@ -423,7 +423,7 @@ fn find_seed_for_91() {
 ///
 /// N=91 = 7×13. Uses 14 qubits (exp_len=7, work=7). Seed 1.
 /// Published factorization: 91 = 7 × 13.
-/// Qubit budget: 14 qubits, within the ~25-qubit ceiling (principle 4).
+/// Qubit budget: 14 qubits, within the ~25-qubit simulator ceiling (dense-register memory limit).
 ///
 /// Seed 1 is chosen because run_order_finding_circuit(2, layout_91, 1) measures s=53
 /// (≈ 5×128/12), which recovers ord₂(91)=12 via continued fractions. Then:

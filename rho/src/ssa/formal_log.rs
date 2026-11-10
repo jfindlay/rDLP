@@ -1,8 +1,14 @@
-//! Elliptic formal-group logarithm specialising C-PadicLog for the SSA reduction.
+//! The p-adic logarithm `log(1 + t)` at the formal parameter `t = −X/Y`, for the SSA reduction.
 //!
 //! Given a kernel-of-reduction point in standard projective coordinates `(X, Y, Z)` over Z/p^k,
-//! this module computes the elliptic formal-group logarithm `ψ(P̃)` via the local parameter
-//! `t = −X/Y` (the formal group parameter in standard projective coordinates).
+//! this module evaluates the p-adic logarithm from `shared-padic` at `1 + t`, where
+//! `t = −X/Y` is the formal group parameter in standard projective coordinates.
+//!
+//! This is the logarithm of the *multiplicative* formal group evaluated at `t`; it is not the
+//! elliptic curve's own formal logarithm `ψ`. The two agree with `t` to leading order
+//! (`log(1 + t) = t − t²/2 + …` and `ψ(t) = t + O(t²)`), and the quotient of leading units that
+//! the reduction takes uses only that leading term. That agreement is inferred from the series,
+//! not proved here; the reduction's verification step makes the answer independent of it.
 //!
 //! # Mathematical background
 //!
@@ -11,8 +17,8 @@
 //! coordinates `(X:Y:Z)` with affine `(x, y) = (X/Z, Y/Z)`, this becomes `t = −X/Y`
 //! (the Z factors cancel).
 //!
-//! The elliptic formal-group logarithm is then `ψ(t) = log(1 + t)` evaluated via C-PadicLog.
-//! For a kernel-of-reduction point, `v_p(t) ≥ 1`, satisfying the convergence guard.
+//! For a kernel-of-reduction point, `v_p(t) ≥ 1`, satisfying the convergence condition of the
+//! p-adic logarithm.
 //!
 //! # Projective coordinate representation
 //!
@@ -20,9 +26,11 @@
 //! `(X, Y, Z)` where `v_p(Z) ≥ 1` (the point reduces to infinity mod p). The formal group
 //! parameter `t = −X/Y` has `v_p(t) ≥ 1` because `v_p(X) ≥ v_p(Y) + 1` for kernel points.
 //!
-//! # Principle-4 boundary
+//! # Scale limits
 //!
-//! Toy precision only. The series is evaluated at the precision of the input `Zp` elements.
+//! Toy precision only. The series is evaluated at the precision of the input `Zp` elements, and
+//! the multiply-by-p step that produces those inputs is O(p), so the whole reduction is
+//! practical only for toy primes.
 
 use num_bigint::BigInt;
 use num_integer::Integer;
@@ -31,15 +39,16 @@ use shared_padic::{Zp, ZpError, padic_log};
 
 use crate::ssa::SsaError;
 
-// ─── elliptic formal-group log ────────────────────────────────────────────────
+// ─── log(1 + t) at t = −X/Y ───────────────────────────────────────────────────
 
-/// Compute the elliptic formal-group logarithm from standard projective coordinates.
+/// Compute `log(1 + t)` at `t = −X/Y` from standard projective coordinates.
 ///
 /// Given a kernel-of-reduction point `(X, Y, Z)` in standard projective coordinates over Z/p^k
-/// (where affine `(x, y) = (X/Z, Y/Z)`), computes `ψ(P̃) = log(1 + t)` where `t = −X/Y`.
+/// (where affine `(x, y) = (X/Z, Y/Z)`), computes the p-adic logarithm of `1 + t` where
+/// `t = −X/Y`.
 ///
 /// The formal group parameter `t = −X/Y` has `v_p(t) ≥ 1` for kernel-of-reduction points,
-/// satisfying C-PadicLog's convergence guard.
+/// satisfying the convergence condition of the p-adic logarithm.
 ///
 /// # Arguments
 ///
@@ -49,14 +58,14 @@ use crate::ssa::SsaError;
 ///
 /// # Returns
 ///
-/// `ψ(P̃)` as a `Zp` element at precision `k − v_p(t)`.
+/// `log(1 + t)` as a `Zp` element at precision `k − v_p(t)`.
 ///
 /// # Errors
 ///
-/// - [`SsaError::Padic`] if the p-adic log fails (convergence violation — indicates the
-///   caller did not multiply by p first, so the point is not in the kernel of reduction).
+/// - [`SsaError::Padic`] if `v_p(t) < 1` (the point is not in the kernel of reduction, so the
+///   series does not converge), or if the p-adic logarithm itself fails.
 ///
-/// # Principle-4 annotation
+/// # Scale limits
 ///
 /// SCALE: toy precision only. The series is truncated at the input precision `k`.
 pub fn elliptic_log_proj(x_proj: &Zp, y_proj: &Zp) -> Result<Zp, SsaError> {
@@ -81,8 +90,9 @@ pub fn elliptic_log_proj(x_proj: &Zp, y_proj: &Zp) -> Result<Zp, SsaError> {
     // vt = vX − vY. For kernel-of-reduction points, vt ≥ 1.
     let vt = vx as i64 - vy as i64;
     if vt < 1 {
-        // The point is not in the kernel of reduction. This should not happen if the
-        // caller multiplied by p first.
+        // The point is not in the kernel of reduction. Unreachable once the curve is proven
+        // anomalous (#E = p puts every p·P̃ in the kernel of reduction); reported as a p-adic
+        // parameter error.
         return Err(SsaError::Padic(ZpError::InvalidParams { p, k: 0 }));
     }
     let vt = vt as u32;
@@ -113,7 +123,7 @@ pub fn elliptic_log_proj(x_proj: &Zp, y_proj: &Zp) -> Result<Zp, SsaError> {
     let one = Zp::new(&BigInt::one(), &p, k_t)?;
     let z = one.add(&t)?;
 
-    // Apply the p-adic logarithm: ψ(P̃) = log(1 + t) = log(z).
+    // Apply the p-adic logarithm: log(1 + t) = log(z).
     let log_z = padic_log(&z).map_err(|e| match e {
         shared_padic::PadicLogError::ConvergenceViolation { .. } => {
             // Should not happen: we checked vt ≥ 1 above.

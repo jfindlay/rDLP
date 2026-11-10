@@ -23,7 +23,7 @@
 //! - [`pairing`] — `F_{p^k}` extension-field arithmetic and bilinear pairings (Weil,
 //!   Tate); MOV/Frey–Rück reduction via the reduced Tate pairing.
 //! - [`ssa`] — Smart–Satoh–Araki p-adic attack on anomalous curves (`#E(F_p) = p`):
-//!   Hensel lift, formal-group logarithm, DLP recovery.
+//!   Hensel lift, `log(1 + t)` formal-group logarithm, DLP recovery.
 //! - [`ghs`] — GHS Weil-descent attack on binary elliptic curves: Artin–Schreier
 //!   extension, Weil restriction of scalars, hyperelliptic curve extraction, transfer map.
 //! - [`semaev`] — Semaev summation polynomials over a prime-field Weierstrass curve:

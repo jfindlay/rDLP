@@ -6,7 +6,7 @@
 //! `n % d == 0`.  `factor` additionally reports which path produced the divisor, and its
 //! error variants (invalid input, prime, unsupported, exhausted budget) are pinned separately.
 //!
-//! Semiprimes span 30–80 bits to cover the plan's full pedagogical range.
+//! Semiprimes span 30–80 bits to cover the supported range up to 2^80.
 //! For each semiprime the factors are listed but not asserted — rho may return
 //! either factor; both are correct.
 

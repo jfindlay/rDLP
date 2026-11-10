@@ -373,7 +373,10 @@ fn suyama_param(sigma: u64, n: &Uint<4>) -> SuyamaResult {
 ///
 /// This is the product of prime powers ≤ ``B1``.  Multiplying a point by ``k``
 /// ensures that if ``|E(F_p)|`` is ``B1``-smooth, the point becomes the identity
-/// mod ``p``.
+/// mod ``p`` — provided ``k`` is exactly that product.  The product is accumulated with
+/// ``wrapping_mul`` in a ``Uint<4>``, so once it passes 256 bits (roughly ``B1 ≳ 177``) ``k`` is
+/// reduced mod 2^256 and is no longer the ``B1``-power-smooth product: stage 1 then no longer
+/// guarantees reaching the identity.  Returned factors are still verified independently.
 fn stage1_scalar(b1: u64) -> Uint<4> {
     let primes = factor_base_up_to(b1);
     let mut k = Uint::<4>::ONE;
@@ -384,8 +387,8 @@ fn stage1_scalar(b1: u64) -> Uint<4> {
             // q * p <= b1 (checked to avoid overflow)
             q *= p;
         }
-        // Multiply k by q.  Use wrapping_mul since k is built up incrementally
-        // and we rely on the Montgomery ladder to detect factors via Z-coordinates.
+        // Multiply k by q.  `wrapping_mul` reduces k mod 2^256 once the product of prime powers
+        // passes 256 bits (B1 ≳ 177); see the function documentation for the consequence.
         k = k.wrapping_mul(&Uint::<4>::from(q));
     }
     k

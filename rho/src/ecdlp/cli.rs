@@ -32,7 +32,8 @@
 //! Requires `--walkers > 0` and `--curve secp-toy` (any other curve is reported as
 //! unsupported by the solver).  The GLV endomorphism
 //! collapses the 6-orbit `{W, φ(W), φ²(W), −W, −φ(W), −φ²(W)}` to a single
-//! canonical representative, giving a √3 speedup vs the negation-map-only walk.
+//! canonical representative, which is expected (heuristic, not measured) to give about a √3
+//! speedup vs the negation-map-only walk.
 
 use clap::Parser;
 use crypto_bigint::Uint;

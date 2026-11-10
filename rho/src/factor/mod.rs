@@ -1,6 +1,6 @@
 //! Integer factorization via Pollard rho.
 //!
-//! Optimization layers (per the plan):
+//! Optimization layers:
 //! 1. Floyd's cycle detection — baseline.
 //! 2. Brent's cycle detection — ~24% fewer f-evaluations.
 //! 3. Montgomery batched GCD — accumulate products, single GCD per batch.

@@ -1,20 +1,29 @@
 //! ECDLP benchmark: Brent (single-threaded) vs DP parallel (1, 2, 4 walkers)
 //! vs DP with negation map.
 //!
-//! Measures wall time to solve a fixed 35-bit DLP on `secp_k1_toy` with each
-//! solver variant, demonstrating the speedup of each optimization layer.
+//! Measures wall time to solve a fixed DLP on `secp_k1_toy` with each solver variant.
+//! The speedups below are expectations, not measurements.
 //!
-//! The distinguished-point parallel speedup: each doubling of walkers should
+//! The distinguished-point parallel speedup: each doubling of walkers is expected to
 //! roughly halve wall time.
 //!
-//! The negation-map speedup: `solve_dp_negmap` with 2 walkers should be ~√2
+//! The negation-map speedup: `solve_dp_negmap` with 2 walkers is expected to be ~√2
 //! faster than `solve_dp` with 2 walkers, because the negation map halves the
 //! effective group size.
 //!
 //! # Fixed DLP
 //!
-//! `k = 12_345_678_901`, `G` = curve generator, `Q = k·G` precomputed.
-//! `theta = 8` (1-in-256 DPs).  Expected rho steps ≈ sqrt(k) ≈ 111_111.
+//! `k = 12_345_678_901` (a 34-bit exponent), `G` = curve generator, `Q = k·G` precomputed.
+//! The DLP lives in the `secp_k1_toy` group of order `n ≈ 2^62`, and rho's cost scales with
+//! `√n`, not with the size of `k`: about `2.7·10⁹` steps (see `MAX_STEPS`).
+//! `theta = 8` (1-in-256 DPs).
+//!
+//! # Brent bench
+//!
+//! `solve_brent` caps each attempt at about `5.4·10⁸` walk steps (window `2^28`), roughly a
+//! quarter of `√n`, so a collision within one attempt is unlikely. By that arithmetic the
+//! `ecdlp/brent` bench would most likely end in `DlogError::BudgetExhausted` (and so panic at its
+//! `expect`) after its 20 attempts; it has not been run.
 //!
 //! # Note on Criterion and parallelism
 //!
@@ -31,7 +40,7 @@ use shared_field::FpMonty4 as FpMonty;
 
 // ── Fixed DLP parameters ──────────────────────────────────────────────────────
 
-/// The discrete logarithm target: `k = 12_345_678_901` (35-bit value).
+/// The discrete logarithm target: `k = 12_345_678_901` (34-bit value).
 const K_TARGET: u64 = 12_345_678_901;
 
 /// DP threshold: 1-in-256 points are distinguished.
@@ -93,9 +102,9 @@ fn bench_solve_dp(c: &mut Criterion) {
 
 // ── Negation-map vs plain DP comparison ──────────────────────────────────────
 
-/// Compare `solve_dp` and `solve_dp_negmap` at 2 walkers on the same 35-bit DLP.
+/// Compare `solve_dp` and `solve_dp_negmap` at 2 walkers on the same DLP.
 ///
-/// The negation map should reduce wall time by ~√2 vs plain DP.
+/// The negation map is expected to reduce wall time by ~√2 vs plain DP (not measured).
 fn bench_negmap_vs_dp(c: &mut Criterion) {
     let (curve, q) = make_q();
     let g: AffinePoint<FpMonty> = curve.generator();
@@ -124,7 +133,7 @@ fn bench_negmap_vs_dp(c: &mut Criterion) {
 // ── Batched-inversion vs negation-map comparison ─────────────────────────────
 
 /// Compare `solve_dp_negmap` vs `solve_dp_batch` (batched-inversion optimization)
-/// at 2 walkers on the same 35-bit DLP.
+/// at 2 walkers on the same DLP.
 ///
 /// The batched-inversion speedup: with `batch_size = 16`, each thread performs
 /// 1 inversion + 45 multiplications instead of 16 inversions per 16 steps,
@@ -157,12 +166,12 @@ fn bench_batch_vs_negmap(c: &mut Criterion) {
 // ── GLV endomorphism vs batched-inversion comparison ─────────────────────────
 
 /// Compare `solve_dp_negmap`, `solve_dp_batch` (batched-inversion), and
-/// `solve_dp_glv` (GLV endomorphism) at 2 walkers on the same 35-bit DLP.
+/// `solve_dp_glv` (GLV endomorphism) at 2 walkers on the same DLP.
 ///
 /// The GLV endomorphism speedup: `solve_dp_glv` collapses the 6-orbit
 /// `{W, φ(W), φ²(W), −W, −φ(W), −φ²(W)}` to a single canonical representative,
-/// reducing the effective group size by 6 and the expected rho steps by √6 vs
-/// the plain walk (√3 vs negmap alone).
+/// reducing the effective group size by 6, which is expected (heuristic, not measured) to cut
+/// the rho steps by √6 vs the plain walk (√3 vs negmap alone).
 fn bench_glv_vs_batch(c: &mut Criterion) {
     let (curve, q) = make_q();
     let g: AffinePoint<FpMonty> = curve.generator();

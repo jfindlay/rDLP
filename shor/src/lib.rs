@@ -9,7 +9,8 @@
 //!   two-qubit CNOT, controlled-phase, SWAP; multi-qubit Toffoli, multi-controlled.
 //! - [`sparse`] — sparse-state register: a `HashMap` of nonzero basis amplitudes. Same gate
 //!   semantics as the dense register, iterating only nonzero entries. Dense↔sparse conversion.
-//!   Sparsity is state-dependent (principle 4): a Hadamard on every qubit makes the state dense.
+//!   Sparsity is state-dependent, not a universal speedup: a Hadamard on every qubit makes the
+//!   state dense.
 //! - [`measure`] — Born-rule measurement: sample a basis state with probability |aᵢ|², collapse
 //!   the register. Single-qubit and full-register measurement. Deterministic seeded sampler
 //!   (`rand_chacha::ChaCha8Rng`) for reproducible KATs.
@@ -71,7 +72,7 @@
 //! # Resource-scale ceiling (~25 qubits)
 //!
 //! The dense register holds `2^n` complex amplitudes. At n = 25 that is 2^25 ≈ 33 M entries
-//! (≈ 512 MiB of f64 pairs). This is a **resource-scale wall** (principle 4): the mathematics
+//! (≈ 512 MiB of f64 pairs). This is a **resource-scale wall** (simulator memory): the mathematics
 //! is identical at 25 or 250 qubits; only the exponential array makes 250 unreachable on a
 //! laptop. The simulator demonstrates Shor's mathematics correctly at toy scale; it does not
 //! claim quantum speedup, which requires real quantum hardware out of scope by construction.

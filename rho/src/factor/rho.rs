@@ -2,7 +2,7 @@
 //!
 //! All variants share the pseudorandom map `f(x) = (x² + c) mod N` and detect
 //! a non-trivial factor via `gcd(|xᵢ − xⱼ|, N)`.  Arithmetic is in `u128`, which
-//! covers the plan's 30–80-bit target range comfortably.  For inputs where
+//! covers the supported range below 2^80 comfortably.  For inputs where
 //! `N < 2^64`, products `x*x` fit directly in `u128`.  For 64–80-bit N the
 //! `mulmod` helper uses `u128::carrying_mul` to form the 256-bit product and
 //! reduces it mod N in two u128 steps.  N below `2^80` is the supported range
@@ -43,10 +43,12 @@ pub const MAX_SUPPORTED: u128 = 1 << 80;
 /// Exclusive bound below which a Miller–Rabin "prime" verdict is a proof.
 ///
 /// This is the published bound for the first twelve prime bases (2 through 37): no composite
-/// below `318_665_857_834_031_151_167_461` (≈ 2^78.0) is a strong pseudoprime to all twelve
-/// (Sorenson & Webster 2015).  `shared_numth::is_prime` uses exactly those bases for every
-/// `n` up to its own documented bound, so its "prime" verdict is a proof only below this
-/// value.  A "composite" verdict is always a proof.
+/// below `318_665_857_834_031_151_167_461` (ψ₁₂ ≈ 2^78.1) is a strong pseudoprime to all twelve
+/// (Sorenson & Webster 2015).  `shared_numth::is_prime` uses those twelve bases below this
+/// bound and adds base 41 from here up to ψ₁₃ ≈ 2^81.5
+/// (`shared_numth::MILLER_RABIN_PROOF_BOUND`), so its verdict is a proof up to ψ₁₃.  This
+/// constant is the more conservative ψ₁₂ bound that [`factor`] uses.  A "composite" verdict is
+/// always a proof.
 pub const PRIME_PROOF_BOUND: u128 = 318_665_857_834_031_151_167_461;
 
 /// A verified non-trivial factorization: `1 < d < n` and `n % d == 0`.
@@ -92,7 +94,7 @@ pub enum FactorError {
     },
 }
 
-/// Step bound for one rho attempt on `n`: `1024 + 64·⌈n^{1/4}⌉` evaluations of `f`.
+/// Step bound for one rho attempt on `n`: `1024 + 64·(⌊n^{1/4}⌋ + 1)` evaluations of `f`.
 ///
 /// The smallest prime factor `p ≤ √n` is found in about `√p` walk steps, so Brent's roughly
 /// `3·√p` evaluations stay well inside `64·n^{1/4}`; the constant term covers tiny `n`.
@@ -386,7 +388,7 @@ fn brent_fallback(n: u128, c: u128, mut ys: u128, x: u128, limit: usize) -> Opti
 /// domain; `2` is prime; an even `n > 2` yields `d = 2` with [`FactorEvidence::Even`] and no
 /// walk; an odd `n` is tested for primality.  Composite odd `n` is then attacked with
 /// rayon tasks over `c ∈ 1..=max_c`, each running [`brent_batched`] from `x0 = 2` under the
-/// step bound `1024 + 64·⌈n^{1/4}⌉` evaluations of `f`.  Constants with `c ≡ 0` or
+/// step bound `1024 + 64·(⌊n^{1/4}⌋ + 1)` evaluations of `f`.  Constants with `c ≡ 0` or
 /// `c ≡ n − 2 (mod n)` are skipped: c = 0 gives a fixed point at 0; c = n−2 gives a trivial
 /// cycle via the identity `x² − 2 = (x−1)² − 1`.  Perfect squares and prime powers need no
 /// special case: the walk finds the prime `p` whenever the sequence collides mod `p` before it

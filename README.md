@@ -320,7 +320,7 @@ rho/
 | Fruitless-cycle detection + escape  | 16-entry sliding window; BKNS deterministic escape    |
 | Batched field inversion             | Montgomery's trick: B inversions → 1 inv + 3(B−1) mul |
 | Affine coordinates                  | Viable once inversions are amortised via batching     |
-| GLV endomorphism (order-3)          | 6-orbit equivalence on secp-toy; ~√3 further speedup  |
+| GLV endomorphism (order-3)          | 6-orbit equivalence on secp-toy; ~√3 expected speedup |
 
 ---
 

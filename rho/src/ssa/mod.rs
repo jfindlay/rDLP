@@ -1,9 +1,10 @@
 //! Smart–Satoh–Araki p-adic attack on anomalous elliptic curves.
 //!
-//! This module implements the SSA reduction, which solves the ECDLP in polynomial time on
-//! anomalous curves (curves with trace of Frobenius = 1, i.e. `#E(F_p) = p`). It consumes
-//! the p-adic substrate from `shared-padic` (p-adic arithmetic, Hensel lifting, and the
-//! p-adic logarithm).
+//! This module implements the SSA reduction, which solves the ECDLP on anomalous curves (curves
+//! with trace of Frobenius = 1, i.e. `#E(F_p) = p`). The reduction is polynomial in `log p`, but
+//! this implementation is O(p): it multiplies by `p` by repeated addition and counts points
+//! exactly, so it is toy-scale. It consumes the p-adic substrate from `shared-padic` (p-adic
+//! arithmetic, Hensel lifting, and the p-adic logarithm).
 //!
 //! # Structure
 //!
