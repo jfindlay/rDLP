@@ -399,6 +399,16 @@ checkpoint):
 - Row 1 `cargo test --workspace` — reused (worker record, validated, same identity) — exit 0 —
   2026-11-10T08:48:53-05:00 — log `/tmp/opencode/rdlp/ssa-typed-test.log` (no failures) — same
   environment.
+- Row 2 `cargo check --workspace` — reused (worker record, validated) — `/home/justin/Source/rDLP` —
+  exit 0 — 2026-11-10T09:03:05-05:00 — log `/tmp/opencode/rdlp/check_final.log` — input identity
+  `bfb0eab9…5159` (same recipe, base `63381d0`; recomputed by the driver and equal) — rustc/cargo
+  1.95.0, dev profile, default features.
+- Row 2 `cargo test --workspace` — reused (same identity) — exit 0 — 2026-11-10T09:07:30-05:00 — log
+  `/tmp/opencode/rdlp/test_final.log` (86 `test result: ok`, no failures) — same environment.
+  Smoke (not a gate): `cargo bench -p rho --bench attacks -- --test ssa` exit 0, log
+  `/tmp/opencode/rdlp/bench_smoke.log`.
+- Row 2 `cargo coverage` — deferred → ◆ boundary (row 10). Judged not "substantial test removal":
+  3 unit tests deleted, 13 added.
 - Row 1 `cargo coverage` — deferred → ◆ boundary (row 10) or earlier after substantial test removal
   (row 2 or 7).
 
@@ -409,7 +419,7 @@ change and on first active run of each new day.
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
 | 1 | Type SSA input and invariant failures | done | 829caaa | C-SsaOutcome (frozen by juncture; per-unit gate passed, coverage deferred to ◆) |
-| 2 | Lift SSA curves non-canonically and drop the halved candidate | pending | | |
+| 2 | Lift SSA curves non-canonically and drop the halved candidate | done | 0aa2b01 | C-SsaLift (test-enforced sweep; allowed extra `formal_log.rs`; coverage deferred to ◆) |
 | 3 | Identify the GHS conorm subfield with `restrict` | pending | | |
 | 4 | Guard MOV's single-limb field domain in release builds | pending | | |
 | 5 | Apply ECM stage-1 prime powers one ladder call at a time | pending | | |
@@ -434,9 +444,23 @@ claim (recalled, not re-read) and (b) add a KAT sweeping every s mod p per fixtu
 most one lands in E₂; two classes would be the destructive-HALT discovery. Row 1 also made a zero
 q-log in `fp_divide_logs` an `InvariantFailure` (not `Inconsistent{k:0}`) under the zero-residue
 rule; row 2 should keep that when it deletes the halving.
-Texture: Rustdoc on both invariant variants carries a caveat that they can occur on valid input
+Texture (row 1): Rustdoc on both invariant variants carries a caveat that they can occur on valid input
 via the a = 0 lift; row 2 must remove it. Committer bodies came back unwrapped twice (baseline and
 row 1); future dispatches should say to pass a hard-wrapped body via `-F`.
+
+### 2 — 2026-11-10
+Discovery/flex: Premise confirmed, no contract flexed: shifts s = 1..6 on `anomalous_toy` all give
+valuation 1 and exactly one shift class (the stored a = 0 lift) is degenerate per fixture; a second
+fixture (y² = x³ + x + 5 over F₁₁, G = (0, 4)) found by a recorded search agrees, and an
+exploratory scan of 481 anomalous curves (5 ≤ p ≤ 59) also found one degenerate class each.
+Working precision dropped from 8 to `WORKING_PRECISION` = 4 (k = 3 sufficed on the whole scan).
+Affected: C-SsaLift (frozen at 2); `reduce::kernel_filtration_level` added as a public diagnostic.
+Deferred: yes — the ◆ stale-claim sweep should check MATHEMATICS §10.2 / PEDAGOGY §11 and any
+rustdoc for surviving "halved candidate", "p·G̃ = O in E(Z/p²)", "precision 8" or "LiftFailed means
+bad input" wording. Smart 1999 was read: it states the failure on the canonical lift and the remedy
+(another lift) but does not derive the mechanism; the docs label the Serre–Tate "only the canonical
+lift lands in E₂" explanation as unverified, backed by the sweep. `lift.rs` comments still carry
+"Principle-4" wording (plan vocabulary, left out of scope by the worker) — anneal candidate.
 
 ## Discoveries & risks
 
