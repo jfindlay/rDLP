@@ -16,5 +16,4 @@ pub mod rho;
 
 pub use rho::{
     brent, brent_batched, factor, floyd, FactorError, FactorEvidence, Factorization, MAX_SUPPORTED,
-    PRIME_PROOF_BOUND,
 };

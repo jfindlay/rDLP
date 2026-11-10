@@ -18,6 +18,10 @@
 //! strong pseudoprimes, and ``is_prime`` can return ``true`` for one.  A ``false`` verdict is
 //! always a proof of compositeness.
 //!
+//! The constants ψ₁₂ and ψ₁₃ are Theorem 1.1 of J. Sorenson and J. Webster, "Strong pseudoprimes
+//! to twelve prime bases", Math. Comp. 86 (2017), doi:10.1090/mcom/3134 (arXiv:1509.00864),
+//! where ψₘ is the smallest strong pseudoprime to the first ``m`` prime bases.
+//!
 //! # Modular arithmetic
 //!
 //! Modular exponentiation is performed via ``FpNaive::<4>::pow``, which uses
@@ -33,9 +37,10 @@ use shared_field::{Fp, FpNaive};
 // taken from:
 //   - Pomerance, Selfridge, Wagstaff (1980)
 //   - Jaeschke (1993)
-//   - Sorenson & Webster (2015) — the 3,474,749,660,383, 318,665,857,834,031,151,167,461
-//     and 3,317,044,064,679,887,385,961,981 entries (constants recalled, not re-read; the
-//     factorization of the twelve-base bound is checked in the tests)
+//   - Sorenson & Webster, "Strong pseudoprimes to twelve prime bases", Math. Comp. 86 (2017),
+//     arXiv:1509.00864, Theorem 1.1: ψ₁₂ = 318,665,857,834,031,151,167,461 and
+//     ψ₁₃ = 3,317,044,064,679,887,385,961,981 (the two final entries; the factorization of
+//     ψ₁₂ is checked in the tests)
 //   - Wikipedia "Miller–Rabin primality test" (deterministic variants table)
 //
 // The last two bounds exceed u64::MAX, so bounds are stored as u128.  The thirteenth

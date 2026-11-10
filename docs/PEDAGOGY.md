@@ -774,11 +774,12 @@ pub fn factor(n: u128, max_c: u64, batch_size: usize) -> Result<Factorization, F
 `Even` evidence and no walk (`factor_even_composites_carry_even_evidence`); an odd `n` is tested
 for primality and a prime is reported as `Prime`, never as a factor of itself
 (`factor_reports_primes_and_never_returns_two_as_a_factor_of_two`). The primality verdict is a
-proof only below the Miller–Rabin bound that `rho` uses, `PRIME_PROOF_BOUND` = ψ₁₂ ≈ 2^78.1, so an
-odd probable prime from ψ₁₂ up to 2^80 is `Unsupported`: it can be neither certified nor walked
-(`factor_does_not_certify_primes_beyond_the_primality_proof`, with n = 2^79 − 67). This bound is
-conservative: `shared_numth::is_prime` is itself proven up to ψ₁₃ ≈ 2^81.5. Only an odd composite
-reaches the walks.
+proof on the whole supported range: `shared_numth::is_prime` is proven below ψ₁₃ ≈ 2^81.5
+(`MILLER_RABIN_PROOF_BOUND`), 2^80 < ψ₁₃, and a compile-time assertion keeps `MAX_SUPPORTED` at
+most that bound, so even 2^79 − 67 and 2^80 − 65 are `Prime`
+(`factor_certifies_primes_up_to_the_supported_limit`). The composite ψ₁₂ ≈ 2^78.1 passes the first
+twelve Miller–Rabin bases but not the thirteenth; it is split by rho, never certified
+(`factor_splits_psi_12_instead_of_certifying_it`). Only an odd composite reaches the walks.
 
 Each walk is bounded by `1024 + 64·(⌊n^{1/4}⌋ + 1)` evaluations of f (read from the code,
 `attempt_steps`; no test pins the formula). `max_c` is the number of constants c = 1, …, `max_c`

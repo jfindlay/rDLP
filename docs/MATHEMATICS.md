@@ -1133,9 +1133,11 @@ $\psi_{12} = 318{,}665{,}857{,}834{,}031{,}151{,}167{,}461 \approx 2^{78.1}$. Ad
 $\psi_{13} = 3{,}317{,}044{,}064{,}679{,}887{,}385{,}961{,}981 \approx 2^{81.5}$.*
 
 *Proof.* Computational verification: no composite below the threshold passes all the bases. The
-thresholds and witness sets are from Sorenson–Webster (2015), refining earlier tables by
-Pomerance–Selfridge–Wagstaff and Jaeschke; the constants are recalled from that source, not
-re-read, and the exhaustive search behind them is not repeated here. What the tests do compute is
+thresholds are Theorem 1.1 of Sorenson–Webster, "Strong pseudoprimes to twelve prime bases"
+(Math. Comp. 86 (2017); arXiv:1509.00864), which defines $\psi_m$ as the smallest strong
+pseudoprime to the first $m$ prime bases and computes $\psi_{12}$ and $\psi_{13}$ as stated above;
+they refine earlier tables by Pomerance–Selfridge–Wagstaff and Jaeschke. The exhaustive search
+behind them is not repeated here. What the tests do compute is
 the boundary case: $\psi_{12} = 399{,}165{,}290{,}221 \times 798{,}330{,}580{,}441$ is composite and
 passes all twelve bases, and base 41 rejects it (`psi_12_is_the_product_it_claims`,
 `twelve_bases_accept_psi_12_but_base_41_rejects_it`, `psi_12_rejected` in
@@ -1152,10 +1154,13 @@ unproven; the public constant `MILLER_RABIN_PROOF_BOUND` in `shared-numth` is $\
 **Why this matters.** The deterministic Miller–Rabin test is the primality oracle used throughout
 this project. It builds factor bases (each base element is certified prime) and classifies an input
 as prime before any factoring is attempted. The factoring drivers report `Prime` only where the
-verdict is proven, and `Unsupported` for an odd probable prime beyond the proof: rho factoring uses
-the twelve-base bound $\psi_{12}$, so $2^{79} - 67$, a prime between $\psi_{12}$ and $2^{80}$, is
-`Unsupported` (`factor_does_not_certify_primes_beyond_the_primality_proof` in
-`rho/tests/factor_kat.rs`); ECM uses $\psi_{13}$, so $2^{89} - 1$ is `Unsupported` and $\psi_{12}$,
+verdict is proven, and `Unsupported` for an odd probable prime beyond the proof. Rho factoring
+accepts only $n < 2^{80}$, and $2^{80} < \psi_{13}$, so every prime verdict it sees is a proof: the
+prime $2^{79} - 67$, between $\psi_{12}$ and $2^{80}$, is `Prime`
+(`factor_certifies_primes_up_to_the_supported_limit` in `rho/tests/factor_kat.rs`), a compile-time
+assertion keeps the supported limit at most $\psi_{13}$, and the composite $\psi_{12}$ is split, not
+certified (`factor_splits_psi_12_instead_of_certifying_it`). ECM, whose range is not capped at
+$2^{80}$, uses $\psi_{13}$ as its limit, so $2^{89} - 1$ is `Unsupported` and $\psi_{12}$,
 being composite, is never certified prime (`prime_above_proof_bound_is_unsupported`,
 `composite_psi_12_is_never_prime` in `shared/numth/src/ecm.rs`). ECM does not test the factor it
 finds for primality: it returns a divisor only after checking $1 < d < n$ and $n \bmod d = 0$

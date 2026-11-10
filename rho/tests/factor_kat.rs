@@ -12,7 +12,7 @@
 
 use rho::factor::{
     brent, brent_batched, factor, floyd, FactorError, FactorEvidence, Factorization,
-    MAX_SUPPORTED, PRIME_PROOF_BOUND,
+    MAX_SUPPORTED,
 };
 
 /// Step bound generous enough that no known semiprime below exhausts it.
@@ -193,19 +193,37 @@ fn factor_reports_primes_and_never_returns_two_as_a_factor_of_two() {
 
 #[test]
 fn factor_rejects_sizes_beyond_mulmod() {
-    for n in [MAX_SUPPORTED, MAX_SUPPORTED + 1, u128::MAX] {
+    // 2^89 − 1 is a prime above the range: the size, not primality, decides the outcome.
+    for n in [MAX_SUPPORTED, MAX_SUPPORTED + 1, (1u128 << 89) - 1, u128::MAX] {
         assert_eq!(factor(n, 8, 128), Err(FactorError::Unsupported), "n={n}");
     }
     assert_eq!(MAX_SUPPORTED, 1u128 << 80);
 }
 
+/// Primes between ψ₁₂ ≈ 2^78.1 and 2^80 are certified: the thirteen-base Miller–Rabin test that
+/// `is_prime` runs there is a proof below ψ₁₃ ≈ 2^81.5, and every supported `n` is below that.
 #[test]
-fn factor_does_not_certify_primes_beyond_the_primality_proof() {
-    // 2^79 − 67 is prime, below 2^80, but above the bound up to which a Miller–Rabin
-    // "prime" verdict is a proof, so it is neither reported prime nor walked.
-    let n: u128 = 604_462_909_807_314_587_353_021;
-    assert!(PRIME_PROOF_BOUND < n && n < MAX_SUPPORTED);
-    assert_eq!(factor(n, 8, 128), Err(FactorError::Unsupported));
+fn factor_certifies_primes_up_to_the_supported_limit() {
+    const PSI_12: u128 = 318_665_857_834_031_151_167_461;
+    // 2^79 − 67 and 2^80 − 65 (the largest prime below 2^80).
+    for n in [(1u128 << 79) - 67, MAX_SUPPORTED - 65] {
+        assert!(PSI_12 < n && n < MAX_SUPPORTED, "n={n}");
+        assert_eq!(factor(n, 8, 128), Err(FactorError::Prime), "n={n}");
+    }
+    // The classification precedes the walks, so a zero budget changes nothing.
+    assert_eq!(factor((1u128 << 79) - 67, 0, 128), Err(FactorError::Prime));
+}
+
+/// ψ₁₂ = 399_165_290_221 · 798_330_580_441 is composite and a strong pseudoprime to the first
+/// twelve prime bases; it must never be reported prime, and rho splits it.
+#[test]
+fn factor_splits_psi_12_instead_of_certifying_it() {
+    const P: u128 = 399_165_290_221;
+    const Q: u128 = 798_330_580_441;
+    let n = P * Q;
+    assert_eq!(n, 318_665_857_834_031_151_167_461);
+    let found = factored(n, 8);
+    assert!(found.d == P || found.d == Q, "d={}", found.d);
 }
 
 #[test]

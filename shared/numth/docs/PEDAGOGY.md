@@ -462,7 +462,7 @@ QR tests are in `shared/field/tests/sqrt_legendre_kat.rs`; the `numth` tests are
 | `is_prime`, `miller_rabin` | `factor_base_up_to`, Pohlig–Hellman group-order analysis, polynomial-selection screening |
 | `trial_smooth`, `SmoothWitness` | NFS sieving, NFS discrete-log relation collection, ECDLP index calculus |
 | `ecm_factor` | no caller in the workspace other than its own tests (Pohlig–Hellman's `factor_order` uses trial division) |
-| `MILLER_RABIN_PROOF_BOUND` | the bound `ecm_factor` compares a prime verdict against; rho factoring uses the twelve-base bound ψ₁₂ for the same purpose |
+| `MILLER_RABIN_PROOF_BOUND` | the bound `ecm_factor` compares a prime verdict against; rho factoring asserts at compile time that its supported limit 2^80 does not exceed it |
 | `batch_invert` | `rho` affine walks; future sieve/linear-algebra inner loops |
 
 The smoothness witness is the substrate's most load-bearing interface across solvers; the

@@ -33,23 +33,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use rayon::prelude::*;
 
-use shared_numth::is_prime;
+use shared_numth::{is_prime, MILLER_RABIN_PROOF_BOUND};
 
 use crypto_bigint::Uint;
 
 /// Exclusive upper bound of the supported domain: `mulmod` is exact only for `n < 2^80`.
 pub const MAX_SUPPORTED: u128 = 1 << 80;
 
-/// Exclusive bound below which a Miller–Rabin "prime" verdict is a proof.
-///
-/// This is the published bound for the first twelve prime bases (2 through 37): no composite
-/// below `318_665_857_834_031_151_167_461` (ψ₁₂ ≈ 2^78.1) is a strong pseudoprime to all twelve
-/// (Sorenson & Webster 2015).  `shared_numth::is_prime` uses those twelve bases below this
-/// bound and adds base 41 from here up to ψ₁₃ ≈ 2^81.5
-/// (`shared_numth::MILLER_RABIN_PROOF_BOUND`), so its verdict is a proof up to ψ₁₃.  This
-/// constant is the more conservative ψ₁₂ bound that [`factor`] uses.  A "composite" verdict is
-/// always a proof.
-pub const PRIME_PROOF_BOUND: u128 = 318_665_857_834_031_151_167_461;
+// `shared_numth::is_prime` tests the first thirteen prime bases (2 through 41) at and above
+// ψ₁₂, so its "prime" verdict is a proof below ψ₁₃ = `MILLER_RABIN_PROOF_BOUND` ≈ 2^81.5
+// (Sorenson & Webster 2017, Theorem 1.1).  Every supported odd n is below that bound, which this
+// assertion keeps true: a "prime" verdict from `is_prime` is a primality proof on the whole
+// supported range.
+const _: () = assert!(MAX_SUPPORTED <= MILLER_RABIN_PROOF_BOUND);
 
 /// A verified non-trivial factorization: `1 < d < n` and `n % d == 0`.
 ///
@@ -83,8 +79,7 @@ pub enum FactorError {
     InvalidInput,
     /// `n` is prime, certified by a primality test that is proven on `n`.
     Prime,
-    /// `n` is outside the implementation's domain: at least [`MAX_SUPPORTED`], or odd, at least
-    /// [`PRIME_PROOF_BOUND`], and "probably prime", which cannot be certified here.
+    /// `n` is outside the implementation's domain: at least [`MAX_SUPPORTED`].
     Unsupported,
     /// Every constant tried spent its step bound or hit a degenerate collision.  This is a
     /// resource outcome and proves nothing about `n`.
@@ -450,10 +445,10 @@ fn brent_fallback(n: u128, c: u128, mut ys: u128, x: u128, limit: usize) -> Opti
 /// # Errors
 ///
 /// * [`FactorError::InvalidInput`] — `n ≤ 1`.
-/// * [`FactorError::Prime`] — `n` is prime (`n = 2`, or odd and below [`PRIME_PROOF_BOUND`],
-///   where the primality test is proven).
-/// * [`FactorError::Unsupported`] — `n` is at least [`MAX_SUPPORTED`], or odd, at least
-///   [`PRIME_PROOF_BOUND`], and "probably prime", which cannot be certified.
+/// * [`FactorError::Prime`] — `n` is prime (`n = 2`, or odd and accepted by `is_prime`, which
+///   is a proof on the whole supported range because [`MAX_SUPPORTED`] does not exceed
+///   `shared_numth::MILLER_RABIN_PROOF_BOUND`).
+/// * [`FactorError::Unsupported`] — `n` is at least [`MAX_SUPPORTED`].
 /// * [`FactorError::BudgetExhausted`] — every constant failed; `constants` counts the walks
 ///   that ran.  This proves nothing about `n`; `max_c = 0` runs none.  A walk whose gcd is `1`
 ///   or `n` is one such failed walk.
@@ -474,9 +469,8 @@ pub fn factor(n: u128, max_c: u64, batch_size: usize) -> Result<Factorization, F
         return Ok(Factorization { d: 2, evidence: FactorEvidence::Even });
     }
     if is_prime(&Uint::<4>::from(n)) {
-        // "Composite" verdicts are always proofs; "prime" verdicts only below the bound.
-        let proven = n < PRIME_PROOF_BOUND;
-        return Err(if proven { FactorError::Prime } else { FactorError::Unsupported });
+        // n < MAX_SUPPORTED ≤ MILLER_RABIN_PROOF_BOUND, so this verdict is a proof.
+        return Err(FactorError::Prime);
     }
 
     let max_steps = attempt_steps(n);

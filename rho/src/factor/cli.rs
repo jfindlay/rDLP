@@ -8,7 +8,7 @@
 //! separately on stderr (exit 1): exhaustion says nothing about whether N is prime.
 
 use clap::Parser;
-use rho::factor::{FactorError, PRIME_PROOF_BOUND};
+use rho::factor::{FactorError, MAX_SUPPORTED};
 
 #[derive(Parser, Debug)]
 #[command(name = "rho-factor", about = "Pollard rho integer factorization")]
@@ -49,10 +49,7 @@ fn main() {
             std::process::exit(1);
         }
         Err(FactorError::Unsupported) => {
-            eprintln!(
-                "rho-factor: {n} is outside the supported range (N < 2^80, and an odd N above \
-                 {PRIME_PROOF_BOUND} that tests prime cannot be certified)"
-            );
+            eprintln!("rho-factor: {n} is outside the supported range (N < {MAX_SUPPORTED})");
             std::process::exit(1);
         }
         Err(FactorError::BudgetExhausted { constants }) => {
