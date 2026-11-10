@@ -217,28 +217,121 @@ errors separating invalid input, unsupported domain, resource exhaustion, invari
 
 ### C-SsaOutcome
 
-Compiler + test-enforced. **To be frozen at 1 (inflection juncture designs it).** Consumed by 2,
-10. Draft for the juncture:
+Compiler + test-enforced. **Frozen at 1 by the inflection juncture (2026-11-10).** Consumed by 2,
+10. Row 2 adds no variant, renames nothing, and changes no payload; it only narrows the docs.
 
 ```rust
+// rho/src/ssa/mod.rs
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SsaError {
     InvalidInput(SsaInputDefect),
-    NotAnomalous,                    // exact count only
-    Unsupported(&'static str),
-    Inconsistent { k: u64 },         // valuation-1 lift, k fails k·G == Q (invariant class)
-    InvariantFailure(&'static str),  // breached formal-log / divisor-log invariants
-    // juncture: second-lift exhaustion variant, if not provably impossible
-    // juncture: whether LiftFailed / Padic remain reachable after validation
+    NotAnomalous,                    // proven negative: exact count on a valid curve, #E ≠ p
+    Unsupported(&'static str),       // unchanged: p, a or b above one limb, or p < 5
+    Inconsistent { k: u64 },         // the formal-log quotient mod p fails k·G == Q
+    InvariantFailure(&'static str),  // a breach with no candidate k
 }
-pub enum SsaInputDefect { GeneratorAtInfinity, GeneratorNotOnCurve, TargetNotOnCurve,
-                          OrderNotFieldPrime, WrongGeneratorOrder, TargetOutsideSubgroup }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SsaInputDefect { FieldNotPrime, SingularCurve, GeneratorAtInfinity,
+                          GeneratorNotOnCurve, TargetNotOnCurve, OrderNotFieldPrime }
+
+// rho/src/ssa/lift.rs (lift helpers get their own error type, not SsaError)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LiftError { PointAtInfinity, Hensel(HenselError), Padic(ZpError) }
+pub fn lift_point<F: Fp<4>>(..) -> Result<(Zp, Zp), LiftError>;   // row 2 may change the args
+pub fn check_lift_on_curve(..) -> Result<bool, ZpError>;
 ```
+
+**Order of checks in `ssa_solve`** (the first failure is returned): (1) `p`, `a`, `b` fit one limb
+and p ≥ 5, else `Unsupported`; (2) p prime (`shared_numth::is_prime`, deterministic on u64), else
+`FieldNotPrime`; (3) 4a³ + 27b² ≢ 0 mod p, else `SingularCurve`; (4) G ≠ ∞; (5) G on the curve;
+(6) Q on the curve; (7) Q = ∞ → `Ok(0)`; (8) exact count, `NotAnomalous`; (9) n = p, else
+`OrderNotFieldPrime`. Then the reduction runs. Checks 1–3 are one shared curve check, so
+`verify_anomalous` also returns `InvalidInput(FieldNotPrime | SingularCurve)` and never `Ok(_)`
+for a composite modulus or a singular cubic. Why this order: the count is a proven negative only on
+a nonsingular curve over a prime field (a split-node cubic counts exactly p). Q = ∞ comes before the
+count and n is checked after it because the existing `kat_ssa_solve_infinity_is_zero` (non-anomalous
+curve, n = 12 → `Ok(0)`) and `kat_ssa_solve_not_anomalous` (n = 12 → `NotAnomalous`) must stay
+unchanged. Before the count, n = #E is not an error. With this order every existing solve KAT and
+the `bench_ssa` `Ok(3)` precheck keep passing unedited.
+
+**Dropped from the draft:** `WrongGeneratorOrder` and `TargetOutsideSubgroup`. Once checks 1–9
+pass, E(F_p) has prime order p, so every finite on-curve point generates it: n·G = ∞, n·Q = ∞ and
+Q ∈ ⟨G⟩ all follow, and the variants would be dead. Row 1 records that implication in rustdoc and
+does not run those scalar multiplications.
+
+**Not reachable after validation, so removed from `SsaError`:** `LiftFailed` and `Padic`, along with
+both `From<HenselError>` and `From<ZpError>` for `SsaError`. After checks 1–9: G ≠ ∞ and Q ≠ ∞;
+y₀² ≡ x₀³ + ax₀ + b; y₀ ≠ 0 because an odd prime order has no 2-torsion; p ≥ 5; k ≥ 1; and one prime
+throughout. So `hensel_lift`, `Zp::new`/`add`, and `padic_log`'s `Zp` arm cannot fail. Any such
+error inside `ssa_solve` is mapped explicitly with `map_err` to `InvariantFailure`, never with `?`
+through a `From`. The direct `lift_point` KATs keep their coverage through `LiftError`:
+`kat_lift_2torsion_errors_non_simple_root` matches `LiftError::Hensel(NonSimpleRoot{..})`.
+`PointAtInfinity` replaces the made-up `NotARoot` that was built with `r0 = 0` for the identity.
+
+**Invariant class.** `InvariantFailure(msg)`, with one distinct `&'static str` per breach site that
+names the violated property, covers these sites:
+- in `elliptic_log_proj`: v_p(t) < 1, k_t < 1, and `ConvergenceViolation`;
+- a zero residue at working precision, which means the valuation is at least the precision. This
+  is treated as a breach and is never read as valuation 0 (`padic_valuation_bigint` returns 0 for
+  zero);
+- in `fp_divide_logs`: a g-log that is not a unit after the common p^v is divided out, or a zero
+  g-log;
+- any lift, `Zp` or `padic_log` error on validated input.
+
+`Inconsistent { k }` stays the class for a candidate that fails verification. The field is renamed
+from `k_raw` to `k`. In row 1 it is the raw quotient after the halved candidate also failed; from
+row 2 on it is the only candidate.
+
+Interim honesty: until row 2 makes the lift satisfy valuation 1, the rustdoc of both invariant
+variants keeps today's caveat: on a degenerate lift of the stored canonical (a = 0) curve they can
+occur on valid input. Row 2 removes the caveat.
+
+**Seams for row 1's KAT:** a unit test calls `elliptic_log_proj` with a point outside the kernel
+of reduction (X and Y both units at precision 8) and gets `InvariantFailure`. A unit test calls
+`fp_divide_logs` with v(ψ_G) > v(ψ_Q) and also gets `InvariantFailure`. `Inconsistent` keeps the
+`resolve_candidate_*` seam in row 1. Row 2, which deletes `resolve_candidate`, keeps a private
+verification seam that is unit-tested for `Inconsistent { k }`.
+
+**Second-lift failure (row 2): invariant class, with no exhaustion variant.** After `p·G̃ ∈ E₂` on
+shift s₁, row 2 retries with one s₂ ≢ s₁ (mod p), s₂ ≢ 0. If p·G̃ is still in E₂, the result is
+`InvariantFailure("p·G̃ in E₂ on two shifted lifts")`. The reasoning has three steps:
+1. Inferred from Serre–Tate theory, recalled rather than re-read; row 2 cites a source or labels
+   it. p·P̃ ∈ E₂ for some P ≠ O, which by cyclicity means for all P, exactly when the reduction
+   sequence of Ẽ(Z/p²) splits. That happens exactly when Ẽ mod p² is the canonical lift. Only one
+   isomorphism class mod p² is canonical.
+2. Confirmed algebra. Short-Weierstrass lifts (a + pα, b + pβ) are isomorphic over Z/p² exactly
+   when they differ by a multiple of (4a, 6b). The shift direction (1, 0) is parallel to that only
+   if b ≡ 0. An anomalous curve has b ≢ 0, because b ≡ 0 puts (0, 0) in E[2] and makes #E even. So
+   distinct s mod p give distinct classes, and at most one s mod p lands in E₂.
+3. Corroborated by the stored measurements: every a = 0 lift (all b̃) is in E₂, which is one class;
+   a = 7, 14, 21 give valuation 1.
+
+Test obligation for row 2: on each SSA fixture, a KAT sweeps every s mod p and asserts that at most
+one class puts p·G̃ in E₂. That turns this classification into a test-enforced property. If the
+sweep finds two classes, that is the existing destructive-HALT discovery ("shifted lifts still land
+in E₂").
+
+**Display / source obligations.**
+- Display texts:
+  - `InvalidInput(d)` → "invalid SSA input: {d}". `SsaInputDefect` implements `Display`, one phrase
+    per variant: field modulus not prime, curve singular (4a³ + 27b² ≡ 0 mod p), G at infinity, G
+    not on curve, Q not on curve, n ≠ p (the order of every anomalous curve).
+  - `NotAnomalous` and `Unsupported` keep their current text.
+  - `Inconsistent { k }` → the quotient {k} mod p fails k·G = Q, an invariant failure. The text must
+    not mention a halved candidate, so it is true in both rows.
+  - `InvariantFailure(why)` → "invariant failure: {why}".
+- `impl std::error::Error for SsaError` has `source() == None` for every variant, since no wrapped
+  error survives.
+- `LiftError` implements `Display`, plus `Error` with `source` returning the wrapped
+  `HenselError`/`ZpError`.
+- Tests match variants, not Display text.
 
 ### C-SsaLift
 
-Test + prose-enforced. To be frozen at 2. Consumed by 10. `ssa_solve` lifts the curve once
-(a ↦ a + p·s) and uses that one lifted curve for point lifting and multiplication by p; k is the
-raw quotient on a lift with p·G̃ ∈ E₁ \ E₂; no halved candidate exists.
+Test + prose-enforced. To be frozen at 2. Consumed by 10. Each attempt computes one lifted curve
+(a ↦ a + p·s) and uses it for both point lifting and multiplication by p. If p·G̃ ∈ E₂, there is at
+most one retry, with s₂ ≢ s₁, and a second E₂ result is `InvariantFailure` (per C-SsaOutcome). k is
+the raw quotient on a lift with p·G̃ ∈ E₁ \ E₂. No halved candidate exists.
 
 ### C-GhsSubfieldIdentification
 
@@ -288,13 +381,34 @@ dep-policy`, `cargo audit` (separate commands, never combined). Cadence per "Ver
 
 Gate evidence (one line per check: check, outcome passed/reused/deferred, command and working
 directory, exit status, time, log reference, input identity, environment; deferred → next
-checkpoint): *(none yet)*
+checkpoint): 
 
-Pending checks: *(none)*
+- `cargo dep-policy` — passed — `/home/justin/Source/rDLP` — exit 0 — 2026-11-10T08:33:39-05:00 —
+  log `/tmp/opencode/rdlp/dep-policy.log` — inputs: base `a7f72ba`, clean tree — advisory db
+  `~/.cargo/advisory-dbs/advisory-db-3157b0e258782691`, refreshed this run by `cargo deny`.
+- `cargo audit` — passed — `/home/justin/Source/rDLP` — exit 0 — 2026-11-10T08:33:39-05:00 — log
+  `/tmp/opencode/rdlp/audit.log` — inputs: base `a7f72ba`, clean tree — advisory db
+  `~/.cargo/advisory-db` @ `8a4faeaaa8535304bc640bc34c8764d960b15850`, fetched this run (1439
+  advisories).
+
+- Row 1 `cargo check --workspace` — reused (worker record, validated) — `/home/justin/Source/rDLP` —
+  exit 0 — 2026-11-10T08:45:14-05:00 — log `/tmp/opencode/rdlp/ssa-typed-check.log` — input identity
+  `ef6f15f8…7169` = sha256 of (`git diff HEAD -- . ':!docs/PLAN.md'` + sha256sum of untracked
+  files) over base `a7f72ba`, recomputed by the driver and equal — rustc/cargo 1.95.0, dev profile,
+  default features.
+- Row 1 `cargo test --workspace` — reused (worker record, validated, same identity) — exit 0 —
+  2026-11-10T08:48:53-05:00 — log `/tmp/opencode/rdlp/ssa-typed-test.log` (no failures) — same
+  environment.
+- Row 1 `cargo coverage` — deferred → ◆ boundary (row 10) or earlier after substantial test removal
+  (row 2 or 7).
+
+Pending checks: `cargo coverage` — due at the ◆ boundary (row 10) and final delivery, earlier after
+substantial test removal (rows 2, 7); `cargo dep-policy`/`cargo audit` — due when dependency inputs
+change and on first active run of each new day.
 
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
-| 1 | Type SSA input and invariant failures | pending | | |
+| 1 | Type SSA input and invariant failures | done | 829caaa | C-SsaOutcome (frozen by juncture; per-unit gate passed, coverage deferred to ◆) |
 | 2 | Lift SSA curves non-canonically and drop the halved candidate | pending | | |
 | 3 | Identify the GHS conorm subfield with `restrict` | pending | | |
 | 4 | Guard MOV's single-limb field domain in release builds | pending | | |
@@ -308,7 +422,21 @@ Pending checks: *(none)*
 
 ## Action-frame digest
 
-*(none yet)*
+### 1 — 2026-11-10
+Discovery/flex: Inflection juncture self-cleared (`design-confident`) but narrowed the row's draft
+enum: `WrongGeneratorOrder`/`TargetOutsideSubgroup` dropped (dead once checks pass), `FieldNotPrime`/
+`SingularCurve` added, `LiftFailed`/`Padic` removed from `SsaError` (new `LiftError` for
+`lift_point`), `k_raw` renamed `k`; second-lift double-E₂ failure is `InvariantFailure`, no
+exhaustion variant.
+Affected: C-SsaOutcome (frozen at 1), C-SsaLift (retry text updated by the juncture).
+Deferred: yes — row 2 must (a) cite or label the Serre–Tate "only the canonical lift lands in E₂"
+claim (recalled, not re-read) and (b) add a KAT sweeping every s mod p per fixture asserting at
+most one lands in E₂; two classes would be the destructive-HALT discovery. Row 1 also made a zero
+q-log in `fp_divide_logs` an `InvariantFailure` (not `Inconsistent{k:0}`) under the zero-residue
+rule; row 2 should keep that when it deletes the halving.
+Texture: Rustdoc on both invariant variants carries a caveat that they can occur on valid input
+via the a = 0 lift; row 2 must remove it. Committer bodies came back unwrapped twice (baseline and
+row 1); future dispatches should say to pass a hard-wrapped body via `-F`.
 
 ## Discoveries & risks
 
