@@ -477,6 +477,16 @@ checkpoint):
   `/tmp/opencode/rdlp/rhob-test.log` (86 `test result: ok`, no failures) — same environment.
 - Row 7 `cargo coverage` — deferred → ◆ boundary (row 10). Judged not "substantial test removal":
   1 test and 1 branch + 1 constant deleted, 2 tests added, 1 extended.
+- Row 8 `cargo check --workspace` — reused (worker record, validated) — `/home/justin/Source/rDLP` —
+  exit 0 — 2026-11-10T12:31:53-05:00 — log `/tmp/opencode/rdlp/s8-check.log` — input identity
+  `5aa7e47a…af36` (same recipe, base `3db95b1`; recomputed by the driver and equal) — rustc/cargo
+  1.95.0, dev profile, default features. No manifest or lockfile changed.
+- Row 8 `cargo test --workspace` — reused (same identity) — exit 0 — 2026-11-10T12:35:10-05:00 — log
+  `/tmp/opencode/rdlp/s8-test.log` (86 `test result: ok`, no failures) — same environment. Manual
+  check (not a gate): release `rho-dlog --curve generic --q 1000932015531192845,9048581680910854061`
+  → k = 424242 verified (worker-reported, no log).
+- Row 8 `cargo coverage` — deferred → ◆ boundary (row 10); no tests deleted (3 added, helper
+  signature changed).
 - Row 1 `cargo coverage` — deferred → ◆ boundary (row 10) or earlier after substantial test removal
   (row 2 or 7).
 
@@ -493,7 +503,7 @@ change and on first active run of each new day.
 | 5 | Apply ECM stage-1 prime powers one ladder call at a time | done | a4a040f | C-EcmStage1 (coverage deferred to ◆) |
 | 6 | Report non-dividing factor candidates as `Inconsistent` | done | 7ce7340 | C-FactorInconsistent (allowed extra `rho/src/factor/cli.rs`; coverage deferred to ◆) |
 | 7 | Certify rho-factoring primes below 2^80 with the 13-base bound | done | 53b072e | C-RhoPrimeBound (allowed extras: `factor/{mod,cli}.rs`, both PEDAGOGY files; coverage deferred to ◆) |
-| 8 | Project the generic rho-dlog curve onto its largest prime-order subgroup | pending | | HALT resolved by user approval 2026-11-10: revised to order 561103; implementation and in-tree proof still pending; no general `may-reshard` permission granted |
+| 8 | Project the generic rho-dlog curve onto its largest prime-order subgroup | done | e1764e2 | C-GenericSubgroup (user-approved revision; c·P₀ = G′ and 561103·G′ = ∞ held in-tree, no HALT; coverage deferred to ◆) |
 | 9 | Retarget the ECDLP benches to groups that finish | pending | | |
 | 10 | Correct the follow-up exposition ◆ | pending | | |
 | 11 | Anneal cleanup (skippable) | pending | | |
@@ -658,6 +668,22 @@ separate field size (63 bits), subgroup size (20 bits, approximately 2¹⁹), an
 The external full orders are discovery provenance, not certified by the subgroup tests.
 Resume from row 8 with the revised PLAN after review; `may-reshard` is not needed for this approved
 change and was not granted. No implementation, tests or commits were performed for this revision.
+
+### 8 — 2026-11-10 (implemented)
+Discovery/flex: The destructive-HALT condition did not fire: c·P₀ = G′ and 561103·G′ = ∞ both hold
+in-tree. `generic::N` is the order constant; the worker also exposed public constants for the field
+prime, G′, P₀ and c in `generic.rs`. Brent recovers k = 424242 (seed 7) from (G′, k·G′); the CLI
+example `--curve generic --q 1000932015531192845,9048581680910854061` was run in release and verified.
+P₀ as base → `WrongGeneratorOrder`, P₀ as target → `TargetOutsideSubgroup` (tested); no projection of
+supplied points.
+Affected: C-GenericSubgroup (frozen at 8); no downstream contract flex.
+Deferred: yes — `docs/BENCHMARKS.md` :78 and `docs/ROADMAP.md` :195 still cite the old composite order
+9 223 372 037 218 517 353 and "group order is not prime". Row 9 rewrites the BENCHMARKS `generic` row
+and footnote (subgroup ≈ 2¹⁹ over a 63-bit field; keep it distinct from field size and from the
+external full-order provenance); row 10's sweep should re-read BENCHMARKS and PEDAGOGY :877 (§6 was
+edited by row 8). ROADMAP is a rolling doc outside the durable-file list: note, do not edit unless the
+row-10 scope covers it.
+Texture: the `check_scalar_mul` test helper now takes the base point as a parameter.
 
 ## Discoveries & risks
 
