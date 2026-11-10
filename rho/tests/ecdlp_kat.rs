@@ -27,7 +27,7 @@
 
 use crypto_bigint::Uint;
 use rho::curve::{AffinePoint, Curve, JacobianPoint};
-use rho::curve::generic::generic_curve;
+use rho::curve::generic::{generic_curve, N as GENERIC_N};
 use rho::curve::secp_k1_toy::{secp_k1_toy, GX, LAMBDA, N as SECP_N};
 use rho::curve::test_curves::{
     composite_rho_toy, composite_toy, tiny_a, tiny_b, tiny_glv, COMPOSITE_RHO_TOY_FACTORS,
@@ -35,10 +35,11 @@ use rho::curve::test_curves::{
 };
 use rho::ecdlp::pohlig::{solve_ecdlp_composite, DigitMethod, PohligEvidence};
 use rho::ecdlp::{
-    solve_brent, solve_dp, solve_dp_batch, solve_dp_glv, solve_dp_negmap, verify_log, DlogError,
+    check_prime_order_input, solve_brent, solve_dp, solve_dp_batch, solve_dp_glv, solve_dp_negmap, verify_log, DlogError,
     DlogSolution, InputDefect, RhoEvidence,
 };
 use shared_field::{Fp, FpMonty4 as FpMonty};
+use shared_numth::is_prime;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -60,10 +61,16 @@ fn u64_to_scalar(k: u64) -> Uint<4> {
     Uint::<4>::from(k)
 }
 
-/// Assert that the two curves' scalar-mult results match the hardcoded reference.
-fn check_scalar_mul(c: &Curve, k: u64, ref_x: u64, ref_y: u64, label: &str) {
-    let g: AffinePoint<FpMonty> = c.generator();
-    let result = c.scalar_mul(&g, &u64_to_scalar(k));
+/// Assert that `k·g` on `c` matches the hardcoded reference.
+fn check_scalar_mul(
+    c: &Curve,
+    g: &AffinePoint<FpMonty>,
+    k: u64,
+    ref_x: u64,
+    ref_y: u64,
+    label: &str,
+) {
+    let result = c.scalar_mul(g, &u64_to_scalar(k));
     assert!(
         !result.is_infinity(),
         "{label}: {k}·G unexpectedly at infinity"
@@ -86,7 +93,16 @@ fn check_scalar_mul(c: &Curve, k: u64, ref_x: u64, ref_y: u64, label: &str) {
 
 // ── generic curve KATs ───────────────────────────────────────────────────────
 
-/// Reference multiples of G on `y² = x³ − 3x + 1  mod  2^63 − 25`.
+/// The original point `P₀ = (3, 821_487_384_573_098_969)` of the generic curve, built from its
+/// literal coordinates and not from `generator()`, which is a multiple of it.
+fn generic_original_point(c: &Curve) -> AffinePoint<FpMonty> {
+    AffinePoint::new(
+        FpMonty::from_uint(Uint::<4>::from(3u64), &c.p),
+        FpMonty::from_uint(Uint::<4>::from(821_487_384_573_098_969u64), &c.p),
+    )
+}
+
+/// Reference multiples of `P₀` on `y² = x³ − 3x + 1  mod  2^63 − 25`.
 ///
 /// Values were produced by an independent Python affine-coordinate reference
 /// implementation and double-checked at each k by verifying the point is on
@@ -94,6 +110,7 @@ fn check_scalar_mul(c: &Curve, k: u64, ref_x: u64, ref_y: u64, label: &str) {
 #[test]
 fn generic_scalar_mul_reference() {
     let c = generic_curve();
+    let p0 = generic_original_point(&c);
     let cases: &[(u64, u64, u64)] = &[
         (1, 3,                       821_487_384_573_098_969),
         (2, 3_398_084_434_630_706_869, 1_269_927_104_498_887_686),
@@ -102,7 +119,7 @@ fn generic_scalar_mul_reference() {
         (5, 5_154_529_326_275_311_306, 8_346_922_522_928_899_966),
     ];
     for &(k, ref_x, ref_y) in cases {
-        check_scalar_mul(&c, k, ref_x, ref_y, "generic");
+        check_scalar_mul(&c, &p0, k, ref_x, ref_y, "generic");
     }
 }
 
@@ -110,28 +127,28 @@ fn generic_scalar_mul_reference() {
 fn generic_identity_laws() {
     let c = generic_curve();
     let p = &c.p;
-    let g: AffinePoint<FpMonty> = c.generator();
+    let g = generic_original_point(&c);
     let two_g = c.scalar_mul(&g, &u64_to_scalar(2));
     let three_g = c.scalar_mul(&g, &u64_to_scalar(3));
 
-    // Commutativity: G + 2G = 2G + G
+    // Commutativity: P₀ + 2P₀ = 2P₀ + P₀
     let two_gj  = JacobianPoint::from_affine(&two_g, p);
     let three_g_via_add1 = c.add_mixed(&two_gj, &g).to_affine(p);
     let gj      = JacobianPoint::from_affine(&g, p);
     let three_g_via_add2 = c.add_mixed(&gj, &two_g).to_affine(p);
-    assert_eq!(three_g_via_add1, three_g, "2G + G ≠ 3G");
-    assert_eq!(three_g_via_add2, three_g, "G + 2G ≠ 3G");
+    assert_eq!(three_g_via_add1, three_g, "2P₀ + P₀ ≠ 3P₀");
+    assert_eq!(three_g_via_add2, three_g, "P₀ + 2P₀ ≠ 3P₀");
 
-    // Associativity: (G + G) + G = G + (G + G)
+    // Associativity: (P₀ + P₀) + P₀ = P₀ + (P₀ + P₀)
     assert_eq!(three_g_via_add1, three_g_via_add2, "add not associative");
 }
 
 #[test]
 fn generic_linearity() {
-    // (a+b)·G = a·G + b·G
+    // (a+b)·P₀ = a·P₀ + b·P₀
     let c = generic_curve();
     let p = &c.p;
-    let g: AffinePoint<FpMonty> = c.generator();
+    let g = generic_original_point(&c);
 
     for a in 1u64..=4 {
         for b in 1u64..=4 {
@@ -142,10 +159,84 @@ fn generic_linearity() {
             let sum   = c.add_mixed(&ag_j, &bg).to_affine(p);
             assert_eq!(
                 sum, apb_g,
-                "linearity fails: ({a}+{b})·G ≠ {a}·G + {b}·G"
+                "linearity fails: ({a}+{b})·P₀ ≠ {a}·P₀ + {b}·P₀"
             );
         }
     }
+}
+
+// The stored generator of the generic curve generates a subgroup of prime order 561_103. These
+// tests prove that order without the full curve or point orders (found externally with PARI/GP and
+// not certified here): G is on the curve, G ≠ ∞, and `n·G = ∞` with `n` prime, so G has exact
+// order `n`; and `c·P₀ = G` ties it to the original point.
+
+const GENERIC_G: (u64, u64) = (3_569_091_914_278_015_591, 7_073_522_384_094_063_206);
+const GENERIC_SUBGROUP_N: u64 = 561_103;
+const GENERIC_C: u64 = 8_218_965_179_160;
+
+/// The stored generator has exact prime order 561_103, and is `c·P₀`.
+#[test]
+fn generic_generator_has_exact_prime_order_and_descends_from_p0() {
+    let c = generic_curve();
+    let g: AffinePoint<FpMonty> = c.generator();
+
+    assert_eq!(affine_x(&g), Uint::<4>::from(GENERIC_G.0), "stored G x");
+    assert_eq!(affine_y(&g), Uint::<4>::from(GENERIC_G.1), "stored G y");
+    assert_eq!(c.n, Uint::<4>::from(GENERIC_SUBGROUP_N), "stored order");
+    assert_eq!(GENERIC_N, GENERIC_SUBGROUP_N, "exported order");
+
+    assert!(c.is_on_curve(&g), "G not on curve");
+    assert!(!g.is_infinity(), "G is the point at infinity");
+    assert!(is_prime(&Uint::<4>::from(GENERIC_SUBGROUP_N)), "n is not prime");
+    assert!(
+        c.scalar_mul(&g, &Uint::<4>::from(GENERIC_SUBGROUP_N)).is_infinity(),
+        "n·G ≠ ∞"
+    );
+
+    let p0 = generic_original_point(&c);
+    assert_eq!(c.scalar_mul(&p0, &u64_to_scalar(GENERIC_C)), g, "c·P₀ ≠ G");
+}
+
+/// Fixed logarithm and walk seed for the generic-curve solver run.
+const GENERIC_K: u64 = 424_242;
+const GENERIC_SEED: u64 = 7;
+
+/// Brent's input check accepts `(G, n)`, and `solve_brent` recovers a fixed nonzero `k` from
+/// `(G, k·G)` with a recorded seed.
+#[test]
+fn generic_brent_recovers_log_in_subgroup() {
+    let c = generic_curve();
+    let g: AffinePoint<FpMonty> = c.generator();
+    let q = c.scalar_mul(&g, &u64_to_scalar(GENERIC_K));
+    // The target the `rho-dlog` documentation passes as `--q`.
+    assert_eq!(affine_x(&q), Uint::<4>::from(1_000_932_015_531_192_845u64), "Q x");
+    assert_eq!(affine_y(&q), Uint::<4>::from(9_048_581_680_910_854_061u64), "Q y");
+
+    assert_eq!(check_prime_order_input(&c, &g, &q, GENERIC_N), Ok(()));
+    let solution = solve_brent(&c, &g, &q, GENERIC_N, GENERIC_SEED, 30)
+        .unwrap_or_else(|e| panic!("generic: solve_brent failed: {e:?}"));
+    assert_eq!(solution.k, GENERIC_K, "generic: recovered k");
+    assert!(verify_log(&c, &g, &q, solution.k), "generic: verify_log rejects k");
+    assert_collision_identity(&c, &g, &q, &solution.evidence, "generic");
+}
+
+/// `P₀` has order far above 561_103, so the existing input checks reject it: as a base point it
+/// has the wrong order, and as a target against base `G` it lies outside the subgroup of `G`.
+#[test]
+fn generic_original_point_is_rejected_not_projected() {
+    let c = generic_curve();
+    let g: AffinePoint<FpMonty> = c.generator();
+    let p0 = generic_original_point(&c);
+    let q = c.scalar_mul(&g, &u64_to_scalar(GENERIC_K));
+
+    assert_eq!(
+        solve_brent(&c, &p0, &q, GENERIC_N, GENERIC_SEED, 30),
+        Err(DlogError::InvalidInput(InputDefect::WrongGeneratorOrder))
+    );
+    assert_eq!(
+        solve_brent(&c, &g, &p0, GENERIC_N, GENERIC_SEED, 30),
+        Err(DlogError::InvalidInput(InputDefect::TargetOutsideSubgroup))
+    );
 }
 
 // ── secp_k1_toy KATs ─────────────────────────────────────────────────────────
@@ -161,7 +252,7 @@ fn secp_k1_toy_scalar_mul_reference() {
         (7, 1_979_583_965_183_108_279,  3_698_824_691_131_872_996),
     ];
     for &(k, ref_x, ref_y) in cases {
-        check_scalar_mul(&c, k, ref_x, ref_y, "secp_k1_toy");
+        check_scalar_mul(&c, &c.generator(), k, ref_x, ref_y, "secp_k1_toy");
     }
 }
 

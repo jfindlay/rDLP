@@ -218,21 +218,30 @@ cargo run --release --bin rho-dlog -- --curve secp-toy --q <x,y> --walkers 4 --b
 cargo run --release --bin rho-dlog -- --curve secp-toy --q <x,y> --walkers 4 --batch-size 16 --glv
 ```
 
-Curves: `secp-toy` (63-bit GLV-friendly secp256k1-style) or `generic` (63-bit Weierstrass).
-Points are given as `x,y` in decimal with no spaces. `--max-steps S` caps the total walk steps of
-the distinguished-point solvers (default: 64·√n plus a start-up allowance of
-64·walkers·batch·2^θ).
+Curves: `secp-toy` (63-bit GLV-friendly secp256k1-style) or `generic` (a Weierstrass curve over a
+63-bit field whose default base point generates a subgroup of prime order 561 103, a 20-bit number
+of about 2¹⁹). `generic` is meant for runnable demonstrations, not as a large-group performance
+baseline. Points are given as `x,y` in decimal with no spaces. On `generic`, the base point (`--p`,
+default the subgroup generator) and the target must belong to that order-561 103 subgroup; the CLI
+does not project other points onto it, and reports a point outside it as invalid input. For
+example, this finishes in a fraction of a second and prints `k = 424242`:
+
+```sh
+cargo run --release --bin rho-dlog -- --curve generic --q 1000932015531192845,9048581680910854061
+```
+
+`--max-steps S` caps the total walk steps of the distinguished-point solvers (default: 64·√n plus
+a start-up allowance of 64·walkers·batch·2^θ).
 
 The CLI prints `k` only after the solver has checked `k·P == Q`; it does not recheck. Each failure
 class has its own message and exits with status 1: invalid input (naming the defect: base point at
 infinity or off the curve, target off the curve, group order not prime, `n·P ≠ ∞`, or a target
 outside the subgroup of `P`), unsupported domain (for example `--glv` on a curve other than
 `secp-toy`), budget exhaustion (which proves nothing about whether a logarithm exists), and an
-inconsistent result or solver invariant failure. The `generic` curve's built-in order is composite,
-so `--curve generic` reports `group order is not prime` rather than searching. A collision in the
-63-bit `secp-toy` group takes about 2.7·10⁹ walk steps (arithmetic from the group order, not a
-measurement), so these invocations run for a long time. The Brent baseline caps each attempt at
-2²⁹ − 1 steps, below that figure, so by the same arithmetic it most likely reports budget
+inconsistent result or solver invariant failure. A collision in the 63-bit `secp-toy` group takes
+about 2.7·10⁹ walk steps (arithmetic from the group order, not a measurement), so the `secp-toy`
+invocations run for a long time. The Brent baseline caps each attempt at 2²⁹ − 1 steps, below that
+figure, so by the same arithmetic a default `secp-toy` run most likely reports budget
 exhaustion. The KATs run the same solvers on 20-bit curves (`docs/PEDAGOGY.md` §2, §6 and §17
 list the tests).
 

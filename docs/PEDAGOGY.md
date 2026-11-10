@@ -360,8 +360,9 @@ represent a point (X : Y : Z) with affine coordinates (X/Z², Y/Z³), allowing a
 with only multiplications and squarings (no inversions), at the cost of a single inversion when
 converting back to affine.
 
-Two curves are defined: a generic Weierstrass curve over a ~64-bit prime (used for the
-single-threaded baseline through batched inversion), and `secp_k1_toy` — a 63-bit prime-field curve
+Two curves are defined: a generic Weierstrass curve over a 63-bit prime whose stored generator has
+prime order 561 103 (a 20-bit subgroup, about 2¹⁹; a runnable demonstration fixture, not a
+large-group performance baseline), and `secp_k1_toy` — a 63-bit prime-field curve
 with a = 0 and an explicit order-3 endomorphism (used for the GLV endomorphism). The secp_k1_toy
 curve mirrors the structure of secp256k1 (y² = x³ + 7, j-invariant
 0) but over a much smaller prime, making it suitable for pedagogical experiments.
@@ -873,14 +874,24 @@ rho-dlog --curve secp-toy --q <x,y> --walkers 4 --batch-size 16 --glv --theta 8
 On success the CLI prints `k` and a verification line; the solver has already checked
 `k·G == Q`, so the CLI does not recheck it. Each `DlogError` class gets its own message and exits
 with status 1: invalid input (naming the defect), unsupported domain, budget exhaustion,
-inconsistent result, and solver invariant failure (`describe_error` in `src/ecdlp/cli.rs`). The
-`generic` curve's built-in order, 9 223 372 037 218 517 353, is composite
-(7 · 17 · 77 507 328 043 853 087; the product can be checked by hand), so `--curve generic`
-reports `invalid input: group order is not prime` for the Brent and the distinguished-point
-solvers alike: they all check the input first, and
-`solve_brent_rejects_composite_order_before_walking` (unit, `src/ecdlp/mod.rs`) tests that outcome
-for a composite `n`. No test runs the CLI itself, and it does not project onto a prime-order
-subgroup.
+inconsistent result, and solver invariant failure (`describe_error` in `src/ecdlp/cli.rs`).
+
+The `generic` curve is a 63-bit field with a subgroup of prime order 561 103 (20 bits, about 2¹⁹),
+so its runs finish in a fraction of a second, unlike the 2.7·10⁹-step `secp-toy` group. Its
+stored generator is `G = 8 218 965 179 160·P₀` for the original point `P₀ = (3,
+821 487 384 573 098 969)`. The known-answer tests prove in-tree that `G` is on the curve, is not
+the point at infinity, and is annihilated by the prime 561 103, so it has exactly that order, and
+that `8 218 965 179 160·P₀ = G`. The full curve order and the order of `P₀`, and the claim that
+561 103 is the largest prime factor of the latter, came from PARI/GP and are not certified in the
+tree. The base point and the target given to the CLI must lie in that subgroup; the CLI does not
+project other points onto it, so `P₀` itself, passed as base or target, is reported as invalid
+input (`n·P` or `n·Q` is not the point at infinity). A working example:
+
+```sh
+rho-dlog --curve generic --q 1000932015531192845,9048581680910854061   # k = 424242
+```
+
+The tests are in `tests/ecdlp_kat.rs` (`generic_*`); no test runs the CLI itself.
 
 ---
 
