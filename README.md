@@ -122,8 +122,9 @@ Six shared crates underpin all five algorithm families:
 | `shared/gf2m` | Binary-field $\mathbb{F}_{2^m}$ arithmetic — used by the GHS attack |
 
 **Code tours:** [`shared/numth/docs/PEDAGOGY.md`](shared/numth/docs/PEDAGOGY.md) (the α-substrate:
-primality, smoothness, ECM) and [`shared/numfield/docs/PEDAGOGY.md`](shared/numfield/docs/PEDAGOGY.md)
-(number-field substrate: polynomial arithmetic, norms, Dedekind factorisation).
+primality, smoothness, ECM) and
+[`shared/numfield/docs/PEDAGOGY.md`](shared/numfield/docs/PEDAGOGY.md) (number-field substrate:
+polynomial arithmetic, norms, Dedekind factorisation).
 
 ---
 
@@ -149,9 +150,9 @@ shared/gf2m/    Binary-field F_{2^m} arithmetic substrate
 
 Two complementary artifacts cover the full library:
 
-- **[`docs/PEDAGOGY.md`](docs/PEDAGOGY.md)** — the master code-first tour. Starts with the Pollard
-  rho optimisation-by-optimisation implementation (§1–7), then the algebraic ECDLP attacks
-  (§8–18). A library-wide synthesis threading all five algorithm families is planned.
+- **[`docs/PEDAGOGY.md`](docs/PEDAGOGY.md)** — the master code-first tour. Opens with a library-wide
+  synthesis threading all five algorithm families (§0), then the Pollard rho
+  optimisation-by-optimisation implementation (§1–7) and the algebraic ECDLP attacks (§8–18).
 - **[`docs/MATHEMATICS.md`](docs/MATHEMATICS.md)** — the maths-first textbook. A 12-chapter
   survey (documentation register: undergraduate maths background, survey with proof-sketch depth,
   Markdown + MathJax) covering the escape-from-search through-line (§3), prerequisites (§4), Pollard

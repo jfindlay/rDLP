@@ -1062,7 +1062,7 @@ never $p^e$.
 | Outcome | Meaning | Exercised by |
 |---------|---------|--------------|
 | `Ok(DlogSolution { k, evidence })` | verified `k`; each component's `residue` is `k mod p^e`, the sum of its digits, with one `DigitMethod` per digit, `SubgroupEnumeration` only for `p ≤ 64` and `Rho` only above | `composite_dlog_every_k` (all `k` in `0..60`), `composite_rho_dlog_sampled_k` (via `check_pohlig_evidence`, `rho/tests/ecdlp_kat.rs`) |
-| `Err(InvalidInput(ZeroOrder))`, `(WrongGeneratorOrder)` | `n = 0` (no longer a panic); `n·G ≠ ∞`, or `(n/p)·G = ∞` for some prime `p ∣ n` (a multiple of the true order, or a `G` of smaller order) | `composite_wrong_order_is_invalid_input`, `composite_rho_wrong_order_is_invalid_input` |
+| `Err(InvalidInput(ZeroOrder))`, `(WrongGeneratorOrder)` | `n = 0` (an input error, not a panic); `n·G ≠ ∞`, or `(n/p)·G = ∞` for some prime `p ∣ n` (a multiple of the true order, or a `G` of smaller order) | `composite_wrong_order_is_invalid_input`, `composite_rho_wrong_order_is_invalid_input` |
 | `Err(InvalidInput(TargetOutsideSubgroup))` | `n·Q ≠ ∞` (by code reading; no composite test), or an order-`p` enumeration finds no match, which proves `Q ∉ ⟨G⟩` | `composite_target_outside_subgroup_is_invalid_input` (the enumeration case) |
 | `Err(BudgetExhausted { .. })`, `Err(Inconsistent { .. })` from a rho digit | passed through unchanged, so exhaustion is never reported as anything else | not exercised: no fixture's rho digit exhausts or fails |
 | `Err(Inconsistent { k })` after the CRT step | every digit solved but `k·G ≠ Q`; judged unreachable on a verified instance | not exercised |
@@ -1287,10 +1287,10 @@ lift ($a = 0$) has $p \cdot \tilde{G} \in E_2$, with parameter valuation $2$
 (`kat_stored_lift_of_toy_curve_is_degenerate`), and the quotient of leading units there is not
 $\lambda$. `ssa_solve` lifts the curve with $a \mapsto a + p\,s$ instead; on every shift
 $s \not\equiv 0$ the raw quotient is exactly $k$
-(`attempt_on_shifted_lift_returns_the_raw_quotient`), and there is no halved candidate. If the
-first shift is the degenerate one, one second shift is tried
-(`ssa_solve_retries_when_the_first_shift_is_degenerate`). That at most one class of shifts is
-degenerate is measured on the fixtures, for every point, by
+(`attempt_on_shifted_lift_returns_the_raw_quotient`), so the quotient needs no factor-of-2
+correction and is the only candidate. If the first shift is the degenerate one, one second shift
+is tried (`ssa_solve_retries_when_the_first_shift_is_degenerate`). That at most one class of shifts
+is degenerate is measured on the fixtures, for every point, by
 `kat_at_most_one_shift_class_is_degenerate`; see `docs/MATHEMATICS.md` §10.2 for the evidence and
 its limits.
 
@@ -1700,16 +1700,16 @@ implemented head-on, not stubbed, and exercised by KATs on a toy fixture.
 
 ### No engineering optimisation
 
-Oracle tests stay opt-in; there is no production solver acceleration, no GPU, and no distributed
+Oracle tests are opt-in; there is no production solver acceleration, no GPU, and no distributed
 computation.
 
 - **Oracle tests.** The oracle KATs that need an external tool (PARI/GP, msolve) are gated behind
   `#[ignore = "PARI not installed; run manually when available"]` (or the msolve analogue).
-  None are on the default test path. No production dependency was added.
+  None are on the default test path, and no oracle tool is a production dependency.
 
 - **Pairing computation.** Miller's algorithm is implemented at demonstration fidelity: the
   standard Miller loop with the final exponentiation. No optimised pairing (ate pairing, optimal
-  ate) was introduced.
+  ate) is implemented.
 
 - **Index calculus.** The relation-collection loop uses the Semaev polynomial at degree $m = 2$
   (the toy setting). No Gröbner-basis acceleration, no Weil descent optimisation, no
@@ -1719,7 +1719,7 @@ computation.
   demonstration fidelity. No optimised descent (no Magma/PARI oracle for the hyperelliptic
   Jacobian DLP).
 
-All oracle cross-checks remain `#[ignore]`-gated.
+All oracle cross-checks are `#[ignore]`-gated.
 
 ### Scale: demonstration fidelity
 
@@ -1739,9 +1739,9 @@ explicitly, and the annotations document the science↔engineering gap:
 
 ## 17. KAT Summary
 
-This chapter adds no new KATs (it is a code-tour, not a new implementation). The KATs that
-exercise the attacks are the existing per-attack KAT suites plus the `attacks.rs` bench
-pre-check asserts (no-regression smoke tests).
+This chapter defines no KATs of its own (it is a code-tour, not an implementation). The KATs that
+exercise the attacks are the per-attack KAT suites plus the `attacks.rs` bench pre-check asserts
+(no-regression smoke tests).
 
 ### Per-attack KATs
 

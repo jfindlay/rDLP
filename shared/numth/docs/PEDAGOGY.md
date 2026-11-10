@@ -58,8 +58,8 @@ valid.
 
 Integer arithmetic is built on `crypto_bigint::Uint<L>`, a fixed-width unsigned integer of `L`
 64-bit limbs. The substrate is generic over `L` where it can be (the `Fp<L>` trait), and fixed at
-`Uint<4>` (256 bits) where the imminent consumers do not yet need more — see the C1 resolution in
-the number-field chapter, which confirmed 256 bits suffices for toy-scale GNFS norms. The use of
+`Uint<4>` (256 bits) where the consumers do not need more — see the `Uint<4>` sufficiency section
+of the number-field chapter, which confirmed 256 bits suffices for toy-scale GNFS norms. The use of
 `crypto-bigint` for the underlying big-integer arithmetic is a correctness-oracle dependency in the
 same spirit as `num-bigint` in the number-field crate: the wide-integer arithmetic is delegated to a
 well-tested library, while every algorithm above it is first-party.
@@ -240,8 +240,7 @@ integer smoothness with a prime factor base (NFS sieving, NFS discrete-log relat
 and, structurally similar though semantically different, smoothness of curve points via Semaev
 polynomials (ECDLP index calculus). All three inspect `cofactor` to decide full versus partial
 smoothness; the `factors` list becomes the exponent vector for the linear-algebra stage. The
-witness was shaped for the index-calculus consumer even though that consumer is built much later
-than the substrate.
+witness was shaped with the index-calculus consumer in mind, not only the integer sieves.
 
 ### Trial division and the factor base
 
@@ -292,7 +291,8 @@ k·P to the identity mod p while it stays non-trivial mod N. The group law's mod
 fails with a denominator sharing a factor with N, and gcd(denominator, N) = p falls out.
 
 The key advantage: if one curve's order is not smooth, you simply try another curve. ECM converts a
-question of luck (is p − 1 smooth?) into a question you can re-roll (is *some* curve's order smooth?).
+question of luck (is p − 1 smooth?) into a question you can re-roll (is *some* curve's order
+smooth?).
 
 ### Montgomery-form curves and the (X:Z) ladder
 
@@ -507,5 +507,5 @@ confirmed sufficient for toy-scale norms in the number-field arithmetic.
    Theorem 1.1 gives ψ₁₂ and ψ₁₃).
 
 6. **Bach, E., and Shallit, J. (1996).** *Algorithmic Number Theory, Vol. 1.* MIT Press. The
-   quadratic-residue machinery (Legendre/Jacobi symbols, Euler's criterion) and the least-non-residue
-   questions behind the Tonelli–Shanks trial search.
+   quadratic-residue machinery (Legendre/Jacobi symbols, Euler's criterion) and the
+   least-non-residue questions behind the Tonelli–Shanks trial search.

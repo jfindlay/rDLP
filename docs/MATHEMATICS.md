@@ -19,9 +19,9 @@ The reader has a full undergraduate mathematics background:
 - **Proofs.** Comfortable reading and writing $\varepsilon$–$\delta$ arguments, induction,
   contradiction, and direct proof. Knows what it means for a proof to be rigorous.
 - **Algebra.** Groups, rings, fields, homomorphisms, quotients, ideals. Polynomial rings. The
-  isomorphism theorems. Finite fields $\mathbb{F}_q$. Elliptic curves as groups (the chord-and-tangent
-  law, the group axioms, the order of a point). Dedekind domains and unique factorisation of ideals
-  are introduced in the Prerequisites chapter and used in the GNFS chapter.
+  isomorphism theorems. Finite fields $\mathbb{F}_q$. Elliptic curves as groups (the
+  chord-and-tangent law, the group axioms, the order of a point). Dedekind domains and unique
+  factorisation of ideals are introduced in the Prerequisites chapter and used in the GNFS chapter.
 - **Analysis.** Big-$O$ and little-$o$ notation. Limits. The prime number theorem (statement only).
   Logarithms and exponentials. The $L$-notation for subexponential functions is introduced in the
   Prerequisites chapter.
@@ -558,8 +558,8 @@ subgroups. Understanding reductions is essential for understanding why these att
 **Theorem (Fermat's little theorem).** *If $p$ is prime and $\gcd(a, p) = 1$, then $a^{p-1} \equiv
 1 \pmod{p}$.*
 
-*Proof.* The map $x \mapsto ax$ is a bijection on $(\mathbb{Z}/p\mathbb{Z})^*$, so $\prod_{x=1}^{p-1}
-(ax) \equiv \prod_{x=1}^{p-1} x \pmod{p}$, giving $a^{p-1} \equiv 1$. $\square$
+*Proof.* The map $x \mapsto ax$ is a bijection on $(\mathbb{Z}/p\mathbb{Z})^*$, so
+$\prod_{x=1}^{p-1} (ax) \equiv \prod_{x=1}^{p-1} x \pmod{p}$, giving $a^{p-1} \equiv 1$. $\square$
 
 **Theorem (Euler's criterion).** *For an odd prime $p$ and $\gcd(a, p) = 1$,*
 
@@ -608,8 +608,8 @@ subgroup $\Gamma_0(N) \subset \mathrm{SL}_2(\mathbb{Z})$ consists of matrices wi
 function $f: \mathfrak{H} \to \mathbb{C}$ satisfying a transformation law under $\Gamma_0(N)$ and
 a growth condition at the cusps. A *cusp form* additionally vanishes at every cusp. Every cusp form
 has a Fourier expansion $f(z) = \sum_{n=1}^\infty a_n q^n$ with $q = e^{2\pi iz}$. The space
-$S_k(\Gamma_0(N))$ of cusp forms of weight $k$ and level $N$ is a finite-dimensional $\mathbb{C}$-vector
-space. Chapter 12 uses only weight-2 cusp forms ($k = 2$).
+$S_k(\Gamma_0(N))$ of cusp forms of weight $k$ and level $N$ is a finite-dimensional
+$\mathbb{C}$-vector space. Chapter 12 uses only weight-2 cusp forms ($k = 2$).
 
 **Hecke operators and newforms.** The space $S_k(\Gamma_0(N))$ carries commuting Hecke operators
 $T_p$ (for primes $p \nmid N$). A *newform* (or Hecke eigenform) is a cusp form that is a
@@ -619,9 +619,9 @@ the Hecke eigenvalue equals the Fourier coefficient: $T_p f = a_p f$.
 **L-functions.** To each newform $f = \sum a_n q^n$ one attaches an *L-function*
 $L(f, s) = \sum_{n=1}^\infty a_n n^{-s}$, which has an Euler product and extends to an entire
 function satisfying a functional equation. To each elliptic curve $E/\mathbb{Q}$ one attaches an
-L-function $L(E, s) = \prod_p L_p(E, s)$ via the trace of Frobenius $a_p(E) = p + 1 - \#E(\mathbb{F}_p)$.
-The Taniyama–Shimura–Weil theorem asserts $L(E, s) = L(f, s)$ for a unique newform $f$ of level
-equal to the conductor of $E$.
+L-function $L(E, s) = \prod_p L_p(E, s)$ via the trace of Frobenius
+$a_p(E) = p + 1 - \#E(\mathbb{F}_p)$. The Taniyama–Shimura–Weil theorem asserts
+$L(E, s) = L(f, s)$ for a unique newform $f$ of level equal to the conductor of $E$.
 
 **Galois representations.** To an elliptic curve $E/\mathbb{Q}$ and a prime $\ell$, one attaches
 the *$\ell$-adic Tate module* $T_\ell(E) = \varprojlim E[\ell^n]$, which gives a 2-dimensional
@@ -929,10 +929,11 @@ The reason Pollard rho works on elliptic curves — and not just on abstract gro
 field operations. This means the walk can be implemented efficiently, and the linear invariant
 $W = aG + bQ$ can be maintained at each step.
 
-More precisely: the map $(a, b) \mapsto aG + bQ$ is a group homomorphism from $\mathbb{Z}/n\mathbb{Z}
-\times \mathbb{Z}/n\mathbb{Z}$ to $E(\mathbb{F}_p)$. The walk on $E(\mathbb{F}_p)$ lifts to a walk
-on $\mathbb{Z}/n\mathbb{Z} \times \mathbb{Z}/n\mathbb{Z}$, and a collision in the former gives a
-linear equation in the latter. The discrete logarithm is the solution to that equation.
+More precisely: the map $(a, b) \mapsto aG + bQ$ is a group homomorphism from
+$\mathbb{Z}/n\mathbb{Z} \times \mathbb{Z}/n\mathbb{Z}$ to $E(\mathbb{F}_p)$. The walk on
+$E(\mathbb{F}_p)$ lifts to a walk on $\mathbb{Z}/n\mathbb{Z} \times \mathbb{Z}/n\mathbb{Z}$, and a
+collision in the former gives a linear equation in the latter. The discrete logarithm is the
+solution to that equation.
 
 This is the general pattern of index calculus: find a homomorphism from the group to a structure
 where the discrete logarithm is easy, and use it to reduce the hard problem to an easy one. In
@@ -1238,13 +1239,13 @@ The weakness: it only works when $p - 1$ happens to be smooth — a property of 
 group $(\mathbb{Z}/p\mathbb{Z})^*$.
 
 **Lenstra's insight (1987).** Replace the fixed group $(\mathbb{Z}/p\mathbb{Z})^*$ with the group
-of points on a *random* elliptic curve $E$ over $\mathbb{Z}/N\mathbb{Z}$. The order $|E(\mathbb{F}_p)|$
-varies with the curve choice and ranges over an interval around $p$ (Hasse's bound: $|p + 1 -
-|E(\mathbb{F}_p)|| \leq 2\sqrt{p}$). If the chosen curve has $B$-smooth order mod some prime $p
-\mid N$, then multiplying a starting point $P$ by $k = \prod q^e$ (prime powers $\leq B$) drives
-$kP$ to the identity mod $p$ while it stays non-trivial mod $N$. The group law's modular inversion
-then fails with a denominator sharing a factor with $N$, and $\gcd(\text{denominator}, N) = p$
-falls out.
+of points on a *random* elliptic curve $E$ over $\mathbb{Z}/N\mathbb{Z}$. The order
+$|E(\mathbb{F}_p)|$ varies with the curve choice and ranges over an interval around $p$ (Hasse's
+bound: $|p + 1 - |E(\mathbb{F}_p)|| \leq 2\sqrt{p}$). If the chosen curve has $B$-smooth order mod
+some prime $p \mid N$, then multiplying a starting point $P$ by $k = \prod q^e$ (prime powers
+$\leq B$) drives $kP$ to the identity mod $p$ while it stays non-trivial mod $N$. The group law's
+modular inversion then fails with a denominator sharing a factor with $N$, and
+$\gcd(\text{denominator}, N) = p$ falls out.
 
 **The key advantage.** If one curve's order is not smooth, try another curve. ECM converts a
 question of luck (is $p - 1$ smooth?) into a question one can re-roll (is *some* curve's order
@@ -1295,8 +1296,8 @@ point has a specific structure that makes stage 1 more likely to succeed.
 
 **Stage 1.** Compute $Q = kP$ with $k = \prod \{q^{\lfloor \log_q B_1 \rfloor} : q \text{ prime}
 \leq B_1\}$ — every prime power up to $B_1$. After each ladder call, test $\gcd(Z, N)$; a
-non-trivial gcd is the factor. Stage 1 succeeds when $|E(\mathbb{F}_p)|$ is $B_1$-power-smooth (every prime power dividing it is
-at most $B_1$).
+non-trivial gcd is the factor. Stage 1 succeeds when $|E(\mathbb{F}_p)|$ is $B_1$-power-smooth
+(every prime power dividing it is at most $B_1$).
 
 *No product scalar.* The product is $\mathrm{lcm}(1, \ldots, B_1) \approx e^{B_1}$, which first
 exceeds $2^{256}$ at $B_1 = 179$ ($256 \ln 2 \approx 177$), so it does not fit a fixed-width
@@ -1564,7 +1565,8 @@ $\mathbb{Z}[\alpha]$ are then meant away from the primes dividing $c$.
 
 ### Two maps into $\mathbb{Z}/N\mathbb{Z}$
 
-The key observation is that there are *two* natural ring homomorphisms into $\mathbb{Z}/N\mathbb{Z}$:
+The key observation is that there are *two* natural ring homomorphisms into
+$\mathbb{Z}/N\mathbb{Z}$:
 
 **The rational map** $\phi_{\mathbb{Z}}: \mathbb{Z} \to \mathbb{Z}/N\mathbb{Z}$, the standard
 reduction modulo $N$.
@@ -1668,8 +1670,8 @@ $X = N^{1/d}$ instead of $X = N$, this probability is much larger.
 
 ### Why both norms being smooth gives a relation
 
-A pair $(a, b)$ is a relation if and only if both $N_{\mathrm{rat}}(a, b)$ and $N_{\mathrm{alg}}(a, b)$
-are $B$-smooth. When this holds:
+A pair $(a, b)$ is a relation if and only if both $N_{\mathrm{rat}}(a, b)$ and
+$N_{\mathrm{alg}}(a, b)$ are $B$-smooth. When this holds:
 
 - The rational norm factors as $|a - bm| = \prod_{p \leq B} p^{e_p}$ over the rational factor
   base.
@@ -1843,9 +1845,9 @@ c \cdot \mathrm{disc}(f)$ makes $s$ a simple root and $\alpha \mapsto s$ a ring 
 $\varphi$ from the localisation of the ring of integers at $\mathfrak{q} = (q, \alpha - s)$ to
 $\mathbb{F}_q$. The element $\gamma$ is a $\mathfrak{q}$-unit because $\varphi(\gamma) = \prod
 (a - bs) \ne 0$, so $\beta$ is a $\mathfrak{q}$-unit as well and
-$\varphi(\gamma) = \varphi(\beta)^2$ is a square modulo $q$. The function $\chi_{q,s}$ is multiplicative and trivial on squares, so it
-is a homomorphism on the group $V$ of the previous subsection (every class of $V$ has a
-representative that is a $\mathfrak{q}$-unit).
+$\varphi(\gamma) = \varphi(\beta)^2$ is a square modulo $q$. The function $\chi_{q,s}$ is
+multiplicative and trivial on squares, so it is a homomorphism on the group $V$ of the previous
+subsection (every class of $V$ has a representative that is a $\mathfrak{q}$-unit).
 
 Adding one column per character $(q, s)$ to the matrix imposes $\chi_{q,s}(\gamma) = +1$. A set
 of $t$ independent characters cuts the finite group the dependency lands in. *As a heuristic*,
@@ -1861,7 +1863,8 @@ square, not certificates of one, and exact verification of the root decides.
 homogeneous norm form $F(a, b)$ instead. For a completely split $q \nmid c \cdot \mathrm{disc}(f)$,
 $f \equiv c\prod_s (x - s) \pmod q$ over the $d$ roots $s$, so for $q \nmid F(a, b)$
 
-$$\left(\frac{F(a,b)}{q}\right) = \left(\frac{c}{q}\right) \prod_{s} \left(\frac{a - bs}{q}\right),$$
+$$\left(\frac{F(a,b)}{q}\right) = \left(\frac{c}{q}\right)
+\prod_{s} \left(\frac{a - bs}{q}\right),$$
 
 which is a constant times the product of the root characters at $q$. It can never separate what
 the root characters cannot. The two are related by the norm identity $F(a, b) = b^d f(a/b) =
@@ -1872,7 +1875,8 @@ an even total exponent) and $q \nmid c \cdot F(a, b)$ for every relation. Then
 $\prod_S N_{K/\mathbb{Q}}(a - b\alpha) = \pm Y^2$ with $Y \in \mathbb{Q}^\times$ a $q$-unit, and
 $\prod_S F(a, b) = c^{|S|}\prod_S N_{K/\mathbb{Q}}(a - b\alpha)$, so
 
-$$\prod_{(a,b) \in S} \left(\frac{F(a,b)}{q}\right) = \left(\frac{c}{q}\right)^{|S|}\left(\frac{\pm 1}{q}\right).$$
+$$\prod_{(a,b) \in S} \left(\frac{F(a,b)}{q}\right) =
+\left(\frac{c}{q}\right)^{|S|}\left(\frac{\pm 1}{q}\right).$$
 
 The total depends only on the sign of the norm product, which is the sign of
 $N_{K/\mathbb{Q}}(\gamma)$, and on the parity of $|S|$. That sign is a genuine square-class
@@ -1986,10 +1990,10 @@ $\beta$ verifies $\beta^2 = \prod (a - b\alpha)$ exactly (so it depends on those
 relations), the image $y = \beta(\theta \mapsto c\,m) \bmod N$ satisfies $y^2 \equiv P \equiv
 x_0^2 \pmod N$ with $x \not\equiv \pm y$ (this run is monic, $c = 1$, so $\theta = \alpha$ and the
 image is $\beta(m)$), and $\gcd(|x - y|, N)$ is $197$ or $229$. This is a single deterministic
-fixture with the stated options, run at toy scale. It shows that the stages compose on this input; it does not show that
-every input factors, and it says nothing about performance at cryptographic size. The first
-candidate was itself a computed kernel vector, so the combination search was not needed here (it
-is exercised separately on hand-built relation sets).
+fixture with the stated options, run at toy scale. It shows that the stages compose on this input;
+it does not show that every input factors, and it says nothing about performance at cryptographic
+size. The first candidate was itself a computed kernel vector, so the combination search was not
+needed here (it is exercised separately on hand-built relation sets).
 
 ---
 
@@ -2111,7 +2115,8 @@ The optimal $c$ is the crossover point.
 
 The total cost of GNFS is dominated by the maximum of the sieve cost and the linear algebra cost:
 
-$$\text{Total cost} = L_N\!\left[\tfrac{1}{3},\, \max\!\left(c + \tfrac{2}{3c},\, 2c\right)\right].$$
+$$\text{Total cost} =
+L_N\!\left[\tfrac{1}{3},\, \max\!\left(c + \tfrac{2}{3c},\, 2c\right)\right].$$
 
 To minimise the total cost, we minimise $\max(c + 2/(3c), 2c)$ over $c > 0$. The minimum occurs
 where the two expressions are equal:
@@ -2297,11 +2302,11 @@ of $\mathbb{F}_p^*$: the group has a natural factor base (the small primes), and
 logarithm reduces to a linear system over $\mathbb{F}_\ell$ (where $\ell$ is the subgroup order).
 
 **The through-line.** NFS-DL is the DLP analogue of GNFS for factoring. Both algorithms exploit
-*number-field structure*: the integers $\mathbb{Z}$ embed into a number field $K = \mathbb{Q}(\alpha)$,
-and the norm map connects factorisation in $K$ to factorisation in $\mathbb{Z}$. For factoring,
-the payoff is a congruence of squares $x^2 \equiv y^2 \pmod{N}$. For DLP, the payoff is a
-*virtual-logarithm table* — the discrete logs of all factor-base elements — from which the log
-of any specific target $h$ can be computed by a descent procedure.
+*number-field structure*: the integers $\mathbb{Z}$ embed into a number field
+$K = \mathbb{Q}(\alpha)$, and the norm map connects factorisation in $K$ to factorisation in
+$\mathbb{Z}$. For factoring, the payoff is a congruence of squares $x^2 \equiv y^2 \pmod{N}$. For
+DLP, the payoff is a *virtual-logarithm table* — the discrete logs of all factor-base elements —
+from which the log of any specific target $h$ can be computed by a descent procedure.
 
 The structure-based escape from search works in two stages:
 
@@ -2495,7 +2500,8 @@ relation matrix.
 **Proof sketch (homomorphism property).** For $\beta, \gamma \in \mathcal{O}_K^*$:
 
 $$(\beta\gamma)^\varepsilon - 1 = \beta^\varepsilon \gamma^\varepsilon - 1
-  = (\beta^\varepsilon - 1) + (\gamma^\varepsilon - 1) + (\beta^\varepsilon - 1)(\gamma^\varepsilon - 1).$$
+  = (\beta^\varepsilon - 1) + (\gamma^\varepsilon - 1)
+  + (\beta^\varepsilon - 1)(\gamma^\varepsilon - 1).$$
 
 Since $\beta^\varepsilon \equiv 1 \pmod{\ell}$ and $\gamma^\varepsilon \equiv 1 \pmod{\ell}$,
 the cross term $(\beta^\varepsilon - 1)(\gamma^\varepsilon - 1) \equiv 0 \pmod{\ell^2}$.
@@ -2590,7 +2596,8 @@ $O(W)$ each, so $O((k + m + r) \cdot W)$ field operations over $\mathbb{F}_\ell$
 elimination costs $O((k + m + r)^3)$). With $O(\log p)$ non-zeros per row, $W = O((k + m + r)
 \log p)$, and in $L$-notation with $k + m + r \approx B = L_p[1/3, c]$:
 
-$$\text{Linear algebra cost} = O\!\left(L_p[1/3, c]^2 \log p\right) = L_p\!\left[\tfrac{1}{3},\, 2c\right].$$
+$$\text{Linear algebra cost} = O\!\left(L_p[1/3, c]^2 \log p\right) =
+L_p\!\left[\tfrac{1}{3},\, 2c\right].$$
 
 This is the *same* cost shape as the GF(2) linear algebra in GNFS. The field $\mathbb{F}_\ell$
 vs $\mathrm{GF}(2)$ distinction changes the constant factor (field operations over $\mathbb{F}_\ell$
@@ -2816,7 +2823,8 @@ $O(B \cdot W)$ field operations in both cases, where $W$ is the number of non-ze
 elimination would cost $O(B^3)$). With $O(\log p)$ non-zeros per row, $W = O(B \log p)$. In
 $L$-notation:
 
-$$\text{NFS-DL linear algebra cost} = O\!\left(L_p[1/3, c]^2 \log p\right) = L_p\!\left[\tfrac{1}{3},\, 2c\right].$$
+$$\text{NFS-DL linear algebra cost} = O\!\left(L_p[1/3, c]^2 \log p\right) =
+L_p\!\left[\tfrac{1}{3},\, 2c\right].$$
 
 This is identical to the GNFS linear algebra cost $L_N[1/3, 2c]$. The field $\mathbb{F}_\ell$
 vs GF(2) distinction changes the *constant factor* inside the $O(\cdot)$ (field operations over
@@ -2849,8 +2857,9 @@ the individual-logarithm descent is an additional stage. Could it dominate the t
 
 **The descent cost.** The descent for a single target $h$ consists of:
 
-1. **Initialization-smoothing:** Find $e$ such that $g^e \cdot h$ is smooth over $B' = L_p[1/3, c']$.
-   Expected number of trials: $\rho(u')^{-1}$ where $u' = \log p / \log B'$. For $B' = L_p[1/3, c']$:
+1. **Initialization-smoothing:** Find $e$ such that $g^e \cdot h$ is smooth over
+   $B' = L_p[1/3, c']$. Expected number of trials: $\rho(u')^{-1}$ where $u' = \log p / \log B'$.
+   For $B' = L_p[1/3, c']$:
 
    $$\rho(u')^{-1} = L_p\!\left[\tfrac{1}{3},\, \tfrac{1}{3c'}\right] \cdot (1 + o(1)).$$
 
@@ -2879,7 +2888,8 @@ as the precomputation. It is not a lower-order term in the absolute sense. Howev
 $L_p[1/3, c_{\mathrm{descent}}]$ for some constant $c_{\mathrm{descent}}$, while the
 precomputation cost is $L_p[1/3, (64/9)^{1/3}]$. The total cost is
 
-$$\text{Total cost} = L_p\!\left[\tfrac{1}{3},\, \max\!\left((64/9)^{1/3},\, c_{\mathrm{descent}}\right)\right].$$
+$$\text{Total cost} =
+L_p\!\left[\tfrac{1}{3},\, \max\!\left((64/9)^{1/3},\, c_{\mathrm{descent}}\right)\right].$$
 
 The descent constant $c_{\mathrm{descent}}$ can be made smaller than $(64/9)^{1/3}$ by choosing
 $B'$ appropriately (specifically, $B' = B = L_p[1/3, (8/9)^{1/3}]$, so that the smoothing and
@@ -3362,9 +3372,10 @@ over $\mathbb{F}_{2^m}$ becomes $m/l$ variables over $\mathbb{F}_{2^l}$.
 $\mathbb{F}_{2^l}$. When $m/l$ is odd (the imaginary hyperelliptic model), this abelian variety
 is the Jacobian of a hyperelliptic curve $C/\mathbb{F}_{2^l}$ of genus $g = (m/l - 1)/2$.
 
-**Log-preservation.** The transfer map $\phi: E(\mathbb{F}_{2^m}) \to \mathrm{Jac}(C)(\mathbb{F}_{2^l})$
-is a group homomorphism. It preserves the discrete logarithm: if $Q = k \cdot G$ in
-$E(\mathbb{F}_{2^m})$, then $\phi(Q) = k \cdot \phi(G)$ in $\mathrm{Jac}(C)(\mathbb{F}_{2^l})$.
+**Log-preservation.** The transfer map $\phi: E(\mathbb{F}_{2^m}) \to
+\mathrm{Jac}(C)(\mathbb{F}_{2^l})$ is a group homomorphism. It preserves the discrete logarithm:
+if $Q = k \cdot G$ in $E(\mathbb{F}_{2^m})$, then $\phi(Q) = k \cdot \phi(G)$ in
+$\mathrm{Jac}(C)(\mathbb{F}_{2^l})$.
 
 **Input guards in the implementation.** The map is a homomorphism only on $E(\mathbb{F}_{2^m})$,
 so `transfer_point` rejects a point that does not satisfy the curve equation as `NotOnCurve`
@@ -3380,15 +3391,15 @@ conorm image that is not fixed by the relative Frobenius $c \mapsto c^{2^l}$ is 
 defining polynomial of $\mathbb{F}_{2^m}$ and $\beta = \alpha^{(2^m-1)/(2^l-1)}$, a generator of
 $\mathbb{F}_{2^l}^\times$. The subfield is $\mathbb{F}_2(\beta)$, and an element of
 $\mathbb{F}_{2^l}$ with coordinate vector $(c_0, \dots, c_{l-1})$ is the element
-$\sum c_i \beta^i$ of $\mathbb{F}_{2^m}$. Reading a $\mathbb{F}_{2^m}$ element of the subfield back as coordinates in the
-basis $\{1, \beta, \dots, \beta^{l-1}\}$ (`shared_gf2m::restrict`) is a field isomorphism exactly
-when the subfield polynomial `poly_l` is the minimal polynomial of $\beta$: $\deg = l$ and
-$\mathrm{poly}_l(\beta) = 0$. Reducing the raw bit pattern of the element modulo `poly_l` is not an
-isomorphism: $x^2 + x + 1$ does not divide $x^6 + x + 1$, so bit reduction does not respect
-multiplication, and on $\mathbb{F}_4 \subset \mathbb{F}_{2^6}$ it exchanges the two conjugates
-$\beta$ and $\beta^2$. Both `extract_ghs_curve` (the coefficients of $F$) and `transfer_point` (the
-coordinates of the conorm image) use `restrict`, and both reject parameters before any coefficient
-or point is read: `SubfieldDivisibility` if $l \nmid m$ (or $l = 0$), and
+$\sum c_i \beta^i$ of $\mathbb{F}_{2^m}$. Reading a $\mathbb{F}_{2^m}$ element of the subfield back
+as coordinates in the basis $\{1, \beta, \dots, \beta^{l-1}\}$ (`shared_gf2m::restrict`) is a field
+isomorphism exactly when the subfield polynomial `poly_l` is the minimal polynomial of $\beta$:
+$\deg = l$ and $\mathrm{poly}_l(\beta) = 0$. Reducing the raw bit pattern of the element modulo
+`poly_l` is not an isomorphism: $x^2 + x + 1$ does not divide $x^6 + x + 1$, so bit reduction does
+not respect multiplication, and on $\mathbb{F}_4 \subset \mathbb{F}_{2^6}$ it exchanges the two
+conjugates $\beta$ and $\beta^2$. Both `extract_ghs_curve` (the coefficients of $F$) and
+`transfer_point` (the coordinates of the conorm image) use `restrict`, and both reject parameters
+before any coefficient or point is read: `SubfieldDivisibility` if $l \nmid m$ (or $l = 0$), and
 `SubfieldPolyMismatch` if `poly_l` is not the minimal polynomial of $\beta$
 (`mismatched_poly_l_is_rejected`, `non_dividing_l_is_rejected_without_panic`). The restriction map
 needs $(2^m-1)/(2^l-1)$ to fit in a `u64`, i.e. $m \le 63$, which a single-limb defining polynomial
@@ -3717,7 +3728,8 @@ The MOV reduction reduces the ECDLP to a DLP in $\mathbb{F}_{p^k}^*$. The DLP in
 $\mathbb{F}_{p^k}^*$ is solved by NFS-DL in time $L_{p^k}[1/3, (64/9)^{1/3}]$ (§9 of this
 textbook). For small $k$, $p^k$ is polynomial in $p$, so:
 
-$$\text{MOV-reduced ECDLP complexity} = L_{p^k}\!\left[\tfrac{1}{3},\, \left(\tfrac{64}{9}\right)^{1/3}\right]
+$$\text{MOV-reduced ECDLP complexity} =
+L_{p^k}\!\left[\tfrac{1}{3},\, \left(\tfrac{64}{9}\right)^{1/3}\right]
 = L_p\!\left[\tfrac{1}{3},\, k^{1/3} \cdot \left(\tfrac{64}{9}\right)^{1/3}\right].$$
 
 This is subexponential in $\log p$ — a dramatic improvement over rho's $L_p[1, 1/2]$ (fully
@@ -3928,7 +3940,8 @@ written in the computational basis as
 $$|\psi\rangle = \sum_{k=0}^{2^n - 1} \alpha_k |k\rangle,$$
 
 where $|k\rangle$ denotes the basis state corresponding to the binary representation of $k$, and
-the amplitudes $\alpha_k \in \mathbb{C}$ satisfy the normalisation condition $\sum_k |\alpha_k|^2 = 1$.
+the amplitudes $\alpha_k \in \mathbb{C}$ satisfy the normalisation condition
+$\sum_k |\alpha_k|^2 = 1$.
 
 A *superposition* is any state with more than one non-zero amplitude. The key property of
 superposition is that a quantum gate applied to a superposition acts on all basis states
@@ -3945,10 +3958,11 @@ more qubits. The gates used in Shor's algorithm are:
   register initialised to $|0\rangle$, it produces the uniform superposition
   $\tfrac{1}{\sqrt{2^t}} \sum_{k=0}^{2^t-1} |k\rangle$.
 
-- **Controlled-$U_f$ gate:** Given a classical function $f: \{0,\ldots,2^t-1\} \to \{0,\ldots,2^n-1\}$,
-  the gate $|x\rangle|y\rangle \mapsto |x\rangle|y \oplus f(x)\rangle$ evaluates $f$ reversibly.
-  For Shor's factoring algorithm, $f(x) = a^x \bmod N$ (modular exponentiation); for the ECDLP
-  algorithm, $f(a, b) = a \cdot G + b \cdot Q$ (elliptic-curve scalar multiplication).
+- **Controlled-$U_f$ gate:** Given a classical function $f: \{0,\ldots,2^t-1\} \to
+  \{0,\ldots,2^n-1\}$, the gate $|x\rangle|y\rangle \mapsto |x\rangle|y \oplus f(x)\rangle$
+  evaluates $f$ reversibly. For Shor's factoring algorithm, $f(x) = a^x \bmod N$ (modular
+  exponentiation); for the ECDLP algorithm, $f(a, b) = a \cdot G + b \cdot Q$ (elliptic-curve
+  scalar multiplication).
 
 - **Quantum Fourier Transform (QFT):** defined in §11.2 below.
 
@@ -4632,12 +4646,12 @@ vs subexponential separation) is not observable at toy scale; it requires real q
 with thousands of fault-tolerant qubits. The migration is *surveyed, not built* — the
 pedagogical terminus of this project, not a new construction track.
 
-**The survey is the contribution.** The post-quantum migration landscape (NIST PQC families,
-the SIDH break, the migration rationale) is surveyed within established literature. No PQC
-primitive is implemented; no new crate, dependency, or benchmark is added. The contribution of
-the Shor chapter is the documentation of the quantum arc — the mathematics (this chapter) and the
-code realisation (`shor/docs/PEDAGOGY.md`) — that contextualises the migration and closes the
-project's classical+quantum survey.
+**The survey is the contribution.** The post-quantum migration landscape (NIST PQC families, the
+SIDH break, the migration rationale) is surveyed within established literature. No PQC primitive
+is implemented; the workspace has no PQC crate, dependency, or benchmark. The contribution of the
+Shor chapter is the documentation of the quantum arc — the mathematics (this chapter) and the code
+realisation (`shor/docs/PEDAGOGY.md`) — that contextualises the migration and closes the project's
+classical+quantum survey.
 
 ---
 

@@ -993,7 +993,7 @@ fn input_defect<T: std::fmt::Debug>(r: Result<T, DlogError>) -> InputDefect {
     }
 }
 
-/// A wrong or degenerate `n` is `InvalidInput`, and `n = 0` no longer panics.
+/// A wrong or degenerate `n` is `InvalidInput`, including `n = 0`, which is not a panic.
 #[test]
 fn composite_wrong_order_is_invalid_input() {
     let curve = composite_toy();

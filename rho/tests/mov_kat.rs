@@ -39,10 +39,11 @@
 //! The returned value is `k mod ℓ` — the discrete log in the order-ℓ subgroup. A full
 //! composite-order lift via Pohlig–Hellman is possible but not wired here.
 //!
-//! # No-regression gate
+//! # Scope of this file
 //!
-//! The `gnfs/tests/dl_ext_kat.rs` and `rho/tests/pairing_kat.rs` KATs must stay green.
-//! This file does NOT re-test those — it only tests the end-to-end MOV reduction.
+//! The base-p encoding of `F_{p^k}` elements and the pairing's own properties are covered by
+//! `gnfs/tests/dl_ext_kat.rs` and `rho/tests/pairing_kat.rs`. This file does NOT re-test those —
+//! it only tests the end-to-end MOV reduction.
 
 use crypto_bigint::Uint;
 use rho::pairing::ecext::PairingPoint;

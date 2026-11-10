@@ -394,9 +394,7 @@ mod tests {
 
     /// A tiny 5-point curve: y² = x³ + x + 1 over GF(7).
     ///
-    /// Points: ∞, (2,2), (2,5), (4,0), (0,1) — wait, let's be precise.
-    ///
-    /// Over GF(7), y² = x³ + x + 1:
+    /// Point enumeration over GF(7), y² = x³ + x + 1:
     ///   x=0: y²=1  → y=1,6
     ///   x=1: y²=3  → no solution
     ///   x=2: y²=11=4 → y=2,5

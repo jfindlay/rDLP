@@ -1,11 +1,11 @@
 //! ECDLP solver via Pollard rho.
 //!
 //! Optimization layers:
-//! 4. r-adding walk (Teske, r≈20) + Brent's cycle detection.
-//! 5. Distinguished points + parallel collision search (van Oorschot–Wiener).
-//! 6. Negation map + fruitless-cycle escape (BKNS).
-//! 7. Batched field inversion + affine coordinates.
-//! 8. GLV endomorphism (order-3, secp-toy curve only).
+//! 1. r-adding walk (Teske, r≈20) + Brent's cycle detection.
+//! 2. Distinguished points + parallel collision search (van Oorschot–Wiener).
+//! 3. Negation map + fruitless-cycle escape (BKNS).
+//! 4. Batched field inversion + affine coordinates.
+//! 5. GLV endomorphism (order-3, secp-toy curve only).
 //!
 //! # r-adding walk solver
 //!

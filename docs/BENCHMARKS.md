@@ -15,8 +15,9 @@ Prime: secp256k1 (256-bit, `p = 2^256 − 2^32 − 977`).
 | `inv`     | 1.335 ms  | 11.75 µs | ~114×   |
 
 The `mul`/`square` speedup is the core Montgomery-form gain: `crypto-bigint`'s `FixedMontyForm`
-(formerly `DynResidue`; the numbers above were measured before that migration) avoids the 8-limb widening division in `FpNaive::mul` by keeping values in Montgomery form and
-reducing with a single CIOS multiply-then-reduce pass.
+(formerly `DynResidue`; the numbers above were measured before that migration) avoids the 8-limb
+widening division in `FpNaive::mul` by keeping values in Montgomery form and reducing with a single
+CIOS multiply-then-reduce pass.
 
 The `inv` speedup compounds: both implementations use Fermat (`a^(p−2) mod p`, ~256
 squarings + ~128 multiplications), so the `inv` ratio approximately tracks the `mul` ratio.
@@ -142,7 +143,7 @@ section) runs it on the 25-bit prime-order `prime_order_25` group.
 
 ### Test curves
 
-Two 20-bit prime-order curves were added specifically for solver KATs (`src/curve/test_curves.rs`).
+Two 20-bit prime-order curves exist specifically for solver KATs (`src/curve/test_curves.rs`).
 Both have `√n ≈ 1024`, making them fast to solve even in unoptimized debug builds.
 
 | Curve | p | a | b | n | G |
@@ -463,9 +464,8 @@ why the algorithm is subexponential at cryptographic scale.
 
 ### Test coverage added (end-to-end pipeline)
 
-No new tests are added by the integrative writeup (the end-to-end writeup is a code-tour chapter,
-not a new implementation). The pipeline-level verification is provided by the existing end-to-end
-KAT:
+This section defines no tests of its own (the end-to-end writeup is a code-tour chapter, not an
+implementation). The pipeline-level verification is provided by the end-to-end KAT:
 
 | Test file | Tests | Scope |
 |-----------|-------|-------|
