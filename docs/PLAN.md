@@ -498,6 +498,16 @@ checkpoint):
   lines).
 - Row 9 `cargo coverage` — deferred → ◆ boundary (row 10); one test added, no test deleted (one bench
   function, `bench_glv_vs_batch`, removed — benches are outside the coverage measure).
+- Row 10 `cargo check --workspace` — reused (worker record, validated) —
+  `/home/justin/Source/rDLP` — exit 0 — 2026-11-10T13:42:53-05:00 — log
+  `/tmp/opencode/rdlp/s10-check.log` — input identity `6b0f4ec4…6876` (same recipe, base `b209f30`;
+  recomputed by the driver and equal) — rustc/cargo 1.95.0, dev profile, default features. Diff is
+  documentation and comment-only (every changed `.rs` line is a comment, checked by the driver), so
+  the gate was run conservatively on a potentially executable input class (rustdoc).
+- Row 10 `cargo test --workspace` — reused (same identity) — exit 0 — 2026-11-10T13:46:11-05:00 — log
+  `/tmp/opencode/rdlp/s10-test.log` (86 `test result: ok`, no failures) — same environment.
+- Boundary checks for the ◆ (`cargo coverage`, freshness) — see the boundary note below; not yet run
+  when this row was committed.
 - Row 1 `cargo coverage` — deferred → ◆ boundary (row 10) or earlier after substantial test removal
   (row 2 or 7).
 
@@ -516,7 +526,7 @@ change and on first active run of each new day.
 | 7 | Certify rho-factoring primes below 2^80 with the 13-base bound | done | 53b072e | C-RhoPrimeBound (allowed extras: `factor/{mod,cli}.rs`, both PEDAGOGY files; coverage deferred to ◆) |
 | 8 | Project the generic rho-dlog curve onto its largest prime-order subgroup | done | e1764e2 | C-GenericSubgroup (user-approved revision; c·P₀ = G′ and 561103·G′ = ∞ held in-tree, no HALT; coverage deferred to ◆) |
 | 9 | Retarget the ECDLP benches to groups that finish | done | f656f03 | C-BenchFixture (new 25-bit fixture `prime_order_25`; GLV bench dropped; coverage deferred to ◆) |
-| 10 | Correct the follow-up exposition ◆ | pending | | |
+| 10 | Correct the follow-up exposition ◆ | done | c22a7d1 | prose row, no contract frozen (allowed extras, all comment/rustdoc-only: `rho/src/{ssa/{lift,mod},ghs/{curve,mod},curve/mod,ecdlp/mod}.rs`, `rho/benches/ecdlp.rs`, `rho/tests/{mov,ghs,factor,ssa,ecdlp}_kat.rs`, `shared/numth/src/lib.rs`); ◆ boundary checks and fork pending |
 | 11 | Anneal cleanup (skippable) | pending | | |
 
 ## Action-frame digest
@@ -720,6 +730,24 @@ rewritten (561_103 subgroup, in-tree proof, PARI/GP orders as uncertified proven
 Texture: the worker ran a 15-minute full bench on a 40-bit group while sizing before moving smaller
 (bounded by timeout, no stray process); sizing examples were deleted; over-width lines added are
 BENCHMARKS table rows only.
+
+### 10 — 2026-11-10
+Discovery/flex: The row-10 worker found no wrong-code claims that required a code fix, but did find
+(code not touched): `vertical_at` returns 1 on x_Q = x_T, so for R ∈ ⟨G⟩ other than G nothing
+guarantees a 0/degenerate result (untested; every `Ok` is verified, so it could only surface as
+`Inconsistent` or an odd `DegeneratePairing`); the old `mov_kat.rs` comment `e(G, G) = 1` was wrong
+(the tests assert only the `DegeneratePairing` outcome); durable text claimed negation-map and
+batch speedups never observed — now labelled unmeasured/not observed (`solve_dp_negmap` anomaly from
+row 9 stays surfaced, not fixed); a false ECM-caller claim in `shared/numth/src/lib.rs` was corrected.
+Affected: none (prose and comment-only; all `.rs` changes verified comment-only).
+Deferred: yes — (1) out-of-list `Principle-N`/"frozen contract" leaks in `rho/src/pairing/{ecext,mod}.rs`
+and many other crates (`gnfs`, `shor`, `semaev`, `index_calculus`) are outside this arc's files:
+project-wide anneal scope; row 11 / the boundary fork decide. (2) `docs/MATHEMATICS.md` ~:4662 and
+~:5104 "cross-track bridge" — uncertain referent. (3) BENCHMARKS test-count tables (`generic.rs`
+"4 tests", `ecdlp_kat.rs` "8") are stale point-in-time counts. (4) `docs/ROADMAP.md` still has stale
+ECM scalar, rho range and generic-order text (rolling doc, not edited by design).
+Texture: 20 files, all text/comment edits; over-width lines added are table rows in README, PEDAGOGY
+and numth PEDAGOGY (6 rows, matching neighbours) — ledgered for the anneal sweep.
 
 ## Discoveries & risks
 
