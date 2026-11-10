@@ -506,14 +506,52 @@ checkpoint):
   the gate was run conservatively on a potentially executable input class (rustdoc).
 - Row 10 `cargo test --workspace` — reused (same identity) — exit 0 — 2026-11-10T13:46:11-05:00 — log
   `/tmp/opencode/rdlp/s10-test.log` (86 `test result: ok`, no failures) — same environment.
-- Boundary checks for the ◆ (`cargo coverage`, freshness) — see the boundary note below; not yet run
-  when this row was committed.
+- ◆ boundary (row 10) `cargo coverage` — passed — `/home/justin/Source/rDLP` — exit 0 —
+  2026-11-10T14:20:24-05:00 — log `/tmp/opencode/rdlp/coverage-boundary2.log` — input identity
+  `4fad38d5…cca2` = sha256 of `git diff HEAD -- . ':!docs/PLAN.md'` over base `ebfea49` (the
+  boundary-correction diff, before commit `2c961e6`); same tree content as `2c961e6` — rustc/cargo
+  1.95.0, default profile. Total lines 94.30% (regions 95.01%, functions 95.55%), floor 80%. An
+  earlier run on `ebfea49` (log `/tmp/opencode/rdlp/coverage-boundary.log`, lines 94.32%) was
+  superseded because the correction edited rustdoc/comments (comment-only, but treated as potentially
+  executable input).
+- ◆ boundary `cargo check --workspace` / `cargo test --workspace` after the correction — reused
+  (worker record, validated) — exit 0 — 2026-11-10T14:04:43-05:00 / 14:10:10-05:00 — logs
+  `/tmp/opencode/rdlp/bc-check.log`, `/tmp/opencode/rdlp/bc-test.log` (86 `test result: ok`, no
+  failures) — same identity `4fad38d5…cca2`.
+- ◆ boundary freshness — `cargo dep-policy` and `cargo audit` — reused (today's passed records above;
+  no dependency input — manifests, lockfile, `deny.toml`, toolchain — changed since `a7f72ba`,
+  verified by `git diff --stat` at chain resume 2026-11-10 ~12:30; still the same calendar day).
+
+Boundary note (row 10 ◆, 2026-11-10): anneal gate over the 32 changed durable files (PLAN denylist +
+canonical seed): zero genuine leaks; legitimate matches retained (Jacobian variables `S1/S2` in
+`curve/mod.rs`, bibliography keys `[S09]/[S93]/[S99]/[S85]`, "frozen tortoise" in Brent's method,
+`PRIME_ORDER_25_G.0`/`GENERIC_G.0`) — pattern-tuning hint: `\bS[0-9]+\b` collides with these. Boundary
+fork (`@plan-juncture`): `still-on-intent`; all ten frozen contracts confirmed in the source; all
+seven Purpose outcomes met. It named four surviving prose contradictions and one wording leak, fixed
+by one bounded correction dispatch (fix-loop use 1 of 2) in `2c961e6`: `ghs_kat.rs` raw-bits premise
+comment; `docs/PEDAGOGY.md:284` "measurable speedup" (+ soft GLV :640–641); "fully B1-smooth" →
+B1-power-smooth in `MATHEMATICS.md`, numth `PEDAGOGY.md`, `ecm.rs` module docs; `reduce.rs:79`
+history sentence and the `MATHEMATICS.md:3249` "repair" heading. Planning-reference review covered all
+3,084 added lines; SCOPE LIMIT: unchanged lines in the large docs (MATHEMATICS ≈ 5,100 lines,
+PEDAGOGY ≈ 1,700) outside the solver sections and grep hits were not read end to end — not certified
+clean. Out-of-scope/pre-existing, reported not edited: plan labels ("frozen contract", "Principle
+1/3/4", "option A/B") in `rho/src/pairing/{ecext,mod}.rs` and "Principle-4"/"frozen" in `gnfs`,
+`shor`, `semaev`, `index_calculus` sources (inside the Purpose scope boundary for `pairing/` but not
+in any row's files; widening row 11 to `pairing/{ecext,mod}.rs` needs user sign-off — NOT done);
+stale `docs/ROADMAP.md` text (rolling doc); stale BENCHMARKS test-count tables. Residuals for the
+user: `mov_reduce` has no budget (an accepted large k = 2 field hangs instead of erroring; out of
+scope with the k = 2 log engine); default CLI curve `secp-toy` still cannot finish (documented);
+the `solve_dp_negmap`/`solve_dp_batch` step-count anomaly (surfaced since row 9; the negmap bench
+finishes only with its fixed seed — 1 of 6 seeds stalled at 25 bits). One over-width prose line is
+left in `MATHEMATICS.md` (~128 chars, stage-1 sentence), plus two others (121 chars:
+`MATHEMATICS.md` GF(2^m) coordinates sentence; a `use` list line in a docs example), and 17
+over-width Markdown table rows matching neighbouring tables — ledgered for row 11.
 - Row 1 `cargo coverage` — deferred → ◆ boundary (row 10) or earlier after substantial test removal
   (row 2 or 7).
 
-Pending checks: `cargo coverage` — due at the ◆ boundary (row 10) and final delivery, earlier after
-substantial test removal (rows 2, 7); `cargo dep-policy`/`cargo audit` — due when dependency inputs
-change and on first active run of each new day.
+Pending checks: none outstanding at the ◆ boundary (coverage passed; see below). `cargo coverage` and
+the freshness checks are re-validated at final delivery (after row 11) — reusable only if no
+executable or dependency input changed since and still the same calendar day.
 
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
@@ -526,7 +564,7 @@ change and on first active run of each new day.
 | 7 | Certify rho-factoring primes below 2^80 with the 13-base bound | done | 53b072e | C-RhoPrimeBound (allowed extras: `factor/{mod,cli}.rs`, both PEDAGOGY files; coverage deferred to ◆) |
 | 8 | Project the generic rho-dlog curve onto its largest prime-order subgroup | done | e1764e2 | C-GenericSubgroup (user-approved revision; c·P₀ = G′ and 561103·G′ = ∞ held in-tree, no HALT; coverage deferred to ◆) |
 | 9 | Retarget the ECDLP benches to groups that finish | done | f656f03 | C-BenchFixture (new 25-bit fixture `prime_order_25`; GLV bench dropped; coverage deferred to ◆) |
-| 10 | Correct the follow-up exposition ◆ | done | c22a7d1 | prose row, no contract frozen (allowed extras, all comment/rustdoc-only: `rho/src/{ssa/{lift,mod},ghs/{curve,mod},curve/mod,ecdlp/mod}.rs`, `rho/benches/ecdlp.rs`, `rho/tests/{mov,ghs,factor,ssa,ecdlp}_kat.rs`, `shared/numth/src/lib.rs`); ◆ boundary checks and fork pending |
+| 10 | Correct the follow-up exposition ◆ | done | c22a7d1 | prose row, no contract frozen (allowed extras, all comment/rustdoc-only: `rho/src/{ssa/{lift,mod},ghs/{curve,mod},curve/mod,ecdlp/mod}.rs`, `rho/benches/ecdlp.rs`, `rho/tests/{mov,ghs,factor,ssa,ecdlp}_kat.rs`, `shared/numth/src/lib.rs`); ◆ boundary: coverage passed (94.30%), fork `still-on-intent`, correction `2c961e6` (see boundary note) |
 | 11 | Anneal cleanup (skippable) | pending | | |
 
 ## Action-frame digest
@@ -748,6 +786,17 @@ project-wide anneal scope; row 11 / the boundary fork decide. (2) `docs/MATHEMAT
 ECM scalar, rho range and generic-order text (rolling doc, not edited by design).
 Texture: 20 files, all text/comment edits; over-width lines added are table rows in README, PEDAGOGY
 and numth PEDAGOGY (6 rows, matching neighbours) — ledgered for the anneal sweep.
+
+### 10 ◆ boundary — 2026-11-10
+Discovery/flex: Boundary fork `still-on-intent`. It found prose the sweep missed (a GHS test comment
+asserting the raw-bits premise, "measurable speedup", "fully B1-smooth") — fixed in `2c961e6`. The
+judge's check showed every contract holds in code; no contract flexed.
+Affected: none.
+Deferred: yes — row 11 should run (not skip): the review's scope limit leaves unchanged prose in the
+large docs uncertified, and 3 non-table lines are over 100 columns. Pre-existing plan labels in
+`rho/src/pairing/{ecext,mod}.rs` and other crates are outside every row's files; widening row 11 to
+them needs the user's sign-off (not given). Final delivery must re-validate coverage/freshness.
+Texture: the committer noted the corrected stage-1 sentence is ~128 columns (committed as given).
 
 ## Discoveries & risks
 
