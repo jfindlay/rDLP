@@ -20,7 +20,7 @@
 //! - [`factor`] — public entry point: runs `brent_batched` in parallel over
 //!   multiple `c` values using `rayon`, returning the first non-trivial factor
 //!   found as a [`Factorization`], or a [`FactorError`] that keeps invalid input, primes,
-//!   unsupported sizes, and spent budgets apart.
+//!   unsupported sizes, spent budgets, and a violated divisor invariant apart.
 //!
 //! ## Step bounds
 //!
@@ -92,6 +92,13 @@ pub enum FactorError {
         /// Number of constants `c` whose walks were run and failed.
         constants: u64,
     },
+    /// A walk returned a candidate `d` that is neither `1` nor `n` yet does not divide `n`.
+    /// A gcd with `n` always divides `n`, so this is a breach of the divisor invariant in the
+    /// arithmetic, not a failed attempt; it is reported at once and never retried.
+    Inconsistent {
+        /// The candidate that failed `n mod d == 0`.
+        d: u128,
+    },
 }
 
 /// Step bound for one rho attempt on `n`: `1024 + 64·(⌊n^{1/4}⌋ + 1)` evaluations of `f`.
@@ -104,9 +111,48 @@ fn attempt_steps(n: u128) -> u64 {
     1024 + 64 * quartic_root as u64
 }
 
-/// Return `d` only when it is a proper divisor of `n`, checked independently of how it was found.
-fn verified_divisor(n: u128, d: u128) -> Option<u128> {
-    (d > 1 && d < n && n % d == 0).then_some(d)
+/// Judge one walk's result: a proper divisor of `n`, a failed attempt, or an invariant breach.
+///
+/// `None` and the trivial candidates `1` and `n` are failed attempts (`Ok(None)`).  Any other
+/// candidate is checked as `1 < d < n` and `n mod d == 0`, independently of how it was found;
+/// one that fails is [`FactorError::Inconsistent`], never a failed attempt.
+fn judge_candidate(n: u128, d: Option<u128>) -> Result<Option<u128>, FactorError> {
+    match d {
+        None => Ok(None),
+        Some(d) if d == 1 || d == n => Ok(None),
+        Some(d) if d > 1 && d < n && n % d == 0 => Ok(Some(d)),
+        Some(d) => Err(FactorError::Inconsistent { d }),
+    }
+}
+
+/// Run `walk(c)` over the constants `c = 1..=max_c` in parallel and return the first verified
+/// divisor.
+///
+/// Constants with `c ≡ 0` or `c ≡ n − 2 (mod n)` are skipped.  A walk that returns no candidate
+/// or a trivial one counts as a failed attempt; an inconsistent candidate ends the search with
+/// [`FactorError::Inconsistent`].  `n` must be odd and composite.
+fn search_constants<W>(n: u128, max_c: u64, walk: W) -> Result<Factorization, FactorError>
+where
+    W: Fn(u64) -> Option<u128> + Sync,
+{
+    let tried = AtomicU64::new(0);
+    let found = (1u64..=max_c)
+        .into_par_iter()
+        .filter(|&c| {
+            let c_mod = c as u128 % n;
+            c_mod != 0 && c_mod != n - 2
+        })
+        .find_map_any(|c| match judge_candidate(n, walk(c)) {
+            Ok(Some(d)) => Some(Ok(Factorization { d, evidence: FactorEvidence::Rho { c } })),
+            Ok(None) => {
+                tried.fetch_add(1, Ordering::Relaxed);
+                None
+            }
+            Err(e) => Some(Err(e)),
+        });
+    found.unwrap_or_else(|| {
+        Err(FactorError::BudgetExhausted { constants: tried.load(Ordering::Relaxed) })
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -409,7 +455,10 @@ fn brent_fallback(n: u128, c: u128, mut ys: u128, x: u128, limit: usize) -> Opti
 /// * [`FactorError::Unsupported`] — `n` is at least [`MAX_SUPPORTED`], or odd, at least
 ///   [`PRIME_PROOF_BOUND`], and "probably prime", which cannot be certified.
 /// * [`FactorError::BudgetExhausted`] — every constant failed; `constants` counts the walks
-///   that ran.  This proves nothing about `n`; `max_c = 0` runs none.
+///   that ran.  This proves nothing about `n`; `max_c = 0` runs none.  A walk whose gcd is `1`
+///   or `n` is one such failed walk.
+/// * [`FactorError::Inconsistent`] — a walk returned a candidate other than `1` or `n` that
+///   does not divide `n`; reported at once, without trying further constants.
 pub fn factor(n: u128, max_c: u64, batch_size: usize) -> Result<Factorization, FactorError> {
     if n <= 1 {
         return Err(FactorError::InvalidInput);
@@ -431,20 +480,86 @@ pub fn factor(n: u128, max_c: u64, batch_size: usize) -> Result<Factorization, F
     }
 
     let max_steps = attempt_steps(n);
-    let tried = AtomicU64::new(0);
-    let found = (1u64..=max_c)
-        .into_par_iter()
-        .filter(|&c| {
-            let c_mod = c as u128 % n;
-            c_mod != 0 && c_mod != n - 2
-        })
-        .find_map_any(|c| {
-            let d = brent_batched(n, c as u128, 2, batch_size, max_steps)
-                .and_then(|d| verified_divisor(n, d));
-            if d.is_none() {
-                tried.fetch_add(1, Ordering::Relaxed);
-            }
-            d.map(|d| Factorization { d, evidence: FactorEvidence::Rho { c } })
-        });
-    found.ok_or_else(|| FactorError::BudgetExhausted { constants: tried.load(Ordering::Relaxed) })
+    search_constants(n, max_c, |c| brent_batched(n, c as u128, 2, batch_size, max_steps))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Trivial candidates and missing candidates are failed attempts; proper divisors pass.
+    #[test]
+    fn judge_candidate_classifies_each_case() {
+        let n = 143u128;
+        assert_eq!(judge_candidate(n, None), Ok(None));
+        assert_eq!(judge_candidate(n, Some(1)), Ok(None));
+        assert_eq!(judge_candidate(n, Some(n)), Ok(None));
+        assert_eq!(judge_candidate(n, Some(11)), Ok(Some(11)));
+        assert_eq!(judge_candidate(n, Some(13)), Ok(Some(13)));
+    }
+
+    /// Any other candidate is an invariant breach carrying the candidate, including `0` and
+    /// values above `n`.
+    #[test]
+    fn judge_candidate_flags_non_dividing_candidates() {
+        let n = 143u128;
+        for d in [0u128, 2, 7, 12, 142, 144, u128::MAX] {
+            assert_eq!(judge_candidate(n, Some(d)), Err(FactorError::Inconsistent { d }), "d={d}");
+        }
+    }
+
+    /// A non-dividing candidate from any walk ends the search at once with that candidate.
+    #[test]
+    fn search_surfaces_inconsistent_candidate_without_retrying() {
+        let n = 143u128;
+        assert_eq!(search_constants(n, 64, |_| Some(7)), Err(FactorError::Inconsistent { d: 7 }));
+    }
+
+    /// An inconsistent candidate from one constant wins over failed attempts from the others.
+    #[test]
+    fn search_inconsistent_beats_failed_attempts() {
+        let n = 143u128;
+        let result = search_constants(n, 8, |c| if c == 3 { Some(5) } else { None });
+        assert_eq!(result, Err(FactorError::Inconsistent { d: 5 }));
+    }
+
+    /// A candidate equal to `n` (gcd = n) consumes an attempt like `None` does and does not stop
+    /// the search.
+    #[test]
+    fn search_trivial_candidates_consume_attempts() {
+        let n = 143u128;
+        assert_eq!(
+            search_constants(n, 5, |_| Some(n)),
+            Err(FactorError::BudgetExhausted { constants: 5 })
+        );
+        assert_eq!(
+            search_constants(n, 5, |c| if c % 2 == 0 { Some(1) } else { Some(n) }),
+            Err(FactorError::BudgetExhausted { constants: 5 })
+        );
+        assert_eq!(
+            search_constants(n, 5, |_| None),
+            Err(FactorError::BudgetExhausted { constants: 5 })
+        );
+    }
+
+    /// A proper divisor from a walk is returned with the constant that produced it.
+    #[test]
+    fn search_returns_verified_divisor() {
+        let n = 143u128;
+        let found = search_constants(n, 8, |c| if c == 4 { Some(11) } else { None })
+            .expect("a proper divisor is found");
+        assert_eq!(found.d, 11);
+        assert_eq!(found.evidence, FactorEvidence::Rho { c: 4 });
+    }
+
+    /// Skipped constants `c ≡ 0` and `c ≡ n − 2` never run a walk and are not counted as
+    /// attempts.
+    #[test]
+    fn search_skips_degenerate_constants() {
+        // n = 9: c = 7 ≡ n − 2 and c = 9 ≡ 0 are skipped, leaving c ∈ {1..6, 8}.
+        assert_eq!(
+            search_constants(9, 9, |_| None),
+            Err(FactorError::BudgetExhausted { constants: 7 })
+        );
+    }
 }

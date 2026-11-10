@@ -228,6 +228,40 @@ fn factor_counts_the_constants_whose_walks_failed() {
     factored(n, 16);
 }
 
+/// Compile-time check that an error enum stays `Copy`.
+fn assert_copy<T: Copy>() {}
+
+#[test]
+fn factor_error_inconsistent_carries_the_candidate_and_stays_copy() {
+    assert_copy::<FactorError>();
+    let e = FactorError::Inconsistent { d: 7 };
+    let copy = e;
+    assert_eq!(e, copy);
+    assert_ne!(e, FactorError::Inconsistent { d: 8 });
+    assert_ne!(e, FactorError::BudgetExhausted { constants: 0 });
+}
+
+#[test]
+fn factor_never_reports_inconsistent_on_real_inputs() {
+    // The gcd with n always divides n, so real inputs never trip the divisor check: semiprimes,
+    // prime powers, and small odd composites either factor or spend a budget, but never report
+    // an invariant breach.
+    let mut inputs: Vec<u128> = SEMIPRIMES.iter().map(|&(n, _, _)| n).collect();
+    inputs.extend([9, 25, 49, 121, 27, 125, 343, 3u128.pow(20), 1_000_003u128.pow(2)]);
+    inputs.extend((9u128..2_000).step_by(2));
+    for n in inputs {
+        for max_c in [1u64, 4, 16] {
+            match factor(n, max_c, 128) {
+                Err(FactorError::Inconsistent { d }) => {
+                    panic!("factor({n}, {max_c}) reported inconsistent candidate {d}")
+                }
+                Ok(found) => check(Some(found.d), n, &format!("factor n={n}")),
+                Err(_) => {}
+            }
+        }
+    }
+}
+
 #[test]
 fn brent_batched_various_batch_sizes() {
     // Verify that different batch sizes all produce correct results.

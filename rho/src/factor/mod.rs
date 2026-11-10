@@ -9,8 +9,8 @@
 //! All layers share the pseudorandom function `f(x) = x² + c mod N`.
 //! Public entry point: [`rho::factor`] (parallel, batched), which returns a verified
 //! [`Factorization`] or a [`FactorError`] separating invalid input, primes, unsupported sizes,
-//! and spent budgets.  The individual variants take an explicit step bound and are also exported
-//! for benchmarking.
+//! spent budgets, and a candidate divisor that fails the divisor check.  The individual variants
+//! take an explicit step bound and are also exported for benchmarking.
 
 pub mod rho;
 

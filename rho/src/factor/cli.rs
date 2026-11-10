@@ -62,5 +62,12 @@ fn main() {
             );
             std::process::exit(1);
         }
+        Err(FactorError::Inconsistent { d }) => {
+            eprintln!(
+                "rho-factor: internal error: candidate {d} does not divide {n}, so the gcd \
+                 broke the divisor invariant"
+            );
+            std::process::exit(1);
+        }
     }
 }

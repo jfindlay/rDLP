@@ -613,19 +613,62 @@ pub enum EcmError {
     /// ``n`` is odd, at least [`MILLER_RABIN_PROOF_BOUND`], and "probably prime", which cannot
     /// be certified.
     Unsupported,
-    /// Every curve tried found no divisor, or found one that failed the divisor check.  This is
-    /// a resource outcome and proves nothing about ``n``.
+    /// Every curve tried found no divisor or only a trivial one (``1`` or ``n``).  This is a
+    /// resource outcome and proves nothing about ``n``.
     CurvesExhausted {
         /// Number of curves that were run and failed.
         curves: u32,
     },
+    /// A curve produced a candidate ``d`` that is neither ``1`` nor ``n`` yet does not divide
+    /// ``n``.  A gcd with ``n`` always divides ``n``, so this is a breach of the divisor
+    /// invariant in the arithmetic, not a failed curve; it is reported at once and never retried.
+    Inconsistent {
+        /// The candidate that failed ``n mod d == 0``.
+        d: Uint<4>,
+    },
 }
 
-/// Return ``d`` only when it is a proper divisor of ``n``, checked independently of how it was
-/// found: ``1 < d < n`` and ``n mod d == 0``.
-fn verified_divisor(n: &Uint<4>, d: &Uint<4>) -> Option<Uint<4>> {
-    let nonzero = NonZero::new(*d).into_option()?;
-    (*d > Uint::<4>::ONE && *d < *n && n.rem(&nonzero) == Uint::<4>::ZERO).then_some(*d)
+/// Judge one curve's result: a proper divisor of ``n``, a failed curve, or an invariant breach.
+///
+/// ``Inconclusive`` and the trivial candidates ``1`` and ``n`` are failed curves (``Ok(None)``).
+/// Any other candidate is checked as ``1 < d < n`` and ``n mod d == 0``, independently of how it
+/// was found; one that fails is [`EcmError::Inconsistent`], never a failed curve.
+fn judge_candidate(n: &Uint<4>, result: EcmResult) -> Result<Option<Uint<4>>, EcmError> {
+    let EcmResult::Factor(d) = result else {
+        return Ok(None);
+    };
+    if d == Uint::<4>::ONE || d == *n {
+        return Ok(None);
+    }
+    let divides = NonZero::new(d)
+        .into_option()
+        .is_some_and(|nonzero| d < *n && n.rem(&nonzero) == Uint::<4>::ZERO);
+    if divides {
+        Ok(Some(d))
+    } else {
+        Err(EcmError::Inconsistent { d })
+    }
+}
+
+/// Try curves ``sigma = 6, 7, …`` (at most ``max_curves``) through ``run_curve`` and return the
+/// first verified divisor of ``n``.
+///
+/// A curve that finds nothing, or only a trivial candidate, counts as a failed curve; an
+/// inconsistent candidate ends the search with [`EcmError::Inconsistent`].  ``n`` must be odd
+/// and composite.
+fn search_curves<C>(n: &Uint<4>, max_curves: u32, mut run_curve: C) -> Result<Uint<4>, EcmError>
+where
+    C: FnMut(u64) -> EcmResult,
+{
+    let mut curves = 0u32;
+    for i in 0..max_curves {
+        let sigma = 6u64 + u64::from(i);
+        if let Some(d) = judge_candidate(n, run_curve(sigma))? {
+            return Ok(d);
+        }
+        curves += 1;
+    }
+    Err(EcmError::CurvesExhausted { curves })
 }
 
 /// Attempt to factor ``n`` by running ECM with multiple curves.
@@ -636,8 +679,9 @@ fn verified_divisor(n: &Uint<4>, d: &Uint<4>) -> Option<Uint<4>> {
 /// test is proven there) and [`EcmError::Unsupported`] at or above it.  An odd composite is then
 /// attacked with up to ``max_curves`` curves, ``sigma`` starting from 6 (``sigma`` 0 through 5
 /// are degenerate in the Suyama parameterization).  A divisor is returned only after it passes
-/// ``1 < d < n`` and ``n mod d == 0`` in ``Uint`` arithmetic; a candidate that fails the check
-/// counts as a failed curve.
+/// ``1 < d < n`` and ``n mod d == 0`` in ``Uint`` arithmetic.  A curve that yields no candidate,
+/// or only ``1`` or ``n``, counts as a failed curve; any other candidate that fails the check
+/// is [`EcmError::Inconsistent`] and ends the search.
 ///
 /// The stage-2 prime list is precomputed once and reused across all curves.
 ///
@@ -655,6 +699,8 @@ fn verified_divisor(n: &Uint<4>, d: &Uint<4>) -> Option<Uint<4>> {
 ///   "probably prime".
 /// * [`EcmError::CurvesExhausted`] — every curve failed; ``curves`` counts the curves that ran
 ///   (``0`` when ``max_curves = 0``).  This proves nothing about ``n``.
+/// * [`EcmError::Inconsistent`] — a curve produced a candidate other than ``1`` or ``n`` that
+///   does not divide ``n``; reported at once, without trying further curves.
 pub fn ecm_factor(n: &Uint<4>, b1: u64, b2: u64, max_curves: u32) -> Result<Uint<4>, EcmError> {
     let two = Uint::<4>::from(2u64);
     if *n <= Uint::<4>::ONE {
@@ -680,17 +726,7 @@ pub fn ecm_factor(n: &Uint<4>, b1: u64, b2: u64, max_curves: u32) -> Result<Uint
         Vec::new()
     };
 
-    let mut curves = 0u32;
-    for i in 0..max_curves {
-        let sigma = 6u64 + u64::from(i);
-        if let EcmResult::Factor(g) = ecm_one_curve_inner(n, sigma, b1, &stage2_primes) {
-            if let Some(d) = verified_divisor(n, &g) {
-                return Ok(d);
-            }
-        }
-        curves += 1;
-    }
-    Err(EcmError::CurvesExhausted { curves })
+    search_curves(n, max_curves, |sigma| ecm_one_curve_inner(n, sigma, b1, &stage2_primes))
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -1034,14 +1070,86 @@ mod tests {
         assert_eq!(ecm_factor(&n, 2, 2, 3), Err(EcmError::CurvesExhausted { curves: 3 }));
     }
 
-    /// A candidate that is not a proper divisor is rejected by the divisor check.
+    /// No candidate and the trivial candidates ``1`` and ``n`` are failed curves; proper
+    /// divisors pass.
     #[test]
-    fn divisor_check_rejects_improper_candidates() {
+    fn judge_candidate_classifies_trivial_and_proper() {
         let n = u(143);
-        assert_eq!(verified_divisor(&n, &u(0)), None);
-        assert_eq!(verified_divisor(&n, &u(1)), None);
-        assert_eq!(verified_divisor(&n, &n), None);
-        assert_eq!(verified_divisor(&n, &u(7)), None);
-        assert_eq!(verified_divisor(&n, &u(11)), Some(u(11)));
+        assert_eq!(judge_candidate(&n, EcmResult::Inconclusive), Ok(None));
+        assert_eq!(judge_candidate(&n, EcmResult::Factor(u(1))), Ok(None));
+        assert_eq!(judge_candidate(&n, EcmResult::Factor(n)), Ok(None));
+        assert_eq!(judge_candidate(&n, EcmResult::Factor(u(11))), Ok(Some(u(11))));
+        assert_eq!(judge_candidate(&n, EcmResult::Factor(u(13))), Ok(Some(u(13))));
+    }
+
+    /// Any other candidate is an invariant breach carrying the candidate, including ``0`` and
+    /// values above ``n``.
+    #[test]
+    fn judge_candidate_flags_non_dividing_candidates() {
+        let n = u(143);
+        for v in [0u64, 2, 7, 12, 142, 144, u64::MAX] {
+            assert_eq!(
+                judge_candidate(&n, EcmResult::Factor(u(v))),
+                Err(EcmError::Inconsistent { d: u(v) }),
+                "d = {v}"
+            );
+        }
+    }
+
+    /// A non-dividing candidate ends the curve search at once, without running more curves.
+    #[test]
+    fn search_surfaces_inconsistent_candidate_without_retrying() {
+        let mut runs = 0u32;
+        let result = search_curves(&u(143), 10, |_| {
+            runs += 1;
+            EcmResult::Factor(u(7))
+        });
+        assert_eq!(result, Err(EcmError::Inconsistent { d: u(7) }));
+        assert_eq!(runs, 1);
+    }
+
+    /// An inconsistent candidate after failed curves still ends the search; sigma starts at 6.
+    #[test]
+    fn search_inconsistent_after_failed_curves() {
+        let mut sigmas = Vec::new();
+        let result = search_curves(&u(143), 10, |sigma| {
+            sigmas.push(sigma);
+            if sigma == 8 { EcmResult::Factor(u(5)) } else { EcmResult::Inconclusive }
+        });
+        assert_eq!(result, Err(EcmError::Inconsistent { d: u(5) }));
+        assert_eq!(sigmas, vec![6, 7, 8]);
+    }
+
+    /// A candidate equal to ``n`` (or ``1``) consumes a curve like ``Inconclusive`` does and does
+    /// not stop the search.
+    #[test]
+    fn search_trivial_candidates_consume_curves() {
+        let n = u(143);
+        assert_eq!(
+            search_curves(&n, 4, |_| EcmResult::Factor(n)),
+            Err(EcmError::CurvesExhausted { curves: 4 })
+        );
+        assert_eq!(
+            search_curves(&n, 4, |s| if s % 2 == 0 {
+                EcmResult::Factor(u(1))
+            } else {
+                EcmResult::Factor(n)
+            }),
+            Err(EcmError::CurvesExhausted { curves: 4 })
+        );
+        assert_eq!(
+            search_curves(&n, 4, |_| EcmResult::Inconclusive),
+            Err(EcmError::CurvesExhausted { curves: 4 })
+        );
+    }
+
+    /// A proper divisor from a curve is returned after the failed curves before it.
+    #[test]
+    fn search_returns_verified_divisor() {
+        let n = u(143);
+        let result = search_curves(&n, 10, |s| {
+            EcmResult::Factor(if s == 7 { u(13) } else { n })
+        });
+        assert_eq!(result, Ok(u(13)));
     }
 }
