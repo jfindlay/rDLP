@@ -416,6 +416,15 @@ checkpoint):
 - Row 3 `cargo test --workspace` — reused (same identity) — exit 0 — 2026-11-10T09:27:38-05:00 — log
   `/tmp/opencode/rdlp/ghs-test-final3.log` (86 `test result: ok`, no failures) — same environment.
 - Row 3 `cargo coverage` — deferred → ◆ boundary (row 10); no tests deleted (6 added).
+- Row 4 `cargo check --workspace` — reused (worker record, validated) — `/home/justin/Source/rDLP` —
+  exit 0 — 2026-11-10T09:51:35-05:00 — log `/tmp/opencode/rdlp/mov-check-workspace.log` — input
+  identity `446638c0…4677` (same recipe, base `b0065a4`; recomputed by the driver and equal) —
+  rustc/cargo 1.95.0, dev profile, default features. No manifest or lockfile changed.
+- Row 4 `cargo test --workspace` — reused (same identity) — exit 0 — 2026-11-10T09:55:40-05:00 — log
+  `/tmp/opencode/rdlp/mov-test-workspace.log` (86 `test result: ok`, no failures) — same
+  environment. Smoke (not a gate): `cargo test -p rho --release --test mov_kat
+  mov_reduce_rejects_field_above_one_limb` exit 0, 1 passed (worker-reported, no log).
+- Row 4 `cargo coverage` — deferred → ◆ boundary (row 10); no tests deleted (2 added).
 - Row 1 `cargo coverage` — deferred → ◆ boundary (row 10) or earlier after substantial test removal
   (row 2 or 7).
 
@@ -428,7 +437,7 @@ change and on first active run of each new day.
 | 1 | Type SSA input and invariant failures | done | 829caaa | C-SsaOutcome (frozen by juncture; per-unit gate passed, coverage deferred to ◆) |
 | 2 | Lift SSA curves non-canonically and drop the halved candidate | done | 0aa2b01 | C-SsaLift (test-enforced sweep; allowed extra `formal_log.rs`; coverage deferred to ◆) |
 | 3 | Identify the GHS conorm subfield with `restrict` | done | ae1f1cc | C-GhsSubfieldIdentification (coverage deferred to ◆; `m > 63` has no variant, unreachable by type) |
-| 4 | Guard MOV's single-limb field domain in release builds | pending | | |
+| 4 | Guard MOV's single-limb field domain in release builds | done | 32452cd | C-MovDomain (coverage deferred to ◆) |
 | 5 | Apply ECM stage-1 prime powers one ladder call at a time | pending | | |
 | 6 | Report non-dividing factor candidates as `Inconsistent` | pending | | |
 | 7 | Certify rho-factoring primes below 2^80 with the 13-base bound | pending | | |
@@ -484,6 +493,20 @@ on the fixture" (worker fixed two PEDAGOGY lines outside §12) and that GHS stat
 replaced by a const assertion — the contract's "typed error for m > 63" is vacuous, not unmet.
 Texture: one over-width line added to the PEDAGOGY test table (pre-existing over-width row);
 ledger it for the anneal sweep.
+
+### 4 — 2026-11-10
+Discovery/flex: The inferred truncation at `tate.rs:147` was a live wrong-pairing path: with p ≈ 2^36,
+ℓ = 3, k = 2 (y² = x³+1, fixture built with `gp`) the truncated exponent put `reduced_tate` outside
+μ_ℓ. It is now exact (`BigUint`, panics only above 256 bits, which also removes the p^k overflow
+for k ≥ 3). No existing fixture is affected (`pairing_toy` p = 47). The truncation is reachable
+only through `reduced_tate` directly: `mov_reduce` end-to-end on a p > 2^32 field never finishes
+because the out-of-scope k = 2 log engine's `find_irreducible_degree2` loops over all r in 0..p.
+Affected: C-MovDomain (frozen at 4); no downstream contract.
+Deferred: yes — the ◆ exposition row must not claim `mov_reduce` handles k = 2 fields near 2^64:
+it accepts them but the log engine's irreducible search is O(p) (additive-reshard class, out of
+scope). Also the new exponent test lives in `mov.rs` unit tests (`FpExt::coeffs` private).
+Texture: one over-width row added to the PEDAGOGY outcome table (matches neighbours); the worker's
+15-minute end-to-end attempt was removed; no stray processes remained.
 
 ## Discoveries & risks
 
