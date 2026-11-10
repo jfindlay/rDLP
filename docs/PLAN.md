@@ -487,6 +487,17 @@ checkpoint):
   → k = 424242 verified (worker-reported, no log).
 - Row 8 `cargo coverage` — deferred → ◆ boundary (row 10); no tests deleted (3 added, helper
   signature changed).
+- Row 9 `cargo check --workspace` — reused (worker record, validated) — `/home/justin/Source/rDLP` —
+  exit 0 — 2026-11-10T13:25:54-05:00 — log `/tmp/opencode/rdlp/check-final.log` — input identity
+  `aee7cdff…a09a` (same recipe, base `3270821`; recomputed by the driver and equal) — rustc/cargo
+  1.95.0, dev profile, default features. No manifest or lockfile changed.
+- Row 9 `cargo test --workspace` — reused (same identity) — exit 0 — 2026-11-10T13:29:43-05:00 — log
+  `/tmp/opencode/rdlp/test-final.log` (86 `test result: ok`, no failures) — same environment. Smoke
+  (not a gate, not a test substitute): `cargo bench -p rho --bench ecdlp -- --test` exit 0, release
+  bench profile, 2026-11-10T13:30:58-05:00, log `/tmp/opencode/rdlp/smoke-final.log` (8 `Success`
+  lines).
+- Row 9 `cargo coverage` — deferred → ◆ boundary (row 10); one test added, no test deleted (one bench
+  function, `bench_glv_vs_batch`, removed — benches are outside the coverage measure).
 - Row 1 `cargo coverage` — deferred → ◆ boundary (row 10) or earlier after substantial test removal
   (row 2 or 7).
 
@@ -504,7 +515,7 @@ change and on first active run of each new day.
 | 6 | Report non-dividing factor candidates as `Inconsistent` | done | 7ce7340 | C-FactorInconsistent (allowed extra `rho/src/factor/cli.rs`; coverage deferred to ◆) |
 | 7 | Certify rho-factoring primes below 2^80 with the 13-base bound | done | 53b072e | C-RhoPrimeBound (allowed extras: `factor/{mod,cli}.rs`, both PEDAGOGY files; coverage deferred to ◆) |
 | 8 | Project the generic rho-dlog curve onto its largest prime-order subgroup | done | e1764e2 | C-GenericSubgroup (user-approved revision; c·P₀ = G′ and 561103·G′ = ∞ held in-tree, no HALT; coverage deferred to ◆) |
-| 9 | Retarget the ECDLP benches to groups that finish | pending | | |
+| 9 | Retarget the ECDLP benches to groups that finish | done | f656f03 | C-BenchFixture (new 25-bit fixture `prime_order_25`; GLV bench dropped; coverage deferred to ◆) |
 | 10 | Correct the follow-up exposition ◆ | pending | | |
 | 11 | Anneal cleanup (skippable) | pending | | |
 
@@ -685,6 +696,31 @@ edited by row 8). ROADMAP is a rolling doc outside the durable-file list: note, 
 row-10 scope covers it.
 Texture: the `check_scalar_mul` test helper now takes the base point as a parameter.
 
+### 9 — 2026-11-10
+Discovery/flex: `generic` (≈ 2¹⁹ subgroup) was not reused; a new fixture `prime_order_25`
+(y² = x³ − 3x + 72 over p = 16_777_259, whole-group prime order n = 16_777_729, G = (1, 6_299_712);
+PARI/GP `ellcard` search a = −3, b = 1..200, first prime #E ≠ p at b = 72) serves every bench, with
+the prime-order and Hasse-bound test in `ecdlp_kat.rs`. `bench_glv_vs_batch` was dropped: GLV exists
+only on `secp_k1_toy` (≈ 10⁹ steps per solve), and the new fixture has no endomorphism. Tuning: θ = 4,
+step budget 2²², Brent 20 attempts, batch 16, fixed seed, target `12_345_678_901 mod n`.
+Affected: C-BenchFixture (frozen at 9); C-DpBudget and C-GenericSubgroup unchanged.
+Deferred: yes — the worker found a SOLVER-BEHAVIOUR anomaly outside any row's scope (no solver edited):
+`solve_dp_negmap` needs 3·10⁴–7·10⁴ steps on the 25-bit group vs ≈ 2·10³–10⁴ for `solve_dp`, did not
+finish in 60–120 s on a 31-bit group (p = 2_147_483_659, n = 2_147_490_413) for θ ∈ {1,2,3,4,6,8}
+while Brent/`solve_dp`/`solve_dp_batch` finished in seconds, and 1 of 6 seeds on the 25-bit group timed
+out at 30 s (step counts cluster at multiples of the walker-restart threshold: walkers look trapped in
+cycles). `solve_dp_batch` at 31 bits also took 1.1M steps at θ = 4 and 6.3M at θ = 6 vs ≈ 6·10⁴
+expected. No contract is contradicted (budgets still bound every call; outcomes stay typed), so this
+is an additive-reshard-class finding to SURFACE to the user at the end, never absorbed: negation-map
+cycle handling is a new-algorithm concern outside this arc's scope. The ◆ fork and sweep should make
+sure no durable text claims a negation-map speedup or says the DP solvers perform at the expected
+cost; BENCHMARKS :502 already records the observation. BENCHMARKS :78 `generic` row and footnote were
+rewritten (561_103 subgroup, in-tree proof, PARI/GP orders as uncertified provenance); `docs/ROADMAP.md`
+:195 still cites the old composite order (rolling doc, note only).
+Texture: the worker ran a 15-minute full bench on a 40-bit group while sizing before moving smaller
+(bounded by timeout, no stray process); sizing examples were deleted; over-width lines added are
+BENCHMARKS table rows only.
+
 ## Discoveries & risks
 
 Carried down from ROADMAP and the sharding survey; phrased for adjudication.
@@ -711,6 +747,9 @@ Carried down from ROADMAP and the sharding survey; phrased for adjudication.
   destructive-HALT, not another constant adjustment. See the row-8 approval digest.
 - **Inferred, enrolled 5:** Z ≡ 0 modulo a factor persists through later ladder calls, so the
   final gcd still detects it; if stage 2 depends on stage 1's point semantics, internal-continue.
+- **Surfaced at row 9 (additive-reshard class, not absorbed):** `solve_dp_negmap` and `solve_dp_batch`
+  take far more steps than expected on 25–31-bit groups, and `solve_dp_negmap` did not finish in
+  60–120 s at 31 bits (see the row-9 digest). Needs its own investigation outside this arc.
 - **Internal-continue:** call-site adaptation outside a row's files when the compiler forces it;
   bounded recorded fixture searches; test-seam additions for unreachable invariant variants.
 - **Additive-reshard (surface, do not absorb):** NFS-DL `solve_dl` and MOV's k=2 engine; Shor
