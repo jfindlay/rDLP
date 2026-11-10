@@ -425,6 +425,13 @@ checkpoint):
   environment. Smoke (not a gate): `cargo test -p rho --release --test mov_kat
   mov_reduce_rejects_field_above_one_limb` exit 0, 1 passed (worker-reported, no log).
 - Row 4 `cargo coverage` — deferred → ◆ boundary (row 10); no tests deleted (2 added).
+- Row 5 `cargo check --workspace` — reused (worker record, validated) — `/home/justin/Source/rDLP` —
+  exit 0 — 2026-11-10T10:00:00-05:00 — log `/tmp/opencode/rdlp/ecm-check.log` — input identity
+  `5543ad0a…6559` (same recipe, base `2748ef5`; recomputed by the driver and equal) — rustc/cargo
+  1.95.0, dev profile, default features. No manifest or lockfile changed.
+- Row 5 `cargo test --workspace` — reused (same identity) — exit 0 — 2026-11-10T10:03:58-05:00 — log
+  `/tmp/opencode/rdlp/ecm-test.log` (86 `test result: ok`, no failures) — same environment.
+- Row 5 `cargo coverage` — deferred → ◆ boundary (row 10); no tests deleted (4 added).
 - Row 1 `cargo coverage` — deferred → ◆ boundary (row 10) or earlier after substantial test removal
   (row 2 or 7).
 
@@ -438,7 +445,7 @@ change and on first active run of each new day.
 | 2 | Lift SSA curves non-canonically and drop the halved candidate | done | 0aa2b01 | C-SsaLift (test-enforced sweep; allowed extra `formal_log.rs`; coverage deferred to ◆) |
 | 3 | Identify the GHS conorm subfield with `restrict` | done | ae1f1cc | C-GhsSubfieldIdentification (coverage deferred to ◆; `m > 63` has no variant, unreachable by type) |
 | 4 | Guard MOV's single-limb field domain in release builds | done | 32452cd | C-MovDomain (coverage deferred to ◆) |
-| 5 | Apply ECM stage-1 prime powers one ladder call at a time | pending | | |
+| 5 | Apply ECM stage-1 prime powers one ladder call at a time | done | a4a040f | C-EcmStage1 (coverage deferred to ◆) |
 | 6 | Report non-dividing factor candidates as `Inconsistent` | pending | | |
 | 7 | Certify rho-factoring primes below 2^80 with the 13-base bound | pending | | |
 | 8 | Project the generic rho-dlog curve onto its prime-order subgroup | pending | | |
@@ -507,6 +514,22 @@ it accepts them but the log engine's irreducible search is O(p) (additive-reshar
 scope). Also the new exponent test lives in `mov.rs` unit tests (`FpExt::coeffs` private).
 Texture: one over-width row added to the PEDAGOGY outcome table (matches neighbours); the worker's
 15-minute end-to-end attempt was removed; no stray processes remained.
+
+### 5 — 2026-11-10
+Discovery/flex: Premise confirmed: Z ≡ 0 mod a factor persists through later ladder calls; stage 2
+does not depend on stage-1 point semantics (a proper factor returns earlier; Z ≡ 0 mod N is
+`Inconclusive` before stage 2). The old product first exceeds 2^256 at B1 = 179 (not "≳ 177": the
+latter was 256·ln 2); docs now say 179. Per-prime gcd chosen (a factor is caught before a second
+prime of N also reaches the identity). Fixture n = (2^61−1)·1009, σ = 15, B1 = 250 (recorded search,
+< 1 s, first hit).
+Affected: C-EcmStage1 (frozen at 5); `stage1_scalar` removed; no downstream contract change.
+Deferred: yes — the ◆ sweep should look for surviving "B1 ≳ 177 wraps" text outside the three edited
+files: `docs/ROADMAP.md` ~:186 still describes the old scalar (ROADMAP is outside the durable-file
+anneal exclusions but is a rolling doc — note, do not edit unless the row-10 scope covers it) and
+`pohlig.rs`'s ECM mention. Row 6 edits the same `ecm.rs` (adds `EcmError::Inconsistent`).
+Texture: worker used `python3` for a read-only calc and to splice one test into `ecm.rs`
+(tool-discipline slip, no effect on correctness); the ladder fn's own doc comment was left alone —
+re-read it at ◆.
 
 ## Discoveries & risks
 
