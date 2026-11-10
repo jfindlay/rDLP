@@ -55,6 +55,7 @@ pub use reduce::{GhsDescentResult, ghs_descend, verify_log_preservation};
 pub use transfer::{transfer_point, verify_homomorphism};
 
 use crypto_bigint::Uint;
+use shared_gf2m::{BitLen, F2m, F2mNaive};
 
 use crate::binary_curve::BinaryCurve;
 
@@ -84,6 +85,13 @@ pub enum GhsError {
     /// `E` is defined over `GF(2^l)`; otherwise the image cannot be read as a point
     /// of `C(GF(2^l))`.
     NotInSubfield,
+    /// `poly_l` is not the minimal polynomial of `β = α^((2^m−1)/(2^l−1))`.
+    ///
+    /// `GF(2^l)` sits inside `GF(2^m)` as `GF(2)(β)`, and a `GF(2^l)` element
+    /// `Σ cᵢ·xⁱ` (reduced modulo `poly_l`) names the element `Σ cᵢ·βⁱ` of `GF(2^m)`
+    /// only when `poly_l(β) = 0` and `deg poly_l = l`.  Any other `poly_l` describes
+    /// a different identification of the subfield, so no coordinate can be trusted.
+    SubfieldPolyMismatch,
 }
 
 impl std::fmt::Display for GhsError {
@@ -100,6 +108,9 @@ impl std::fmt::Display for GhsError {
             }
             GhsError::NotInSubfield => {
                 write!(f, "conorm image has a coordinate outside the subfield GF(2^l)")
+            }
+            GhsError::SubfieldPolyMismatch => {
+                write!(f, "poly_l is not the minimal polynomial of the GF(2^l) generator β")
             }
         }
     }
@@ -121,6 +132,64 @@ impl std::error::Error for GhsError {}
 pub fn check_ghs_params(m: usize, l: usize) -> Result<(), GhsError> {
     if l == 0 || m % l != 0 {
         return Err(GhsError::SubfieldDivisibility);
+    }
+    Ok(())
+}
+
+// `shared_gf2m::restrict` is defined for m ≤ 63 (the exponent (2^m − 1)/(2^l − 1) must fit
+// in a u64).  Every `GF(2^m)` here is a single-limb `Uint<1>` polynomial of at most 64 bits,
+// so m ≤ 63 holds by construction; this keeps the guarantee from silently lapsing if the
+// limb width ever grows.
+const _: () = assert!(Uint::<1>::BITS <= 64, "restrict needs m <= 63");
+
+/// Check that `GF(2^l) ⊂ GF(2^m)` can be identified through `shared_gf2m::restrict`
+/// using `poly_l` as the coordinate field.
+///
+/// The subfield is identified by the generator `β = α^((2^m−1)/(2^l−1))`, where `α` is
+/// the root of `poly_m`; a `GF(2^l)` element with bit-vector `c` (modulo `poly_l`) stands
+/// for `Σ cᵢ·βⁱ`.  That reading is a field isomorphism exactly when `poly_l` is the
+/// minimal polynomial of `β`, i.e. `deg poly_l = l` and `poly_l(β) = 0` (`β` has degree
+/// `l` over `GF(2)`, so a monic degree-`l` polynomial vanishing at `β` equals its minimal
+/// polynomial).
+///
+/// # Arguments
+///
+/// - `l` — the subfield degree.
+/// - `poly_m` — the irreducible polynomial of `GF(2^m)`; `m` is its degree.
+/// - `poly_l` — the claimed irreducible polynomial of `GF(2^l)`.
+///
+/// # Errors
+///
+/// - [`GhsError::SubfieldDivisibility`] if `l = 0`, `m = 0` or `l ∤ m`.
+/// - [`GhsError::SubfieldPolyMismatch`] if `poly_l` is not the minimal polynomial of `β`.
+pub fn check_subfield_identification(
+    l: usize,
+    poly_m: &Uint<1>,
+    poly_l: &Uint<1>,
+) -> Result<(), GhsError> {
+    let m = poly_m.bit_len().saturating_sub(1);
+    if l == 0 || m == 0 || m % l != 0 {
+        return Err(GhsError::SubfieldDivisibility);
+    }
+    if poly_l.bit_len() != l + 1 {
+        return Err(GhsError::SubfieldPolyMismatch);
+    }
+
+    // β = α^((2^m − 1)/(2^l − 1)); both factors fit in u64 for m ≤ 63.
+    let alpha = F2mNaive::<1>::from_u64(2, poly_m);
+    let exponent = ((1u64 << m) - 1) / ((1u64 << l) - 1);
+    let beta = alpha.pow(&Uint::<1>::from(exponent), poly_m);
+
+    // Horner evaluation of poly_l at β.
+    let mut acc = F2mNaive::<1>::zero();
+    for i in (0..=l).rev() {
+        acc = acc.mul(&beta, poly_m);
+        if poly_l.bit_at(i) {
+            acc = acc.add(&F2mNaive::<1>::one());
+        }
+    }
+    if !acc.is_zero() {
+        return Err(GhsError::SubfieldPolyMismatch);
     }
     Ok(())
 }
@@ -216,5 +285,45 @@ mod tests {
         let _ = format!("{}", GhsError::NonDescendable);
         let _ = format!("{}", GhsError::NotOnCurve);
         let _ = format!("{}", GhsError::NotInSubfield);
+        let _ = format!("{}", GhsError::SubfieldPolyMismatch);
+    }
+
+    #[test]
+    fn subfield_identification_accepts_minimal_polynomials() {
+        let p6 = Uint::<1>::from(GHS_POLY6);
+        // β = α^21 has minimal polynomial x²+x+1; β = α^9 has x³+x²+1.
+        assert_eq!(
+            check_subfield_identification(2, &p6, &Uint::<1>::from(GHS_POLY2)),
+            Ok(())
+        );
+        assert_eq!(check_subfield_identification(3, &p6, &Uint::<1>::from(0xdu64)), Ok(()));
+    }
+
+    #[test]
+    fn subfield_identification_rejects_other_polynomials() {
+        let p6 = Uint::<1>::from(GHS_POLY6);
+        // x³+x+1 is irreducible but is the reciprocal of the minimal polynomial of
+        // β = α^9, so it is the minimal polynomial of β⁻¹, not of β.
+        for bad in [0xbu64, 0x5, 0x3, 0x1f] {
+            assert_eq!(
+                check_subfield_identification(3, &p6, &Uint::<1>::from(bad)),
+                Err(GhsError::SubfieldPolyMismatch),
+                "poly_l = {bad:#x} must be rejected for l = 3"
+            );
+        }
+    }
+
+    #[test]
+    fn subfield_identification_rejects_bad_degrees() {
+        let p6 = Uint::<1>::from(GHS_POLY6);
+        let p2 = Uint::<1>::from(GHS_POLY2);
+        assert_eq!(
+            check_subfield_identification(4, &p6, &p2),
+            Err(GhsError::SubfieldDivisibility)
+        );
+        assert_eq!(
+            check_subfield_identification(0, &p6, &p2),
+            Err(GhsError::SubfieldDivisibility)
+        );
     }
 }

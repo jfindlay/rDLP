@@ -1318,7 +1318,9 @@ pub fn transfer_point(
     params: &GhsParams,
 ) -> Result<MumfordDivisor<F2mNaive<1>, 1>, GhsError>;
 
-pub enum GhsError { SubfieldDivisibility, NonDescendable, NotOnCurve, NotInSubfield }
+pub enum GhsError {
+    SubfieldDivisibility, NonDescendable, NotOnCurve, NotInSubfield, SubfieldPolyMismatch,
+}
 ```
 
 `transfer_point` guards its input. A point that does not satisfy the curve equation of $E$ is
@@ -1331,15 +1333,24 @@ when $E$ is defined over $\mathbb{F}_{2^l}$ (`transfer_rejects_conorm_outside_su
 coefficient $a = \alpha \notin \mathbb{F}_{2^2}$). All of these tests are in
 `rho/tests/ghs_kat.rs`.
 
-**The field identification is a fixture property.** After the guard, the code reads the bits of a
-subfield element as an element of $\mathbb{F}_{2^l}$ by reducing the bit pattern modulo the subfield
-polynomial (`restrict_to_subfield`). That is valid on the toy fixture and is not a field
-homomorphism in general ($x^2 + x + 1$ does not divide $x^6 + x + 1$); on $\mathbb{F}_4
-\subset \mathbb{F}_{2^6}$ it differs from `shared_gf2m::restrict` by a Frobenius conjugate. This
-chapter does not claim the identification for other parameters; `docs/MATHEMATICS.md` §10.3 gives
-the detail and the experiment behind it. The homomorphism and log-preservation tests
-(`transfer_homomorphism_*`, `ghs_descend_log_preservation_*`) pass on the fixture under the raw-bits
-reading.
+**Identifying the subfield.** $\mathbb{F}_{2^l}$ sits inside $\mathbb{F}_{2^m}$ as
+$\mathbb{F}_2(\beta)$ with $\beta = \alpha^{(2^m-1)/(2^l-1)}$, and the bits of an
+$\mathbb{F}_{2^l}$ element are its coordinates in the basis $\{1, \beta, \dots, \beta^{l-1}\}$.
+Both `extract_ghs_curve` (the coefficients of $F$) and `transfer_point` (the conorm image) read
+elements through `shared_gf2m::restrict`, so the curve and the divisors live in the same field.
+Reducing the raw bit pattern modulo `poly_l` would not do: it is not a field homomorphism
+($x^2 + x + 1$ does not divide $x^6 + x + 1$) and on $\mathbb{F}_4 \subset \mathbb{F}_{2^6}$ it
+exchanges the conjugates $\beta$ and $\beta^2$. The reading is an isomorphism only when `poly_l` is
+the minimal polynomial of $\beta$, so both functions first reject, before touching any coefficient
+or point, an $l$ that does not divide $m$ (`SubfieldDivisibility`) and a `poly_l` that is not that
+minimal polynomial (`SubfieldPolyMismatch`; `mismatched_poly_l_is_rejected`). The fixture's two
+transfer known answers, $D_P = [X+1, 2]$ and $D_{G+P} = [X+1, 3]$, are derived by hand in the test
+doc comments and cross-checked with PARI/GP; `docs/MATHEMATICS.md` §10.3 gives the worked
+derivation. The homomorphism and log-preservation tests
+(`transfer_homomorphism_*`, `ghs_descend_log_preservation_*`) hold under either reading because the
+fixture curve has coefficients in $\mathbb{F}_2$;
+`curve_and_transfer_share_the_subfield_identification` is the test that exercises the
+identification, on a curve with $a = \beta$.
 
 The internal structure:
 - `rho::ghs::descent` — Artin–Schreier extension and Weil restriction of scalars
@@ -1627,8 +1638,9 @@ implemented head-on, not stubbed, and exercised by KATs on a toy fixture.
 - **GHS/Weil descent.** `ghs_descend`, `verify_log_preservation`, `transfer_point` —
   binary-curve transfer to hyperelliptic Jacobian, exercised on `ghs_toy_curve()`
   ($\mathbb{F}_{2^6}$). It is a transfer only (no `ghs_dlp`); the downstream solve on the
-  Jacobian is not implemented. The transfer rejects off-curve points and curves that do not
-  descend, and its identification of subfield elements is valid on the fixture only (§12).
+  Jacobian is not implemented. The transfer rejects off-curve points, curves that do not
+  descend, and a subfield polynomial that does not match the subfield generator; it identifies
+  $\mathbb{F}_{2^l} \subset \mathbb{F}_{2^m}$ through `shared_gf2m::restrict` (§12).
 
 - **Semaev summation polynomials.** `semaev_poly` via the resultant ladder — the
   index-calculus primitive, exercised by `rho/tests/semaev_kat.rs`.
@@ -1695,7 +1707,7 @@ pre-check asserts (no-regression smoke tests).
 | `rho/tests/factor_kat.rs` | rho factoring KATs | known semiprimes; `Even`/`Rho` evidence; `Prime`, `InvalidInput`, `Unsupported` and `BudgetExhausted` outcomes |
 | `rho/tests/mov_kat.rs` | MOV/Frey–Rück KATs | `mov_reduce` on `pairing_toy()` ($\ell = 3$, $k = 2$); pairing bilinearity; recovery of $k \bmod \ell$ for $k = 0, 1, 2$ with the pairing identity rechecked; input defects and degenerate pairings |
 | `rho/tests/ssa_kat.rs` | SSA KATs | `ssa_solve` on `anomalous_toy()` ($p = 7$); Hensel lift; every $k \in 1..7$ recovered and verified; `NotAnomalous`, `Unsupported`, and $Q = \infty$ |
-| `rho/tests/ghs_kat.rs` | GHS KATs | `ghs_descend` + `verify_log_preservation` on `ghs_toy_curve()` ($\mathbb{F}_{2^6}$); log-preservation; `NotOnCurve` and `NotInSubfield` guards |
+| `rho/tests/ghs_kat.rs` | GHS KATs | `ghs_descend` + `verify_log_preservation` on `ghs_toy_curve()` ($\mathbb{F}_{2^6}$); log-preservation; `NotOnCurve`, `NotInSubfield` and `SubfieldPolyMismatch` guards; hand-derived transfer known answers |
 | `rho/tests/semaev_kat.rs` | Semaev KATs | `semaev_poly` correctness; $S_3$ base case; resultant ladder |
 | `rho/tests/index_calculus_kat.rs` | Index-calculus KATs | factor base and relations; Semaev decomposition; the transposed matrix and its complete left kernel (`left_kernel_annihilates_exponents`); recovery of every residue $k \bmod 5$ for $k \in 0..60$ from a relation combination (`recovers_every_residue`); the `Undetermined` and `Inconsistent` outcomes; the fixture constants (`toy_fixture_parameters`) |
 

@@ -3362,18 +3362,41 @@ conorm image that is not fixed by the relative Frobenius $c \mapsto c^{2^l}$ is 
 `NotInSubfield` (`transfer_rejects_conorm_outside_subfield`, on a curve with coefficient $a =
 \alpha \notin \mathbb{F}_{2^2}$).
 
-*Fixture limit.* After that guard the code reads the bits of a subfield element as an element of
-$\mathbb{F}_{2^l}$ by reducing the raw bit pattern modulo the subfield polynomial. That is valid on
-the toy fixture, where $x^2 + x + 1$ and $x^6 + x + 1$ are the polynomials in use, but it is not a
-field homomorphism in general: $x^2 + x + 1$ does not divide $x^6 + x + 1$, so reducing bits does
-not respect multiplication. On $\mathbb{F}_4 \subset \mathbb{F}_{2^6}$ it sends the elements
-`0x3b` and `0x3a` to `3` and `2`, whereas the field restriction map (`shared_gf2m::restrict`)
-sends them to `2` and `3`, the Frobenius conjugates. The known-answer tests
-`transfer_sample_point_known_answer` and `transfer_g_plus_p_known_answer` pin the raw-bits
-convention: an experiment (not itself a test) found that switching to `restrict` breaks exactly
-those two while the homomorphism and log-preservation tests still pass.
-The identification used here is therefore a property of the fixture and is not claimed for other
-parameters.
+**Identifying $\mathbb{F}_{2^l}$ inside $\mathbb{F}_{2^m}$.** Let $\alpha$ be the root of the
+defining polynomial of $\mathbb{F}_{2^m}$ and $\beta = \alpha^{(2^m-1)/(2^l-1)}$, a generator of
+$\mathbb{F}_{2^l}^\times$. The subfield is $\mathbb{F}_2(\beta)$, and an element of
+$\mathbb{F}_{2^l}$ with coordinate vector $(c_0, \dots, c_{l-1})$ is the element
+$\sum c_i \beta^i$ of $\mathbb{F}_{2^m}$. Reading a $\mathbb{F}_{2^m}$ element of the subfield back as coordinates in the
+basis $\{1, \beta, \dots, \beta^{l-1}\}$ (`shared_gf2m::restrict`) is a field isomorphism exactly
+when the subfield polynomial `poly_l` is the minimal polynomial of $\beta$: $\deg = l$ and
+$\mathrm{poly}_l(\beta) = 0$. Reducing the raw bit pattern of the element modulo `poly_l` is not an
+isomorphism: $x^2 + x + 1$ does not divide $x^6 + x + 1$, so bit reduction does not respect
+multiplication, and on $\mathbb{F}_4 \subset \mathbb{F}_{2^6}$ it exchanges the two conjugates
+$\beta$ and $\beta^2$. Both `extract_ghs_curve` (the coefficients of $F$) and `transfer_point` (the
+coordinates of the conorm image) use `restrict`, and both reject parameters before any coefficient
+or point is read: `SubfieldDivisibility` if $l \nmid m$ (or $l = 0$), and
+`SubfieldPolyMismatch` if `poly_l` is not the minimal polynomial of $\beta$
+(`mismatched_poly_l_is_rejected`, `non_dividing_l_is_rejected_without_panic`). The restriction map
+needs $(2^m-1)/(2^l-1)$ to fit in a `u64`, i.e. $m \le 63$, which a single-limb defining polynomial
+guarantees.
+
+*Worked check on the toy fixture.* With $\alpha$ the root of $x^6 + x + 1$: $\alpha^9 = \alpha^4 +
+\alpha^3$ and $\alpha^{12} = \alpha^2 + 1$, so $\beta = \alpha^{21} = \alpha^5 + \alpha^4 + \alpha^3
++ \alpha + 1 =$ `0x3b`, and $\beta^2 = \beta + 1 =$ `0x3a`; the minimal polynomial of $\beta$ is
+$x^2 + x + 1$, the fixture's `poly_l`. The coordinates in $\{1, \beta\}$ are $1 \mapsto 1$, $\beta
+\mapsto 2$, $\beta^2 \mapsto 3$. The point $P = (1, \beta^2)$ of $E: y^2 + xy = x^3 + x^2 + 1$ lies
+in $E(\mathbb{F}_4)$, so its conorm is $3P$; doubling gives $2P = (0, 1)$, a point of order 2, hence
+$4P = \infty$ and $3P = -P = (1, \beta)$. Thus $D_P = [X + 1, 2]$, and for $G + P = -P$ the conorm
+is $3(-P) = P$ giving $D_{G+P} = [X + 1, 3]$. These values are pinned by
+`transfer_sample_point_known_answer` and `transfer_g_plus_p_known_answer`, whose doc comments carry
+the derivation, and agree with PARI/GP (`ellmul` over $\mathbb{F}_{2^6}$ gives
+$3P = (1, \texttt{0x3b})$ and $3(G+P) = (1, \texttt{0x3a})$). The raw-bit reading would give $3$
+and $2$ instead. The
+homomorphism and log-preservation tests hold under either reading, because the curve
+$C: Y^2 + XY = X^3 + X^2 + 1$ has coefficients in $\mathbb{F}_2$ and is stable under the
+conjugation; they do not test the identification, whereas
+`curve_and_transfer_share_the_subfield_identification` does (a curve with $a = \beta$ has
+$F$-coefficient $2$ under `restrict`, and every transferred divisor is valid on that $C$).
 
 #### L-notation
 

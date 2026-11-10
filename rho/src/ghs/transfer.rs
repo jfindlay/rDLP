@@ -63,10 +63,10 @@
 //! **Provides:** [`transfer_point`], [`verify_homomorphism`].
 
 use crypto_bigint::Uint;
-use shared_gf2m::{F2m, F2mNaive, is_in_subfield};
+use shared_gf2m::{F2m, F2mNaive, restrict};
 
 use crate::binary_curve::{BinaryAffinePoint, BinaryCurve};
-use crate::ghs::{GhsError, GhsParams};
+use crate::ghs::{GhsError, GhsParams, check_subfield_identification};
 use crate::hyperelliptic::{HyperellipticCurve, MumfordDivisor};
 use crate::hyperelliptic::cantor;
 use shared_gf2m::Poly;
@@ -108,6 +108,10 @@ use shared_gf2m::Poly;
 ///
 /// # Errors
 ///
+/// - [`GhsError::SubfieldDivisibility`] or [`GhsError::SubfieldPolyMismatch`] if
+///   `params.l` does not divide the degree of `params.poly_m()`, or `params.poly_l` is
+///   not the minimal polynomial of `β = α^((2^m−1)/(2^l−1))`, so `GF(2^l)` cannot be
+///   identified inside `GF(2^m)`; checked before any point is read.
 /// - [`GhsError::NotOnCurve`] if `p` does not satisfy the Weierstrass equation of
 ///   `params.curve`.  The conorm is a homomorphism only on points of `E`; an
 ///   off-curve point would be fed to the group law, whose output is meaningless.
@@ -135,6 +139,9 @@ pub fn transfer_point(
     curve_c: &HyperellipticCurve<1>,
     params: &GhsParams,
 ) -> Result<MumfordDivisor<F2mNaive<1>, 1>, GhsError> {
+    // The subfield identification must be sound before any coordinate is read.
+    check_subfield_identification(params.l, params.poly_m(), &params.poly_l)?;
+
     // The point at infinity maps to the zero divisor [1, 0].
     if p.is_infinity() {
         return Ok(curve_c.zero_divisor::<F2mNaive<1>>());
@@ -179,20 +186,22 @@ pub fn transfer_point(
     Ok(MumfordDivisor::new(u, v))
 }
 
-/// Re-express a `GF(2^m)` element of the subfield `GF(2^l)` in the `GF(2^l)`
+/// Express a `GF(2^m)` element of the subfield `GF(2^l)` in the `GF(2^l)`
 /// representation (reduction polynomial `params.poly_l`).
 ///
+/// The subfield is identified as `GF(2)(β)` with `β = α^((2^m−1)/(2^l−1))`; the result
+/// is the coordinate vector of `c` in the basis `{1, β, …, β^(l−1)}`, computed by
+/// `shared_gf2m::restrict`.  Bit `i` of the result is the coefficient of `βⁱ`, so the
+/// map is a field isomorphism exactly when `poly_l` is the minimal polynomial of `β`
+/// (checked by `check_subfield_identification` before any transfer).
+///
 /// Returns [`GhsError::NotInSubfield`] unless `c^(2^l) = c` (Galois-invariant under
-/// the relative Frobenius).  The bit pattern of `c` is then reduced modulo
-/// `poly_l`; on the toy fixture this is a field isomorphism of `GF(4)`.
+/// the relative Frobenius).
 fn restrict_to_subfield(
     c: &F2mNaive<1>,
     params: &GhsParams,
 ) -> Result<F2mNaive<1>, GhsError> {
-    if !is_in_subfield(c, params.l, params.poly_m()) {
-        return Err(GhsError::NotInSubfield);
-    }
-    Ok(F2mNaive::<1>::from_uint(c.to_uint(), &params.poly_l))
+    restrict(c, params.l, params.poly_m()).ok_or(GhsError::NotInSubfield)
 }
 
 // ─── conorm_sum ───────────────────────────────────────────────────────────────

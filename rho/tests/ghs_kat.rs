@@ -40,10 +40,16 @@
 //! ### Input guards
 //! - An off-curve point gives `GhsError::NotOnCurve` (also through `ghs_descend`).
 //! - A conorm image with a coordinate outside `GF(2^l)` gives `GhsError::NotInSubfield`.
+//! - A `poly_l` that is not the minimal polynomial of `β = α^((2^m−1)/(2^l−1))` gives
+//!   `GhsError::SubfieldPolyMismatch` (extraction, transfer, and `ghs_descend`); `l ∤ m`
+//!   gives `SubfieldDivisibility` even when `GhsParams` is built without `new`.
+//! - Curve extraction and transfer use one identification of `GF(2^l)`: on `E` with
+//!   `a = β`, every transferred divisor is valid on the extracted `C`.
 //!
 //! ### Homomorphism property (decisive correctness guard)
 //! - `compose(D_G, D_P) == D_{G+P}` — the transfer is a group homomorphism.
-//! - Known-answer: `D_G = [X, 1]`, `D_P = [X+1, 3]`, `D_{G+P} = [X+1, 2]`.
+//! - Known-answer: `D_G = [X, 1]`, `D_P = [X+1, 2]`, `D_{G+P} = [X+1, 3]` (hand-derived in
+//!   the doc comments of the transfer known-answer tests).
 //! - `D_G + D_G (Cantor) == D_{2G}` — doubling case.
 //!
 //! ## GHS hyperelliptic-curve extraction `C/GF(2^l)` (imaginary model)
@@ -593,6 +599,7 @@ fn ghs_error_display_non_empty() {
         GhsError::NonDescendable,
         GhsError::NotOnCurve,
         GhsError::NotInSubfield,
+        GhsError::SubfieldPolyMismatch,
     ];
     for e in &errors {
         let s = format!("{e}");
@@ -1099,16 +1106,27 @@ fn transfer_sample_point_is_valid_divisor() {
     );
 }
 
-/// Known-answer: `D_P = [X+1, 3]` for `P = (0x01, 0x3a)`.
+/// Known-answer: `D_P = [X+1, 2]` for `P = (0x01, 0x3a)`.
 ///
-/// For `P = (0x01, 0x3a)` over GF(2^6) with poly 0x43, the conorm map computes:
-/// - `φ_2(P) = (0x01^4, 0x3a^4) = (0x01, 0x3b)` (Frobenius conjugate).
-/// - `φ_2²(P) = (0x01^16, 0x3a^16) = (0x01, 0x3a)` (second conjugate).
-/// - `R = P + φ_2(P) + φ_2²(P)` in the group law of E.
+/// Derived by hand, independently of the code under test.  `α` is the root of
+/// `x⁶+x+1`, so `α⁶ = α+1`, and the subfield generator is `β = α²¹`.
 ///
-/// The known-answer `D_P = [X+1, 3]` means:
-/// - `u(X) = X + 1`: constant term 1, X-coefficient 1.
-/// - `v(X) = 3 = β+1` in GF(2^2).
+/// 1. Powers of `α`: `α⁹ = α⁴+α³` and `α¹² = α²+1`, so
+///    `β = α¹²·α⁹ = (α²+1)(α⁴+α³) = α⁶+α⁵+α⁴+α³ = α⁵+α⁴+α³+α+1 = 0b111011 = 0x3b`.
+///    `β³ = 1` and `β ≠ 1`, so `β²+β+1 = 0` and `β² = β+1 = 0b111010 = 0x3a`.
+///    The minimal polynomial of `β` is `x²+x+1`, which is `poly_l = 0x7`.
+/// 2. `GF(2^2) = {0, 1, β, β²} = {0, 0x01, 0x3b, 0x3a}`; coordinates in the basis `{1, β}`
+///    (bit `i` = coefficient of `βⁱ`): `1 ↦ 0b01 = 1`, `β ↦ 0b10 = 2`, `β² = 1+β ↦ 0b11 = 3`.
+/// 3. `P = (1, β²)` has both coordinates in `GF(2^2)`, so `φ_2(P) = φ_2²(P) = P` and the
+///    conorm is `R = 3P`.  On `E: y²+xy = x³+x²+1` (a = 1, b = 1):
+///    doubling uses `λ = x + y/x = 1+β² = β`, `x₃ = λ²+λ+a = β²+β+1 = 0`,
+///    `y₃ = x² + (λ+1)x₃ = 1`, so `2P = (0, 1) = G`, a point of order 2 (`2G = ∞`).
+///    Hence `4P = ∞` and `3P = −P = (x, y+x) = (1, β²+1) = (1, β)`.
+/// 4. `R = (1, β)`: `x_R = 1 ↦ 1`, `y_R = β ↦ 2`.  So `D_P = [X+1, 2]`.
+///
+/// The earlier value `v = 3` came from reducing the raw bits of `β = 0x3b` modulo `x²+x+1`,
+/// which names `β²` instead of `β`; the basis-coordinate reading gives `2`.  (PARI/GP
+/// `ellmul` on the same curve over `GF(2^6)` returns `3P = (1, 0x3b)`, matching step 3.)
 #[test]
 fn transfer_sample_point_known_answer() {
     let p6 = poly6();
@@ -1129,12 +1147,12 @@ fn transfer_sample_point_known_answer() {
         "D_P: u constant term must be 1 (x_R = 1 from conorm)"
     );
 
-    // v(X) = 3 = β+1 in GF(2^2).
-    let beta_plus_1 = F2mNaive::<1>::from_u64(3, &p2);
+    // v(X) = β = 2 in the basis {1, β} of GF(2^2).
+    let beta = F2mNaive::<1>::from_u64(2, &p2);
     assert_eq!(
         d.v.coeff(0),
-        beta_plus_1,
-        "D_P: v constant term must be β+1 = 3 in GF(2^2)"
+        beta,
+        "D_P: v constant term must be β = 2 in GF(2^2)"
     );
 }
 
@@ -1146,10 +1164,10 @@ fn transfer_sample_point_known_answer() {
 /// is a group homomorphism iff `D_{P+Q} = D_P + D_Q` for all `P, Q ∈ E(GF(2^m))`.
 ///
 /// Known-answer:
-/// - `D_G = [X, 1]`, `D_P = [X+1, 3]`.
+/// - `D_G = [X, 1]`, `D_P = [X+1, 2]`.
 /// - `G + P = (0x01, 0x3b)` on `E`.
-/// - `D_{G+P} = [X+1, 2]`.
-/// - `D_G + D_P (Cantor) = [X+1, 2]` ✓.
+/// - `D_{G+P} = [X+1, 3]`.
+/// - `D_G + D_P (Cantor) = [X+1, 3]` ✓.
 #[test]
 fn transfer_homomorphism_g_plus_p() {
     let p6 = poly6();
@@ -1250,15 +1268,23 @@ fn transfer_homomorphism_identity_element() {
     );
 }
 
-/// Known-answer: `D_{G+P} = [X+1, 2]` for `G = (0,1)` and `P = (0x01, 0x3a)`.
+/// Known-answer: `D_{G+P} = [X+1, 3]` for `G = (0,1)` and `P = (0x01, 0x3a)`.
 ///
-/// `G + P = (0x01, 0x3b)` on `E`.  The conorm map computes the sum of the
-/// Frobenius conjugates of `G+P`, giving a point on `C(GF(2^2))`.
-/// The known-answer `D_{G+P} = [X+1, 2]` means:
-/// - `u(X) = X + 1`.
-/// - `v(X) = 2 = β` in GF(2^2).
+/// Derived by hand, independently of the code under test; the field setup is the one in
+/// `transfer_sample_point_known_answer` (`β = α²¹ = 0x3b`, `β² = 0x3a = β+1`, coordinates in
+/// the basis `{1, β}`: `1 ↦ 1`, `β ↦ 2`, `β² ↦ 3`).
 ///
-/// This is consistent with the homomorphism: `D_G + D_P = [X, 1] + [X+1, 3] = [X+1, 2]`.
+/// 1. `P = (1, β²)` has `2P = G` and `4P = ∞` (see that test), so `G + P = 3P = −P`
+///    `= (1, β²+1) = (1, β) = (0x01, 0x3b)`.
+/// 2. `G + P` lies in `E(GF(2^2))`, so the conorm is `R = 3(G+P) = 9P = P` (since
+///    `4P = ∞`): `R = (1, β²)`.
+/// 3. `x_R = 1 ↦ 1`, `y_R = β² ↦ 3`.  So `D_{G+P} = [X+1, 3]`.
+///
+/// The earlier value `v = 2` came from reducing the raw bits of `β² = 0x3a` modulo `x²+x+1`
+/// (which names `β`); the basis-coordinate reading gives `3`.  PARI/GP `ellmul` on the same
+/// curve over `GF(2^6)` returns `3(G+P) = (1, 0x3a)`.
+///
+/// Consistency with the homomorphism: `D_G + D_P = [X, 1] + [X+1, 2] = [X+1, 3]`.
 #[test]
 fn transfer_g_plus_p_known_answer() {
     let p6 = poly6();
@@ -1284,12 +1310,12 @@ fn transfer_g_plus_p_known_answer() {
         "D_{{G+P}}: u constant term must be 1 (x_R = 1 from conorm)"
     );
 
-    // v(X) = 2 = β in GF(2^2).
-    let beta = F2mNaive::<1>::from_u64(2, &p2);
+    // v(X) = β² = β+1 = 3 in the basis {1, β} of GF(2^2).
+    let beta_plus_1 = F2mNaive::<1>::from_u64(3, &p2);
     assert_eq!(
         d.v.coeff(0),
-        beta,
-        "D_{{G+P}}: v constant term must be β = 2 in GF(2^2)"
+        beta_plus_1,
+        "D_{{G+P}}: v constant term must be β+1 = 3 in GF(2^2)"
     );
 }
 
@@ -1370,6 +1396,105 @@ fn transfer_rejects_conorm_outside_subfield() {
         transfer_point(&p, &curve_c, &bad_params),
         Err(GhsError::NotInSubfield)
     );
+}
+
+/// A `poly_l` that is not the minimal polynomial of `β = α²¹` is rejected before any
+/// coefficient or point is read, by both curve extraction and the transfer map.
+///
+/// `x²+1` has degree 2 but does not vanish at `β` (`β²+1 = β ≠ 0`); `x³+x+1` is
+/// irreducible of degree 3 but is the minimal polynomial of `β⁻¹` for the `l = 3`
+/// generator `α⁹` (whose minimal polynomial is `x³+x²+1`, PARI/GP `minpoly`).
+#[test]
+fn mismatched_poly_l_is_rejected() {
+    let good = toy_params();
+    let curve_c = extract_ghs_curve(good).expect("extraction must succeed");
+    let g = ghs_toy_curve().generator::<F2mNaive<1>>();
+    let inf = BinaryAffinePoint::<F2mNaive<1>>::Infinity;
+
+    for (l, bad_poly) in [(2usize, 0x5u64), (3, 0xb)] {
+        let bad = GhsParams::new(6, l, ghs_toy_curve(), Uint::<1>::from(bad_poly))
+            .expect("l divides m");
+        assert_eq!(
+            extract_ghs_curve(bad.clone()).err(),
+            Some(GhsError::SubfieldPolyMismatch),
+            "extraction must reject poly_l = {bad_poly:#x} for l = {l}"
+        );
+        for point in [&g, &inf] {
+            assert_eq!(
+                transfer_point(point, &curve_c, &bad),
+                Err(GhsError::SubfieldPolyMismatch),
+                "transfer must reject poly_l = {bad_poly:#x} for l = {l}"
+            );
+        }
+        assert!(matches!(
+            ghs_descend(&bad, &g, &g),
+            Err(GhsError::SubfieldPolyMismatch)
+        ));
+    }
+}
+
+/// A `GhsParams` whose `l` does not divide the degree of the source polynomial is rejected
+/// by extraction and transfer with `SubfieldDivisibility`, not a panic in `restrict`.
+///
+/// `GhsParams` fields are public, so the check in `GhsParams::new` can be bypassed.
+#[test]
+fn non_dividing_l_is_rejected_without_panic() {
+    let good = toy_params();
+    let curve_c = extract_ghs_curve(good.clone()).expect("extraction must succeed");
+    let g = ghs_toy_curve().generator::<F2mNaive<1>>();
+    let bad = GhsParams { l: 4, ..good };
+    assert_eq!(extract_ghs_curve(bad.clone()).err(), Some(GhsError::SubfieldDivisibility));
+    assert_eq!(
+        transfer_point(&g, &curve_c, &bad),
+        Err(GhsError::SubfieldDivisibility)
+    );
+}
+
+/// The curve coefficients and the transferred divisors use one identification of `GF(2^2)`.
+///
+/// With `a = β = 0x3b` (a subfield element outside `GF(2)`), `E: y²+xy = x³+βx²+1` descends
+/// to `C: Y²+XY = X³+2X²+1` over `GF(2^2)` in the basis `{1, β}` (`β ↦ 2`; a raw-bits
+/// reading of `0x3b` would give `3 = β²`).  Every point of `E(GF(2^6))` must then transfer
+/// to a divisor that is valid on that `C`, and the transfer must stay a homomorphism.
+#[test]
+fn curve_and_transfer_share_the_subfield_identification() {
+    let p6 = poly6();
+    let beta_curve = BinaryCurve { a: Uint::<1>::from(0x3bu64), ..ghs_toy_curve() };
+    let params =
+        GhsParams::new(6, 2, beta_curve.clone(), poly2()).expect("toy GHS params must be valid");
+    let curve_c = extract_ghs_curve(params.clone()).expect("extraction must succeed");
+
+    assert!(
+        curve_c.f::<F2mNaive<1>>().coeff(2) == F2mNaive::<1>::from_u64(2, &poly2()),
+        "F(X) coefficient of X² must be β ↦ 2 in the basis {{1, β}}"
+    );
+
+    let mut points = Vec::new();
+    for x in 0u64..64 {
+        for y in 0u64..64 {
+            let pt = BinaryAffinePoint::new(
+                F2mNaive::<1>::from_u64(x, &p6),
+                F2mNaive::<1>::from_u64(y, &p6),
+            );
+            if beta_curve.is_on_curve(&pt) {
+                points.push(pt);
+            }
+        }
+    }
+    assert!(points.len() > 8, "the curve must have affine points to transfer");
+
+    for pt in &points {
+        let d = transfer_point(pt, &curve_c, &params).expect("transfer must succeed");
+        assert!(curve_c.is_valid(&d), "transferred divisor must be valid on the extracted C");
+    }
+    for p in points.iter().take(6) {
+        for q in points.iter().take(6) {
+            assert!(
+                verify_homomorphism(p, q, &beta_curve, &curve_c, &params),
+                "homomorphism must hold on the a = β curve"
+            );
+        }
+    }
 }
 
 /// All transferred divisors are valid reduced divisors.

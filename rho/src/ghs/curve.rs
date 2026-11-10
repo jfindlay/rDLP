@@ -66,9 +66,9 @@
 //! **Provides:** [`extract_ghs_curve`], [`ghs_genus`].
 
 use crypto_bigint::Uint;
-use shared_gf2m::{F2m, is_in_subfield};
+use shared_gf2m::{F2m, is_in_subfield, restrict};
 
-use crate::ghs::{ArtinSchreierData, GhsError, GhsParams};
+use crate::ghs::{ArtinSchreierData, GhsError, GhsParams, check_subfield_identification};
 use crate::hyperelliptic::HyperellipticCurve;
 
 // ─── genus formula ────────────────────────────────────────────────────────────
@@ -118,14 +118,22 @@ pub fn ghs_genus(m: usize, l: usize) -> usize {
 /// 1. Derives the Artin–Schreier polynomial `f_AS(x) = x³+ax²+b` from `E`.
 /// 2. Verifies that `f_AS` has all coefficients in `GF(2^l)` (required for the
 ///    imaginary-model descent without additional Weil-restriction work).
-/// 3. Sets `F(X) = f_AS` viewed over `GF(2^l)` (same coefficients, subfield poly).
+/// 3. Sets `F(X) = f_AS` over `GF(2^l)`, each coefficient replaced by its coordinates
+///    in the subfield basis `{1, β, …, β^(l−1)}`.
 /// 4. Sets `H(X) = X` (from the `xy` term in the Weierstrass equation).
 /// 5. Returns `HyperellipticCurve` with `poly = poly_l`, `h_coeffs`, `f_coeffs`.
 ///
 /// The resulting curve has genus `g = (m/l − 1)/2` (for odd `m/l`).
 ///
+/// The `GF(2^l)` coefficients are the coordinates of the `GF(2^m)` coefficients in the
+/// subfield basis `{1, β, …, β^(l−1)}` (`shared_gf2m::restrict`), the same identification
+/// the transfer map uses, so the curve and the transferred divisors share one field.
+///
 /// # Errors
 ///
+/// - [`GhsError::SubfieldDivisibility`] or [`GhsError::SubfieldPolyMismatch`] if `l` does
+///   not divide the degree of the source-field polynomial, or `poly_l` is not the minimal
+///   polynomial of `β = α^((2^m−1)/(2^l−1))`.
 /// - [`GhsError::NonDescendable`] if `m/l` is even (the imaginary model requires
 ///   odd `m/l`; even `m/l` yields the real/split model).
 /// - [`GhsError::NonDescendable`] if the Artin–Schreier polynomial is not
@@ -140,6 +148,9 @@ pub fn ghs_genus(m: usize, l: usize) -> usize {
 /// is NOT the crypto-scale case (genus ≥ 2).  The construction is correct; only
 /// the parameters are toy.
 pub fn extract_ghs_curve(params: GhsParams) -> Result<HyperellipticCurve<1>, GhsError> {
+    // The subfield identification must be sound before any coefficient is read.
+    check_subfield_identification(params.l, params.poly_m(), &params.poly_l)?;
+
     let n = params.extension_degree(); // m/l
 
     // The imaginary model requires odd m/l.
@@ -172,16 +183,20 @@ pub fn extract_ghs_curve(params: GhsParams) -> Result<HyperellipticCurve<1>, Ghs
     }
 
     // Extract the f_coeffs over GF(2^l).
-    // Since all coefficients of f_AS are in GF(2^l) ⊂ GF(2^m), we can
-    // reinterpret them as GF(2^l) elements.  The raw bit-vector representation
-    // is the same (GF(2^l) elements have the same bit-vector in GF(2^m) since
-    // GF(2^l) is a subfield).
+    // A GF(2^m) bit-vector is not a GF(2^l) bit-vector: the subfield is GF(2)(β) with
+    // β = α^((2^m−1)/(2^l−1)), and a GF(2^l) element's bits are its coordinates in the
+    // basis {1, β, …, β^(l−1)}.  `restrict` computes those coordinates, the same
+    // identification the transfer map applies to the conorm image.
     //
     // f_AS(x) = x³ + ax² + b  →  F(X) = X³ + aX² + b over GF(2^l)
     // coeffs: [b, 0, a, 1]  (index = degree)
     let f_coeffs: Vec<Uint<1>> = (0..=deg)
-        .map(|i| as_data.f_poly.coeff(i).to_uint())
-        .collect();
+        .map(|i| {
+            restrict(&as_data.f_poly.coeff(i), l, &poly_m)
+                .map(|c| c.to_uint())
+                .ok_or(GhsError::NonDescendable)
+        })
+        .collect::<Result<_, _>>()?;
 
     // H(X) = X: from the xy term in the Weierstrass equation y²+xy = x³+ax²+b.
     // In the Artin–Schreier form, the xy term contributes H(X) = X to the
