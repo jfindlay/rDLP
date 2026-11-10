@@ -48,7 +48,7 @@ edges (dev-dependencies included), git-history housekeeping.
 | 5 | Apply ECM stage-1 prime powers one ladder call at a time | B | T1 | — | `shared/numth/src/ecm.rs`, `shared/numth/docs/PEDAGOGY.md` §5, `docs/MATHEMATICS.md` (ECM) |
 | 6 | Report non-dividing factor candidates as `Inconsistent` | B | T1 | C-OutcomeShape, C-EcmStage1 | `rho/src/factor/{rho.rs,mod.rs}`, `rho/tests/factor_kat.rs`, `shared/numth/src/ecm.rs` |
 | 7 | Certify rho-factoring primes below 2^80 with the 13-base bound | B | T1 | C-FactorInconsistent | `rho/src/factor/rho.rs`, `rho/tests/factor_kat.rs`, `shared/numth/src/prime.rs` (rustdoc), `docs/MATHEMATICS.md` (primality) |
-| 8 | Project the generic rho-dlog curve onto its prime-order subgroup | B | T1 | C-DlogOutcome (prior arc) | `rho/src/curve/generic.rs`, `rho/src/ecdlp/cli.rs`, `rho/tests/ecdlp_kat.rs`, `README.md`, `docs/PEDAGOGY.md` §6 |
+| 8 | Project the generic rho-dlog curve onto its largest prime-order subgroup | B | T1 | C-DlogOutcome (prior arc) | `rho/src/curve/{generic,mod}.rs`, `rho/src/ecdlp/cli.rs`, `rho/tests/ecdlp_kat.rs`, `README.md`, `docs/PEDAGOGY.md` §6 |
 | 9 | Retarget the ECDLP benches to groups that finish | C | T1 | C-DpBudget (prior arc), C-GenericSubgroup | `rho/benches/ecdlp.rs`, `rho/src/curve/test_curves.rs`, `rho/tests/ecdlp_kat.rs`, `docs/BENCHMARKS.md` |
 | 10 ◆ | Correct the follow-up exposition | I | T1 (◆ fork T0) | all | `docs/MATHEMATICS.md`, `docs/PEDAGOGY.md`, `shared/numth/docs/PEDAGOGY.md`, `docs/BENCHMARKS.md`, `README.md`, `rho/src/pairing/{mov.rs,miller.rs}` (rustdoc/comments) |
 | 11 | Anneal cleanup (skippable) | I | — | none | durable files touched by rows 1–10 |
@@ -163,16 +163,33 @@ KATs: 2^79 − 67 → `Prime` (was `Unsupported`); ψ₁₂ (composite) factors 
 
 Subtleties: if the paper cannot be read, do not raise the bound (see Discoveries).
 
-### 8 — Project the generic rho-dlog curve onto its prime-order subgroup
+### 8 — Project the generic rho-dlog curve onto its largest prime-order subgroup
 
-Deliverable per C-GenericSubgroup: the `generic` generator becomes G′ = 119·G with order
-n′ = 77_507_328_043_853_087, stored with the curve like `secp_k1_toy`; `GENERIC_N` (composite) and
-its "Computed by Sage" provenance go. README and PEDAGOGY §6 describe `generic` as a prime-order
-subgroup and state which default runs can exhaust their budget (secp-toy Brent: per-attempt cap
-2²⁹ − 1 vs ≈ 2.7·10⁹ expected steps, arithmetic only).
+User-approved revision (2026-11-10): retain the curve and accept its small subgroup; do not search
+for a replacement curve or remove `generic`. Deliverable per C-GenericSubgroup: with the original
+P₀ = (3, 821_487_384_573_098_969), store G′ = c·P₀ =
+(3_569_091_914_278_015_591, 7_073_522_384_094_063_206), c = 8_218_965_179_160, and prime order
+n′ = 561_103 in `generic_curve()` (`generic::N` names the order). The CLI uses the stored order;
+its separate `GENERIC_N` and "Computed by Sage" provenance go. No solver algorithm changes.
 
-KATs: G′ ≠ ∞, n′·G′ = ∞, `is_prime(n′)` (together they prove ord G′ = n′ without the external
-order); Brent's input check accepts (G′, n′).
+Rustdoc records the original point and multiplier, with PARI/GP discovery provenance: #E =
+9_223_372_037_844_426_960 and ord P₀ = 4_611_686_018_922_213_480. These full orders and the claim
+that n′ is the largest prime factor are externally computed, not proved by the subgroup KATs.
+The in-tree proof establishes G′'s exact prime order and its relation to P₀ independently of those
+full-order claims. Keep the original reference multiples and arithmetic-consistency tests on P₀
+built explicitly, not on the changed `generator()`.
+
+KATs: G′ on-curve, G′ ≠ ∞, n′·G′ = ∞, `is_prime(n′)`, c·P₀ = G′; Brent's input check accepts
+(G′, n′), and `solve_brent` recovers a fixed nonzero k from (G′, k·G′), with a recorded seed.
+Exercise the existing rejection paths with P₀: as base point it gives `WrongGeneratorOrder`;
+as target with base G′ it gives `TargetOutsideSubgroup`. Do not silently project caller-supplied
+CLI points. If c·P₀ ≠ G′ or n′·G′ ≠ ∞ in-tree: destructive-HALT; no constant adjustment or search.
+
+README, PEDAGOGY §6 and `curve/mod.rs` describe a 63-bit field with a 20-bit subgroup of order
+561103 (approximately 2¹⁹), suitable for runnable demonstrations, not a large-group performance
+baseline. Explain that supplied base/target points must belong to that subgroup and provide a
+working CLI example. Keep the warning about default runs that can exhaust their budget
+(secp-toy Brent: per-attempt cap 2²⁹ − 1 vs ≈ 2.7·10⁹ expected steps, arithmetic only).
 
 ### 9 — Retarget the ECDLP benches to groups that finish
 
@@ -182,6 +199,12 @@ release; reuse an existing prime-order fixture if one fits, else add one (prime 
 in-tree; generator and order found by a bounded, recorded search — an external tool may find,
 never certify). Budgets per C-DpBudget. BENCHMARKS: replace the ecdlp-bench setup description;
 mark old numbers as not re-measured (re-measurement belongs to the tooling scope).
+
+Choose fixtures independently of row 8's CLI repair: `generic` may be reused where it fits, but
+its small group does not by itself establish representative DP/parallel performance and does not
+support GLV. State the actual field/subgroup sizes and relevant tuning parameters; do not infer
+algorithmic speedups from unlike groups or smoke-test completion. Replace BENCHMARKS's `generic`
+"unknown†" row and footnote with the corrected subgroup description and provenance.
 
 KATs: the fixture's prime-order test; `cargo bench -p rho --bench ecdlp -- --test` completes
 (smoke, recorded; not a test substitute).
@@ -194,8 +217,11 @@ Miller divisor's support (the value is undefined; the tangent-line numerator van
 as `DegeneratePairing`. (b) Sweep superseded claims across all durable surfaces these solvers
 touch, including unchanged passages: the SSA halving and "`LiftFailed` means bad input"; GHS
 "valid only on the fixture"; MOV `debug_assert`-only domain; ECM "B1 ≳ 177 wraps"; `generic`
-composite order; rho factoring "probable prime in [ψ₁₂, 2^80) is `Unsupported`"; `pohlig.rs`'s
-ECM mention. (c) Anneal the arc's durable files against the denylist.
+composite or wrong order (9_223_372_037_218_517_353 is neither #E nor a multiple of ord P₀),
+including BENCHMARKS's `generic` row/footnote; rho factoring "probable prime in [ψ₁₂, 2^80) is
+`Unsupported`"; `pohlig.rs`'s ECM mention. Keep field size distinct from subgroup size and external
+full-order provenance distinct from in-tree subgroup proof. (c) Anneal the arc's durable files
+against the denylist.
 
 KAT substitute (prose row): every changed behaviour claim cites the test that exercises it or is
 labelled; flagged as this row's contract.
@@ -365,8 +391,12 @@ MILLER_RABIN_PROOF_BOUND`; `PRIME_PROOF_BOUND` removed.
 
 ### C-GenericSubgroup
 
-Test-enforced. To be frozen at 8. Consumed by 9, 10. The `generic` curve's generator has proven
-prime order n′ = 77_507_328_043_853_087 (checked in-tree).
+Test-enforced. Revised with user approval on 2026-11-10; to be frozen after implementation at 8.
+Consumed by 9, 10. The stored `generic` generator G′ = 8_218_965_179_160·P₀ has exact prime order
+n′ = 561_103, proved in-tree by on-curve/nonidentity checks, annihilation and primality; its
+relation to P₀ is also checked in-tree. The CLI uses the stored order and never silently projects
+supplied points. Original-point arithmetic KATs remain on P₀. The fixture is a runnable small
+subgroup over a 63-bit field, not a promised large-group or representative parallel benchmark.
 
 ### C-BenchFixture
 
@@ -463,7 +493,7 @@ change and on first active run of each new day.
 | 5 | Apply ECM stage-1 prime powers one ladder call at a time | done | a4a040f | C-EcmStage1 (coverage deferred to ◆) |
 | 6 | Report non-dividing factor candidates as `Inconsistent` | done | 7ce7340 | C-FactorInconsistent (allowed extra `rho/src/factor/cli.rs`; coverage deferred to ◆) |
 | 7 | Certify rho-factoring primes below 2^80 with the 13-base bound | done | 53b072e | C-RhoPrimeBound (allowed extras: `factor/{mod,cli}.rs`, both PEDAGOGY files; coverage deferred to ◆) |
-| 8 | Project the generic rho-dlog curve onto its prime-order subgroup | pending | | HALTED 2026-11-10: premise false (n′ is not the order of 119·G); `additive-reshard` verdict not applied (run lacks `may-reshard`; user decision) — see Discoveries & risks |
+| 8 | Project the generic rho-dlog curve onto its largest prime-order subgroup | pending | | HALT resolved by user approval 2026-11-10: revised to order 561103; implementation and in-tree proof still pending; no general `may-reshard` permission granted |
 | 9 | Retarget the ECDLP benches to groups that finish | pending | | |
 | 10 | Correct the follow-up exposition ◆ | pending | | |
 | 11 | Anneal cleanup (skippable) | pending | | |
@@ -572,7 +602,7 @@ to touch it or leave it for the roadmap owner). Worker fixed `docs/PEDAGOGY.md` 
 PEDAGOGY :465 outside the listed files — row 10's sweep should re-read them.
 Texture: none.
 
-### 8 — 2026-11-10 (HALT: reshard needs `may-reshard` and a user decision)
+### 8 — 2026-11-10 (historical HALT; resolved by the approval below)
 Discovery/flex: The row-8 worker (read-only, `gp`) found the plan's n′ = 77_507_328_043_853_087 is
 prime but is NOT a factor of #E for `generic` (y² = x³ − 3x + 1 over p = 2⁶³ − 25, P₀ = (3,
 821_487_384_573_098_969)); n′·(119·P₀) ≠ ∞. The juncture fork verified it independently: #E =
@@ -612,6 +642,23 @@ claim in the five places listed.
 Texture: the worker correctly refused to adjust constants; the fork corrected the worker's claim
 that today's CLI fails with `WrongGeneratorOrder` (it is `OrderNotPrime`).
 
+### 8 — 2026-11-10 (user-approved revision; implementation pending)
+
+Decision: accept the 561103-order subgroup, retaining the curve and the original-point reference
+tests. The row-8 deliverable, C-GenericSubgroup, row-9 benchmark caveats and row-10 stale-claim
+sweep above now supersede the unapplied verdict/options in the historical halt entry. Only
+`curve/mod.rs` is added to row 8's expected files; no solver, dependency or algorithm scope grows.
+Confirmed by source inspection: the CLI holds the incorrect separate order constant; existing
+`generic` KATs exercise arithmetic, and the ECDLP benches use `secp_k1_toy`, not `generic`.
+Judgment: a runnable small subgroup serves this repair better than a replacement-curve search;
+it sacrifices large-group experiments but preserves independent arithmetic references. A future
+large-group fixture needs a separate requirement, not an assumed obligation of this repair.
+Safeguards: prove the subgroup in-tree, preserve rejection of supplied points outside it, and
+separate field size (63 bits), subgroup size (20 bits, approximately 2¹⁹), and benchmark suitability.
+The external full orders are discovery provenance, not certified by the subgroup tests.
+Resume from row 8 with the revised PLAN after review; `may-reshard` is not needed for this approved
+change and was not granted. No implementation, tests or commits were performed for this revision.
+
 ## Discoveries & risks
 
 Carried down from ROADMAP and the sharding survey; phrased for adjudication.
@@ -633,7 +680,9 @@ Carried down from ROADMAP and the sharding survey; phrased for adjudication.
 - **Confirmed (survey), enrolled 8:** `GENERIC_N` = 7·17·77_507_328_043_853_087 ("Computed by
   Sage"). If n′·G′ ≠ ∞: additive-reshard (surface; dropping `generic` is the user's fallback
   decision). **Fired at row 8 (2026-11-10):** n′·G′ ≠ ∞ and `GENERIC_N` is not even a multiple of
-  ord P₀; see the row-8 digest entry for the verdict spec and the user decision it awaits.
+  ord P₀. **Resolved by user approval 2026-11-10:** row 8 now uses the 561103-order subgroup;
+  implementation and in-tree proof remain pending. If the specified c·P₀ or n′·G′ checks fail:
+  destructive-HALT, not another constant adjustment. See the row-8 approval digest.
 - **Inferred, enrolled 5:** Z ≡ 0 modulo a factor persists through later ladder calls, so the
   final gcd still detects it; if stage 2 depends on stage 1's point semantics, internal-continue.
 - **Internal-continue:** call-site adaptation outside a row's files when the compiler forces it;
