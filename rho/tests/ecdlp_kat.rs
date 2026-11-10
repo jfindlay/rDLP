@@ -30,8 +30,9 @@ use rho::curve::{AffinePoint, Curve, JacobianPoint};
 use rho::curve::generic::{generic_curve, N as GENERIC_N};
 use rho::curve::secp_k1_toy::{secp_k1_toy, GX, LAMBDA, N as SECP_N};
 use rho::curve::test_curves::{
-    composite_rho_toy, composite_toy, tiny_a, tiny_b, tiny_glv, COMPOSITE_RHO_TOY_FACTORS,
-    COMPOSITE_RHO_TOY_N, COMPOSITE_TOY_N, TINY_A_N, TINY_B_N, TINY_GLV_N,
+    composite_rho_toy, composite_toy, prime_order_25, tiny_a, tiny_b, tiny_glv,
+    COMPOSITE_RHO_TOY_FACTORS, COMPOSITE_RHO_TOY_N, COMPOSITE_TOY_N, PRIME_ORDER_25_B,
+    PRIME_ORDER_25_G, PRIME_ORDER_25_N, PRIME_ORDER_25_P, TINY_A_N, TINY_B_N, TINY_GLV_N,
 };
 use rho::ecdlp::pohlig::{solve_ecdlp_composite, DigitMethod, PohligEvidence};
 use rho::ecdlp::{
@@ -237,6 +238,44 @@ fn generic_original_point_is_rejected_not_projected() {
         solve_brent(&c, &g, &p0, GENERIC_N, GENERIC_SEED, 30),
         Err(DlogError::InvalidInput(InputDefect::TargetOutsideSubgroup))
     );
+}
+
+// ── prime_order_25 KATs ──────────────────────────────────────────────────────
+//
+// The fixture's numbers were found with PARI/GP (`ellcard`); nothing below trusts it. The
+// checks prove that the stored generator has exact prime order `n` and that `n` is the order of
+// the whole group.
+
+/// The stored generator is on the curve and has exact prime order `n`, and `n` is the order of
+/// the whole group.
+///
+/// `G ≠ ∞`, `n` prime and `n·G = ∞` give `ord G = n`, so `n | #E`. By Hasse, `#E` lies within
+/// `2√p` of `p + 1`; that interval is shorter than `n`, so it holds at most one multiple of `n`,
+/// and `n` itself lies in it. Hence `#E = n`.
+#[test]
+fn prime_order_25_generator_has_exact_prime_order_of_whole_group() {
+    let c = prime_order_25();
+    let g: AffinePoint<FpMonty> = c.generator();
+    let (p, n) = (PRIME_ORDER_25_P, PRIME_ORDER_25_N);
+
+    assert_eq!(c.p, Uint::<4>::from(p), "field characteristic");
+    assert_eq!(c.a, Uint::<4>::from(p - 3), "a = −3 mod p");
+    assert_eq!(c.b, Uint::<4>::from(PRIME_ORDER_25_B), "b");
+    assert_eq!(c.n, Uint::<4>::from(n), "stored order");
+    assert_eq!(affine_x(&g), Uint::<4>::from(PRIME_ORDER_25_G.0), "stored G x");
+    assert_eq!(affine_y(&g), Uint::<4>::from(PRIME_ORDER_25_G.1), "stored G y");
+    assert!(is_prime(&Uint::<4>::from(p)), "p is not prime");
+
+    assert!(c.is_on_curve(&g), "G not on curve");
+    assert!(!g.is_infinity(), "G is the point at infinity");
+    assert!(is_prime(&Uint::<4>::from(n)), "n is not prime");
+    assert!(c.scalar_mul(&g, &Uint::<4>::from(n)).is_infinity(), "n·G ≠ ∞");
+
+    // Hasse: (n − (p + 1))² ≤ 4p, and the interval length 4√p is below n, i.e. 16p < n².
+    let (p, n) = (u128::from(p), u128::from(n));
+    let gap = n.abs_diff(p + 1);
+    assert!(gap * gap <= 4 * p, "n is outside the Hasse interval of p + 1");
+    assert!(16 * p < n * n, "the Hasse interval is not shorter than n");
 }
 
 // ── secp_k1_toy KATs ─────────────────────────────────────────────────────────

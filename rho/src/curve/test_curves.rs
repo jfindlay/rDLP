@@ -201,6 +201,45 @@ pub const COMPOSITE_RHO_TOY_N: u64 = 1068;
 /// Prime-power factorization of `COMPOSITE_RHO_TOY_N`.
 pub const COMPOSITE_RHO_TOY_FACTORS: &[(u64, u32)] = &[(2, 2), (3, 1), (89, 1)];
 
+// ── 25-bit prime-order curve ──────────────────────────────────────────────────
+
+/// Field characteristic of `prime_order_25`: the first prime at or above `2^24`.
+pub const PRIME_ORDER_25_P: u64 = 16_777_259;
+/// Prime group order of `prime_order_25` (the whole curve): `n = 16_777_729`.
+pub const PRIME_ORDER_25_N: u64 = 16_777_729;
+/// Curve coefficient `b` of `prime_order_25`.
+pub const PRIME_ORDER_25_B: u64 = 72;
+/// Generator of `prime_order_25`, as `(x, y)`.
+pub const PRIME_ORDER_25_G: (u64, u64) = (1, 6_299_712);
+
+/// Return the 25-bit prime-order curve used by the ECDLP benchmarks.
+///
+/// `y² = x³ − 3x + 72 mod 16_777_259`, a 25-bit field. The whole group has prime order
+/// `n = 16_777_729` (25 bits) and the generator `G = (1, 6_299_712)` has exact order `n`, so a
+/// plain rho collision takes about `1.25·√n ≈ 5·10³` steps. The curve has `a ≠ 0`, so it has no
+/// GLV endomorphism and supports every distinguished-point solver except `solve_dp_glv`.
+///
+/// # Provenance
+///
+/// Found with PARI/GP 2.17.3 (`ellcard`, i.e. SEA point counting) by a bounded search: fix
+/// `a = −3`, take `p` the first prime at or above `2^24`, and try `b = 1, 2, …, 200` in order
+/// (`b = 2` is singular and is skipped), stopping at the first `b` whose `#E` is prime and `≠ p`.
+/// That was `b = 72`, the 71st curve tried. The generator is the point with the smallest `x`
+/// (here `x = 1`) and the smaller of its two `y` roots. PARI/GP only found these numbers; the
+/// tests certify them: `G` is on the curve, `n` is prime, `n·G = ∞`, and the Hasse bound
+/// `|n − (p + 1)| ≤ 2√p` leaves `n` as the only multiple of itself in the Hasse interval (the
+/// interval is shorter than `n`), so `n` is the order of the whole group.
+pub fn prime_order_25() -> Curve {
+    Curve {
+        p: Uint::<4>::from(PRIME_ORDER_25_P),
+        a: Uint::<4>::from(PRIME_ORDER_25_P - 3), // -3 mod p
+        b: Uint::<4>::from(PRIME_ORDER_25_B),
+        n: Uint::<4>::from(PRIME_ORDER_25_N),
+        gx: Uint::<4>::from(PRIME_ORDER_25_G.0),
+        gy: Uint::<4>::from(PRIME_ORDER_25_G.1),
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

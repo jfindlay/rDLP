@@ -70,14 +70,28 @@ distinguished-point solver); the deliverable is correctness: 50 tests, 0 failure
 
 | Curve | Prime p | a | b | n |
 |-------|---------|---|---|---|
-| `generic` | 2^63 − 25 (63-bit) | p − 3 (≡ −3) | 1 | unknown† |
+| `generic` | 2^63 − 25 (63-bit) | p − 3 (≡ −3) | 1 | 561_103 (prime; order of the stored generator's subgroup)† |
 | `secp_k1_toy` | 4_611_686_018_427_395_203 (63-bit) | 0 | 7 | 4_611_686_022_420_787_627 (prime) |
+| `prime_order_25` | 16_777_259 (25-bit) | p − 3 (≡ −3) | 72 | 16_777_729 (prime; the whole group)‡ |
 
-† The generic curve's group order is not required for curve arithmetic; tests use small-scalar
-  reference points rather than n·G = ∞. The `rho-dlog` CLI embeds an order for it,
-  9 223 372 037 218 517 353, which is composite (7 · 17 · 77 507 328 043 853 087), so the
-  prime-order rho solvers reject it as `InvalidInput(OrderNotPrime)` rather than search. No KAT
-  runs a solver on this curve (the `generic` tests are group-law checks).
+† `generic` is a 63-bit field carrying a subgroup of about 2¹⁹ elements, not a 63-bit group. Its
+  stored generator `G = (3_569_091_914_278_015_591, 7_073_522_384_094_063_206)` is the multiple
+  `8_218_965_179_160 · P₀` of the original point `P₀ = (3, 821_487_384_573_098_969)`, and the tests
+  prove in-tree that `G` is on the curve, `G ≠ ∞`, `561_103·G = ∞` with 561_103 prime (so `G` has
+  exact order 561_103), and that the multiple relation holds. PARI/GP supplied the rest as
+  discovery provenance, not certified here: `#E = 9_223_372_037_844_426_960`,
+  `ord P₀ = 4_611_686_018_922_213_480`, and that 561_103 is the largest prime factor of the
+  latter. The group order is the order of the subgroup, so a solver base point and target must lie
+  in `⟨G⟩`; `P₀` is rejected, not projected. A rho collision there takes about a thousand steps
+  (arithmetic from `√n`), so it is a small runnable subgroup, not a representative large-group or
+  parallel-performance fixture, and its `a = p − 3`, `b = 1` form has no GLV endomorphism.
+
+‡ `prime_order_25` is the fixture the `ecdlp` bench uses (see the cross-attack section). Its
+  numbers were found with PARI/GP 2.17.3 (`ellcard`) by a bounded search: `a = −3`, `p` the first
+  prime at or above 2²⁴, `b = 1, 2, …, 200` in order skipping the singular `b = 2`, stopping at the
+  first `b` whose `#E` is prime and `≠ p` (that was `b = 72`, the 71st curve tried); `G` is the
+  point with the smallest `x`. The tests prove in-tree that `G` is on the curve, `n` is prime,
+  `n·G = ∞`, and, via the Hasse bound, that `n` is the order of the whole group.
 
 ### secp_k1_toy endomorphism
 
@@ -106,7 +120,7 @@ both p and n are prime, both ≡ 1 (mod 3).
 
 The single-threaded baseline delivers the working DLP solver.  There are no throughput benchmarks
 of it on the KAT curves; the deliverable is correctness. The `ecdlp` bench (see the cross-attack
-section) runs it on the 63-bit `secp_k1_toy` group, where it is not practically runnable.
+section) runs it on the 25-bit prime-order `prime_order_25` group.
 
 ### Solver design
 
@@ -464,15 +478,35 @@ structure it exploits. The pedagogical point is *which structure unlocks
 which escape from the generic √n bound*, not a fixed-instance timing race — each attack applies
 only on the curve whose precondition it requires.
 
-The Pollard-rho baseline is already benched in `rho/benches/ecdlp.rs` on `secp_k1_toy` (63-bit,
-`k = 12_345_678_901`). That bench is the generic-√n reference column; it is cited here, not
-duplicated. It is not practically runnable: rho does not exploit that `k` is small, so a collision
-in the 63-bit prime-order group takes about 1.25·√n ≈ 2.7·10⁹ walk steps (arithmetic from the group
-order, not a measurement), and the bench repeats that for every Criterion iteration. The bench
-unwraps each solve, so a failed solve aborts it. The distinguished-point variants run under an
-explicit step budget of 2⁴⁰ ≈ 1.1·10¹², a safety cap a few hundred times the expected cost. The
-Brent variant runs 20 attempts of at most 2²⁹ − 1 steps each, below the expected cost of one
-collision, so by the same arithmetic it would most likely end as budget exhaustion and abort.
+The Pollard-rho baseline is benched in `rho/benches/ecdlp.rs`, which covers Brent, `solve_dp`
+(1, 2, 4 walkers), `solve_dp_negmap` and `solve_dp_batch`. Setup:
+
+- **Group.** `prime_order_25`: `y² = x³ − 3x + 72` over the 25-bit prime field
+  `p = 16_777_259`, whole group of prime order `n = 16_777_729` (25 bits), generator
+  `G = (1, 6_299_712)`. Provenance is in the "Concrete curves" footnote. A plain rho collision
+  takes about 1.25·√n ≈ 5·10³ steps (arithmetic from the group order, not a measurement).
+- **Target.** `k = 12_345_678_901 mod n`, `Q = k·G`.
+- **Tuning.** `theta = 4` (one point in 16 distinguished); distinguished-point step budget
+  2²² ≈ 4.2·10⁶ (a safety cap, about 800 times the expected plain-walk cost); Brent 20 attempts
+  of at most 2²⁹ − 1 steps; walkers 1, 2, 4 for `solve_dp`, 2 for the negation-map and
+  batched-inversion variants; batch size 16; Criterion sample size 10; fixed seed.
+- **Check before timing.** Every bench solves its instance once, outside the timed loop, and
+  asserts the solve succeeded and returned `k`, so a solver that cannot finish fails the bench
+  rather than timing an error.
+- **Not benched.** `solve_dp_glv` supports only `secp_k1_toy` (group order about 2⁶², on the order
+  of 10⁹ rho steps per solve) and the fixture has no GLV endomorphism, so there is no GLV bench.
+
+The group is small, so the bench says nothing about performance at cryptographic sizes, and each
+comparison holds only for this one group. The group size was chosen so that every variant finishes
+in about two seconds or less per solve in a release build; a sizing run on a 31-bit prime-order
+group showed `solve_dp_negmap` not finishing within 60–120 s (see the bench's module comment for
+the sizing observations). The sizing runs were wall-clock checks that each solve finishes, not
+benchmark results.
+
+The bench previously ran on the 63-bit `secp_k1_toy` group (about 2.7·10⁹ expected steps per
+solve), where the solves could not finish in practice; no timing from that setup exists. No
+Criterion median is recorded for the new setup either: the `~N µs` entries below stand for figures
+not yet measured, and re-measurement belongs to the benchmark-tooling work.
 
 The new bench file `rho/benches/attacks.rs` adds five Criterion bench functions, one per
 algebraic attack. Each bench body asserts the solver returns the known correct answer before
@@ -487,7 +521,7 @@ algebraic property that breaks the generic √n barrier.
 
 | Attack | Curve precondition | Applies? | Toy-scale cost | Escape structure |
 |--------|--------------------|----------|----------------|------------------|
-| Pollard rho (baseline) | None — generic group | Always | ~N µs (Criterion median, `ecdlp.rs` bench on `secp_k1_toy`) | None — generic √n walk |
+| Pollard rho (baseline) | None — generic group | Always | ~N µs (Criterion median, `ecdlp.rs` bench on `prime_order_25`; not yet measured) | None — generic √n walk |
 | Pohlig–Hellman | `#E(F_p) = n` composite, `n = ∏ pᵢ^{eᵢ}` | `composite_toy` (n = 60 = 2²·3·5) | ~N µs (Criterion median) | Composite order: reduces to prime-order subgroup DLPs via CRT |
 | MOV/Frey–Rück | Embedding degree `k` small; `ℓ | p^k − 1`, `ℓ ∤ p^j − 1` for `j < k` | `pairing_toy` (ℓ = 3, k = 2, F_{47²}) | ~N µs (Criterion median) | Pairing bridge: transports ECDLP to F_{p^k}* DLP via bilinearity |
 | SSA | `#E(F_p) = p` (anomalous; trace of Frobenius = 1) | `anomalous_toy` (y² = x³ + 5 mod 7, #E = 7 = p) | ~N µs (Criterion median) | Anomalous order: p-adic lift + formal group log gives polynomial-time solve |
@@ -544,7 +578,7 @@ attacks chapter of the textbook (`docs/MATHEMATICS.md` ch. 10).
 | `rho/benches/attacks.rs` | `attacks/ssa` | SSA on `anomalous_toy` (p = 7, #E = 7); asserts `ssa_solve` returns `Ok(3)` before timing |
 | `rho/benches/attacks.rs` | `attacks/ghs_transfer` | GHS transfer on `ghs_toy_curve` (GF(2^6)); asserts log-preservation holds for k = 1 before timing |
 | `rho/benches/attacks.rs` | `attacks/index_calculus` | Index calculus on `IndexCalcStrategy::toy` (ℓ = 5, \|FB\| = 6); asserts x·G_ℓ = Q_ℓ before timing |
-| `rho/benches/ecdlp.rs` | (existing) | Pollard-rho baseline on `secp_k1_toy` (63-bit); cited as the generic-√n reference column; not practically runnable (about 2.7·10⁹ steps per solve, see above) |
+| `rho/benches/ecdlp.rs` | `ecdlp/brent`, `ecdlp/solve_dp`, `ecdlp/negmap_vs_dp`, `ecdlp/batch_vs_negmap` | Pollard-rho baseline on `prime_order_25` (25-bit field, prime group order 16_777_729); cited as the generic-√n reference column; asserts each solve succeeds before timing; no GLV bench (see above) |
 
 ## Shor simulator — State-vector quantum-circuit simulator: dense vs sparse, qubit scaling
 
