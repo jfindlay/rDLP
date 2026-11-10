@@ -54,7 +54,7 @@ their presence here. Shard a selected scope into `PLAN.md` only after its contra
 | Scope | Current state | Dependency / priority |
 |---|---|---|
 | NFS-DL composition | Placeholder and unresolved maths | Design before implementation |
-| Solver-outcome audit | Repairs landed; open follow-ups below | Decisions needed; NFS-DL via its design |
+| Solver-outcome audit | Follow-ups decided; executing in PLAN | In progress; NFS-DL via its design |
 | Oracles / CADO sidecar | Early GNFS slice selected | Design separately; parallel with repairs |
 | GNFS assurance | Coverage limits, not proven defects | After urgent repairs |
 | Mathematical exposition | Errors and unsupported claims | Correct with algorithm adjudication |
@@ -143,6 +143,16 @@ closure condition; delete an item when its fix lands. In the solver items every 
 checked against the group or divisibility identity, so none returns a wrong answer; the GHS item
 concerns the transfer, which has no such end-to-end check, so its wrong-result exposure is
 **inferred**, not demonstrated.
+
+**Decided 2026-11-09 and sharded into the current PLAN:** SSA lifts non-canonically, drops the
+halving and gains `InvalidInput` plus a dedicated invariant-failure class; GHS adopts
+`shared_gf2m::restrict` with independently derived constants; MOV gains a release-mode
+unsupported-domain outcome, and the R = G zero is documented as a Miller evaluation on the
+divisor support (kept as `DegeneratePairing`); ECM applies stage-1 prime powers one ladder call at
+a time and stays a standalone primitive; `rho-dlog --curve generic` projects onto its prime-order
+subgroup and the ECDLP benches move to instances that finish; rho factoring and ECM report a
+non-dividing candidate as `Inconsistent`; rho factoring certifies primes up to 2^80 from the
+13-base bound. Delete each item below as its fix lands.
 
 - **SSA on the canonical lift (confirmed; decision needed).** On the stored a = 0 lift of
   `anomalous_toy` (y² = x³ + 5 over F₇), multiplication by p lands at valuation 2, and the

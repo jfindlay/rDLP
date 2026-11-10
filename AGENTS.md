@@ -15,10 +15,16 @@ and `docs/PEDAGOGY.md` for the section-by-section code tour.
 See [`docs/development.md`](docs/development.md) for the full contributor guide: setup, toolchain
 upgrades, and a precise enforced-vs-declared breakdown of every check command. Summary:
 
-- Enforced (must stay green before finishing any change): `cargo check --workspace`,
-  `cargo test --workspace`, `cargo dep-policy` (dependency license/advisory/source policy),
-  `cargo audit` (RustSec advisory cross-check), and `cargo coverage` (80% line-coverage floor,
-  currently measuring around 92–93%).
+- Enforced (must stay green), each on its own cadence — `docs/development.md`'s "Verification
+  cadence" is the authority: `cargo check --workspace` and `cargo test --workspace` once on the final
+  inputs of each completed code change; `cargo coverage` (80% line-coverage floor, currently
+  measuring around 92–93%) at the end of each planned group of related changes and at final delivery,
+  earlier after substantial test removal; `cargo dep-policy` (dependency license/advisory/source
+  policy) and `cargo audit` (RustSec advisory cross-check) when dependency inputs change, on the
+  first active run of each day, and before a release. A result is reusable only if it was run on the
+  same relevant inputs (the tree's content, not `HEAD` alone), is backed by a readable log, and, for
+  the security checks, is fresh as that document defines. Report a check not yet due as deferred
+  with its next checkpoint, never as passed.
 - `cargo dep-policy` and `cargo audit` also depend on the date: a new advisory can turn them red
   against an unchanged tree. Treat that as a dependency-graph finding to triage, following
   `docs/development.md`'s "Dependency maintenance" section, not as a regression from your change.

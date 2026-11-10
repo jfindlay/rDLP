@@ -37,8 +37,8 @@ the date as well as the tree. A new RustSec advisory can turn either red against
 `Cargo.lock`, so a failure there is a finding about the dependency graph, not necessarily a
 regression from the change in hand. Triage it separately from the change being made.
 
-No scheduler or CI runs these checks. Run `cargo audit` and `cargo dep-policy` periodically and
-before cutting a release.
+No scheduler or CI runs these checks. The "Verification cadence" section below says when they must
+run: when dependency inputs change, on the first active run of each day, and before a release.
 
 When an advisory fires, work through these in order:
 
@@ -59,9 +59,57 @@ Dependencies that share a type across crate boundaries must move together. `cryp
 `rand_core` feature fixes which `rand_core` major version the workspace's `rand`/`rand_chacha`
 must match, and `k256`/`p256` must match the `crypto-bigint` major version.
 
+## Verification cadence
+
+This section is the authority for when each enforced check must run. The commands and the 80%
+coverage floor are unchanged; only the schedule differs, so that an agent handoff alone never causes
+a repeated run.
+
+| Check | Required cadence |
+|---|---|
+| Targeted tests and named known-answer tests | The edit/fix loop; every obligation specific to the change before it is accepted |
+| `cargo check --workspace` and `cargo test --workspace` | Once on the final inputs of each completed code change |
+| `cargo coverage` | The end of each planned group of related changes, and final delivery; earlier after substantial test removal or a coverage-related change |
+| `cargo dep-policy` and `cargo audit` | When dependency inputs change; the first active run of each day; before a release |
+| Documentation and plan-ledger edits | Only the documentation or contract checks that apply; no automatic Cargo suite |
+
+Rules that go with the table:
+
+- **Coverage runs in addition to ordinary tests.** Replacing the workspace test run with the
+  instrumented one is not part of this cadence. A change completes under its per-change gate while
+  coverage is still pending; that is reported as pending, never as a full-gate pass. A coverage
+  result for unchanged executable inputs may be reused at the next checkpoint.
+- **Security freshness.** `cargo dep-policy` and `cargo audit` count as fresh only when they
+  succeeded for the current dependency inputs and policy, on the current day, with the advisory
+  databases refreshed. Record the advisory database revisions (`~/.cargo/advisory-db` for
+  `cargo audit`, `~/.cargo/advisory-dbs/*` for `cargo deny`) and the refresh time; a new database
+  revision invalidates the corresponding result. An offline or failed refresh is not a fresh pass.
+  The two checks are not interchangeable. Same-day results survive unrelated source edits.
+- **Dependency inputs:** every `Cargo.toml`, `Cargo.lock`, feature and resolver settings,
+  `deny.toml`, `rust-toolchain.toml`, `.cargo/config.toml`, and the versions of `cargo-deny` and
+  `cargo-audit`. A change to any of them triggers both checks.
+- **Executable inputs** (any change invalidates earlier test and coverage evidence): Rust sources
+  including their doc comments (doctests run), anything a test or build reads at run time, build
+  scripts, `Cargo.toml`/`Cargo.lock`, `rust-toolchain.toml`, `.cargo/config.toml` and its test
+  environment settings. Classify by the actual change and its usage; when unsure, treat it as
+  executable. Markdown under `docs/` and crate `docs/` directories is currently not compiled or run;
+  confirm that before relying on it (no source includes Markdown today).
+- **Evidence.** Each completed check yields a record: exact command and working directory, exit
+  status, completion time, log reference, the identity of the tested inputs (base revision plus
+  staged and unstaged changes, deletions, and the contents of untracked additions — neither `HEAD`
+  alone nor `git status` filenames suffice), and the relevant environment (toolchain, flags,
+  features, target, config). Without a verifiable log or identity, rerun the check.
+- **Oracle tests and named ignored tests are unaffected.** Opt-in oracles stay opt-in, and a plan's
+  explicitly named ignored tests run where that plan requires them.
+- **Release.** Dependency policy and audit must be fresh, and coverage current, before a release.
+
+No scheduler or CI enforces this: whoever runs the checks (a contributor or an agent following
+`../AGENTS.md`) is responsible for the cadence.
+
 ## Check commands
 
-Run from the workspace root.
+Run from the workspace root. "Enforced" below means required on the cadence above, not on every
+change.
 
 **Enforced — must stay green:**
 
