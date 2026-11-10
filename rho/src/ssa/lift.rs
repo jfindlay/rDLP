@@ -14,7 +14,7 @@
 //!
 //! The Hensel y-solve requires `g'(y₀) = 2·y₀ ≢ 0 mod p`, i.e. `y₀ ≠ 0` and `p ≠ 2`.
 //! A 2-torsion base point (`y₀ = 0`) or `p = 2` is a degenerate case; `hensel_lift` returns
-//! `HenselError::NonSimpleRoot` in that case, which propagates as `SsaError::LiftFailed`.
+//! `HenselError::NonSimpleRoot` in that case, which propagates as `LiftError::Hensel`.
 //!
 //! # Lift-correctness invariant
 //!
@@ -28,12 +28,61 @@
 
 use num_bigint::BigInt;
 use shared_numfield::poly::IntPoly;
-use shared_padic::{Zp, hensel_lift};
+use shared_padic::{HenselError, Zp, ZpError, hensel_lift};
 
 use shared_field::Fp;
 
 use crate::curve::{AffinePoint, Curve};
-use crate::ssa::{SsaError, uint4_to_bigint};
+use crate::ssa::uint4_to_bigint;
+
+// ─── error type ──────────────────────────────────────────────────────────────
+
+/// Errors from lifting an affine point to Z_p.
+///
+/// These belong to the lift helpers, not to the SSA solver: after the solver has validated its
+/// input none of them can occur (a finite point on an odd-prime-order curve has `y₀ ≠ 0`), and
+/// the solver maps any that does to an invariant failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LiftError {
+    /// The point is the identity, which has no affine coordinates to lift.
+    PointAtInfinity,
+    /// The Hensel y-solve failed (for example a non-simple root at a 2-torsion point `y₀ = 0`).
+    Hensel(HenselError),
+    /// A Z/p^k arithmetic error from the p-adic layer.
+    Padic(ZpError),
+}
+
+impl std::fmt::Display for LiftError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LiftError::PointAtInfinity => write!(f, "the point at infinity cannot be lifted"),
+            LiftError::Hensel(e) => write!(f, "Hensel lift failed: {e}"),
+            LiftError::Padic(e) => write!(f, "p-adic arithmetic error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for LiftError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            LiftError::PointAtInfinity => None,
+            LiftError::Hensel(e) => Some(e),
+            LiftError::Padic(e) => Some(e),
+        }
+    }
+}
+
+impl From<HenselError> for LiftError {
+    fn from(e: HenselError) -> Self {
+        LiftError::Hensel(e)
+    }
+}
+
+impl From<ZpError> for LiftError {
+    fn from(e: ZpError) -> Self {
+        LiftError::Padic(e)
+    }
+}
 
 // ─── point lift ──────────────────────────────────────────────────────────────
 
@@ -54,9 +103,10 @@ use crate::ssa::{SsaError, uint4_to_bigint};
 ///
 /// # Errors
 ///
-/// - [`SsaError::LiftFailed`] if the point is the identity (infinity) or a 2-torsion point
-///   (`y₀ = 0`), or if `p = 2` (non-simple root — Hensel lift not applicable).
-/// - [`SsaError::Padic`] for Z/p^k arithmetic errors.
+/// - [`LiftError::PointAtInfinity`] if the point is the identity.
+/// - [`LiftError::Hensel`] for a 2-torsion point (`y₀ = 0`) or `p = 2` (non-simple root — Hensel
+///   lift not applicable).
+/// - [`LiftError::Padic`] for Z/p^k arithmetic errors.
 ///
 /// # Principle-4 annotation
 ///
@@ -67,16 +117,10 @@ pub fn lift_point<F: Fp<4>>(
     point: &AffinePoint<F>,
     curve: &Curve,
     k: u32,
-) -> Result<(Zp, Zp), SsaError> {
+) -> Result<(Zp, Zp), LiftError> {
     // Extract (x₀, y₀) from the affine point. The identity cannot be lifted.
     let (x0_uint, y0_uint) = match point {
-        AffinePoint::Infinity => {
-            return Err(SsaError::LiftFailed(shared_padic::HenselError::NotARoot {
-                r0: BigInt::from(0i64),
-                p: uint4_to_bigint(&curve.p),
-                residue: BigInt::from(0i64),
-            }));
-        }
+        AffinePoint::Infinity => return Err(LiftError::PointAtInfinity),
         AffinePoint::Finite { x, y } => (x.to_uint(), y.to_uint()),
     };
 
@@ -117,7 +161,7 @@ pub fn lift_point<F: Fp<4>>(
 /// Returns `true` iff the lifted point satisfies the curve equation mod `p^k`.
 /// This is the Hensel lift-correctness defense.
 #[allow(dead_code)] // consumed by the SSA reduction and KATs
-pub fn check_lift_on_curve(x_tilde: &Zp, y_tilde: &Zp, curve: &Curve) -> Result<bool, SsaError> {
+pub fn check_lift_on_curve(x_tilde: &Zp, y_tilde: &Zp, curve: &Curve) -> Result<bool, ZpError> {
     let p_big = uint4_to_bigint(&curve.p);
     let a_big = uint4_to_bigint(&curve.a);
     let b_big = uint4_to_bigint(&curve.b);

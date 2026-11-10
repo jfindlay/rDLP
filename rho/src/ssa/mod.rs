@@ -8,8 +8,9 @@
 //!
 //! # Structure
 //!
-//! - [`mod`] (this file) — `SsaError` enum, the hardcoded anomalous toy curve fixture, and
-//!   `verify_anomalous` (exact O(p) point-count via Legendre symbol, any prime below 2^64).
+//! - [`mod`] (this file) — the `SsaError` and `SsaInputDefect` enums, the hardcoded anomalous toy
+//!   curve fixture, and `verify_anomalous` (exact O(p) point-count via Legendre symbol, any prime
+//!   below 2^64, after checking the modulus is prime and the curve nonsingular).
 //! - [`lift`] — affine F_p point → Z_p lift via Hensel for the SSA reduction.
 //!
 //! # Anomalous curve fixture
@@ -34,8 +35,6 @@ pub use reduce::ssa_solve;
 
 use crypto_bigint::Uint;
 use num_bigint::BigInt;
-use shared_padic::HenselError;
-use shared_padic::ZpError;
 
 use shared_field::Fp;
 
@@ -44,75 +43,91 @@ use crate::curve::Curve;
 // ─── error type ──────────────────────────────────────────────────────────────
 
 /// Errors from the SSA reduction.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// The variants separate invalid input, an unsupported domain, a proven negative and an
+/// invariant failure; none is reported as another.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SsaError {
+    /// The input is not a well-formed instance; see [`SsaInputDefect`] for which part.
+    InvalidInput(SsaInputDefect),
     /// The curve is not anomalous: an exact point count gave `#E(F_p) ≠ p`.
     ///
-    /// The SSA reduction exists only for anomalous curves. This is a proven negative, reported
-    /// only after [`verify_anomalous`] counted the points exactly; a curve whose size is outside
-    /// the counting range is [`SsaError::Unsupported`], never `NotAnomalous`.
+    /// The SSA reduction exists only for anomalous curves. This is a proven negative: the count
+    /// is exact on a nonsingular curve over a prime field, and a curve whose size is outside the
+    /// counting range is [`SsaError::Unsupported`], never `NotAnomalous`.
     NotAnomalous,
-    /// The curve was proven anomalous and the points lifted, but neither candidate for the
-    /// logarithm satisfied `k·G = Q`.
-    ///
-    /// This is not a statement about the curve, and it is surfaced, never retried. On a lift
-    /// where `p·P̃` has valuation exactly 1 the quotient of formal logarithms determines `k`, so
-    /// the failure indicates an invariant failure (internally contradictory data). On the
-    /// canonical lift (for example an `a = 0` curve with complex multiplication, like the
-    /// fixture) `p·P̃` lies deeper in the filtration and the quotient is a lift-dependent
-    /// second-order artefact; the method's derivation does not hold there, so this error can
-    /// occur on valid input. See the `reduce` module documentation for the candidates.
-    Inconsistent {
-        /// The quotient of formal logarithms modulo `p` that no candidate could be derived from.
-        k_raw: u64,
-    },
     /// The input lies outside the implementation's domain: a prime or curve coefficient that
     /// does not fit one 64-bit limb, or a prime below 5 (short Weierstrass form needs `p > 3`).
     Unsupported(&'static str),
-    /// Hensel lifting failed (e.g. non-simple root — 2-torsion base point with y = 0).
-    LiftFailed(HenselError),
-    /// A Z/p^k arithmetic error from the p-adic layer.
-    Padic(ZpError),
+    /// The quotient of formal logarithms modulo `p` fails `k·G = Q`.
+    ///
+    /// This is an invariant failure: it is surfaced, never retried. On a lift where `p·P̃` has
+    /// valuation exactly 1 the quotient determines `k`, so a failing candidate is internally
+    /// contradictory data. On the stored `a = 0` lift (the canonical lift of a curve with
+    /// complex multiplication) `p·P̃` lies deeper in the filtration, the quotient is a
+    /// lift-dependent artefact, and this error can occur on valid input.
+    Inconsistent {
+        /// The quotient of formal logarithms modulo `p` that failed verification.
+        k: u64,
+    },
+    /// An internal property that must hold after validation was violated, with no candidate `k`.
+    ///
+    /// The message names the violated property. It is surfaced, never retried. Where the lift of
+    /// the stored `a = 0` curve puts `p·G̃` in `E₂` (valuation of the formal parameter above 1,
+    /// or a vanishing residue at working precision), these breaches can occur on valid input.
+    InvariantFailure(&'static str),
 }
 
-impl std::fmt::Display for SsaError {
+/// What is wrong with an input that [`SsaError::InvalidInput`] rejects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SsaInputDefect {
+    /// The field modulus is not prime.
+    FieldNotPrime,
+    /// The curve is singular: `4a³ + 27b² ≡ 0 (mod p)`.
+    SingularCurve,
+    /// The base point `G` is the point at infinity.
+    GeneratorAtInfinity,
+    /// The base point `G` does not satisfy the curve equation.
+    GeneratorNotOnCurve,
+    /// The target `Q` does not satisfy the curve equation.
+    TargetNotOnCurve,
+    /// The stated order is not `p`, the order of every anomalous curve.
+    OrderNotFieldPrime,
+}
+
+impl std::fmt::Display for SsaInputDefect {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SsaError::NotAnomalous => write!(f, "curve is not anomalous: #E(F_p) ≠ p"),
-            SsaError::Inconsistent { k_raw } => write!(
-                f,
-                "anomalous curve but no candidate for k verified (log quotient {k_raw} mod p)"
-            ),
-            SsaError::Unsupported(why) => write!(f, "outside the supported domain: {why}"),
-            SsaError::LiftFailed(e) => write!(f, "Hensel lift failed: {e}"),
-            SsaError::Padic(e) => write!(f, "p-adic arithmetic error: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for SsaError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            SsaError::LiftFailed(e) => Some(e),
-            SsaError::Padic(e) => Some(e),
-            SsaError::NotAnomalous | SsaError::Inconsistent { .. } | SsaError::Unsupported(_) => {
-                None
+            SsaInputDefect::FieldNotPrime => write!(f, "field modulus is not prime"),
+            SsaInputDefect::SingularCurve => {
+                write!(f, "curve is singular (4a³ + 27b² ≡ 0 mod p)")
+            }
+            SsaInputDefect::GeneratorAtInfinity => write!(f, "G is the point at infinity"),
+            SsaInputDefect::GeneratorNotOnCurve => write!(f, "G is not on the curve"),
+            SsaInputDefect::TargetNotOnCurve => write!(f, "Q is not on the curve"),
+            SsaInputDefect::OrderNotFieldPrime => {
+                write!(f, "n ≠ p (the order of every anomalous curve)")
             }
         }
     }
 }
 
-impl From<HenselError> for SsaError {
-    fn from(e: HenselError) -> Self {
-        SsaError::LiftFailed(e)
+impl std::fmt::Display for SsaError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SsaError::InvalidInput(d) => write!(f, "invalid SSA input: {d}"),
+            SsaError::NotAnomalous => write!(f, "curve is not anomalous: #E(F_p) ≠ p"),
+            SsaError::Unsupported(why) => write!(f, "outside the supported domain: {why}"),
+            SsaError::Inconsistent { k } => {
+                write!(f, "the quotient {k} mod p fails k·G = Q, an invariant failure")
+            }
+            SsaError::InvariantFailure(why) => write!(f, "invariant failure: {why}"),
+        }
     }
 }
 
-impl From<ZpError> for SsaError {
-    fn from(e: ZpError) -> Self {
-        SsaError::Padic(e)
-    }
-}
+/// No variant wraps another error, so no variant has a source.
+impl std::error::Error for SsaError {}
 
 // ─── anomalous toy curve fixture ─────────────────────────────────────────────
 
@@ -152,15 +167,50 @@ pub fn anomalous_toy() -> Curve {
 /// is held in `u128` as well, since `#E ≤ p + 1 + 2√p` can exceed `u64`. The cost is O(p) field
 /// operations — this is a counting check, not Schoof–SEA, and is practical only for small `p`.
 ///
-/// `p` is assumed prime, as for every [`Curve`]; the Legendre symbol is not meaningful otherwise.
+/// The count is a proven negative only on a nonsingular curve over a prime field (a split-node
+/// cubic, for example, counts exactly `p`), so the curve is validated first by [`check_curve`].
 ///
 /// # Errors
 ///
-/// [`SsaError::Unsupported`] if `p`, `a` or `b` does not fit in 64 bits or `p < 5`. A curve
-/// outside that range is never reported as non-anomalous.
+/// - [`SsaError::Unsupported`] if `p`, `a` or `b` does not fit in 64 bits or `p < 5`. A curve
+///   outside that range is never reported as non-anomalous.
+/// - [`SsaError::InvalidInput`] with [`SsaInputDefect::FieldNotPrime`] or
+///   [`SsaInputDefect::SingularCurve`] for a composite modulus or a singular cubic; the count of
+///   such a curve says nothing about anomalousness, so `Ok(_)` is never returned for it.
 pub fn verify_anomalous<F: Fp<4>>(curve: &Curve) -> Result<bool, SsaError> {
-    let (p, a, b) = curve_params_u64(curve)?;
+    let (p, a, b) = check_curve(curve)?;
+    Ok(count_equals_p(p, a, b))
+}
 
+/// Validate the curve `y² = x³ + ax + b` over `F_p` for the SSA reduction.
+///
+/// Returns `(p, a mod p, b mod p)` once `p`, `a`, `b` fit one limb with `p ≥ 5`, `p` is prime
+/// (`shared_numth::is_prime`, deterministic on `u64`), and `4a³ + 27b² ≢ 0 (mod p)`.
+///
+/// # Errors
+///
+/// [`SsaError::Unsupported`], then [`SsaError::InvalidInput`] with
+/// [`SsaInputDefect::FieldNotPrime`], then [`SsaInputDefect::SingularCurve`], in that order.
+pub(crate) fn check_curve(curve: &Curve) -> Result<(u64, u64, u64), SsaError> {
+    let (p, a, b) = curve_params_u64(curve)?;
+    if !shared_numth::is_prime(&Uint::<4>::from(p)) {
+        return Err(SsaError::InvalidInput(SsaInputDefect::FieldNotPrime));
+    }
+
+    let m = u128::from(p);
+    let (a, b) = (u128::from(a), u128::from(b));
+    let a3 = a * a % m * a % m;
+    let b2 = b * b % m;
+    // 4a³ + 27b² with every product reduced first, so each term stays below 27 · 2^64.
+    let disc = (4 * a3 % m + 27 * b2 % m) % m;
+    if disc == 0 {
+        return Err(SsaError::InvalidInput(SsaInputDefect::SingularCurve));
+    }
+    Ok((p, a as u64, b as u64))
+}
+
+/// Whether `#E(F_p) = p` for the nonsingular curve `y² = x³ + ax + b` over the prime field `F_p`.
+fn count_equals_p(p: u64, a: u64, b: u64) -> bool {
     // #E = 1 (infinity) + Σ_x (1 + Legendre(x³ + ax + b | p)); the summand is the number of
     // y with y² = x³ + ax + b, i.e. 0, 1 or 2.
     let p128 = u128::from(p);
@@ -173,7 +223,7 @@ pub fn verify_anomalous<F: Fp<4>>(curve: &Curve) -> Result<bool, SsaError> {
         count += (1 + leg) as u128;
     }
 
-    Ok(count == p128)
+    count == p128
 }
 
 /// Read `(p, a, b)` from `curve` as `u64`, with `a` and `b` reduced modulo `p`.

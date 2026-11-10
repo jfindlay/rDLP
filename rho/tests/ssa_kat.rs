@@ -26,6 +26,12 @@
 //!     `ssa_solve`, never `NotAnomalous`.
 //! 16. `verify_anomalous` counts exactly where `x³` overflows `u64` (an anomalous curve over a
 //!     prime above `2^21.4`, and the same curve with a tampered coefficient).
+//! 17. Every `SsaInputDefect` is reachable through `ssa_solve`, in the order the checks run:
+//!     composite modulus, singular curve, `G = ∞`, `G` and `Q` off the curve, `n ≠ p`.
+//!     `verify_anomalous` shares the first two. No `SsaError` variant has a `source`.
+//!
+//! The invariant-failure and inconsistent-quotient outcomes are reached through unit seams in
+//! `rho::ssa::formal_log` and `rho::ssa::reduce`, which hold the private helpers they exercise.
 //!
 //! # Note on the fixture's lift
 //!
@@ -55,8 +61,10 @@ use num_bigint::BigInt;
 use rho::curve::{AffinePoint, Curve};
 use rho::ecdlp::solve_brent;
 use shared_field::{Fp, FpNaive4 as FpNaive};
-use rho::ssa::lift::{check_lift_on_curve, lift_point};
-use rho::ssa::{ANOMALOUS_TOY_P, SsaError, anomalous_toy, verify_anomalous, ssa_solve};
+use rho::ssa::lift::{LiftError, check_lift_on_curve, lift_point};
+use rho::ssa::{
+    ANOMALOUS_TOY_P, SsaError, SsaInputDefect, anomalous_toy, ssa_solve, verify_anomalous,
+};
 use shared_padic::HenselError;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -257,7 +265,7 @@ fn kat_lift_second_point_arithmetic_spot_check() {
 ///
 /// The Hensel y-solve requires `g'(y₀) = 2·y₀ ≢ 0 mod p`. For a 2-torsion point
 /// (`y₀ = 0`), `g'(0) = 0 ≡ 0 mod p`, so the root is not simple. The lift must
-/// return `SsaError::LiftFailed(HenselError::NonSimpleRoot)`.
+/// return `LiftError::Hensel(HenselError::NonSimpleRoot)`.
 ///
 /// Test curve: `y² = x³ + x` over `F_7` (non-anomalous, but has the 2-torsion point
 /// `(0, 0)` since `0³ + 0 = 0`). The non-anomalous property is irrelevant here — we
@@ -280,13 +288,37 @@ fn kat_lift_2torsion_errors_non_simple_root() {
     let result = lift_point::<FpNaive>(&two_torsion, &curve_2torsion, 4);
 
     assert!(
-        matches!(
-            result,
-            Err(rho::ssa::SsaError::LiftFailed(HenselError::NonSimpleRoot { .. }))
-        ),
-        "lifting a 2-torsion point (y=0) must return SsaError::LiftFailed(NonSimpleRoot), \
+        matches!(result, Err(LiftError::Hensel(HenselError::NonSimpleRoot { .. }))),
+        "lifting a 2-torsion point (y=0) must return LiftError::Hensel(NonSimpleRoot), \
          got: {result:?}"
     );
+}
+
+/// The identity has no affine coordinates: lifting it is `LiftError::PointAtInfinity`.
+#[test]
+fn kat_lift_infinity_errors() {
+    let result = lift_point::<FpNaive>(&AffinePoint::Infinity, &anomalous_toy(), 4);
+    assert_eq!(result.err(), Some(LiftError::PointAtInfinity));
+}
+
+/// `LiftError` wraps its cause as the `source`; the identity has none.
+#[test]
+fn kat_lift_error_source_chain() {
+    use std::error::Error;
+
+    let curve_2torsion = Curve {
+        p: Uint::<4>::from(7u64),
+        a: Uint::<4>::from(1u64),
+        b: Uint::<4>::from(0u64),
+        n: Uint::<4>::from(8u64),
+        gx: Uint::<4>::from(0u64),
+        gy: Uint::<4>::from(0u64),
+    };
+    let hensel = lift_point::<FpNaive>(&point_on(0, 0, 7), &curve_2torsion, 4)
+        .expect_err("2-torsion point cannot be lifted");
+    assert!(hensel.source().is_some(), "LiftError::Hensel must expose its cause");
+    assert!(LiftError::PointAtInfinity.source().is_none());
+    assert!(!hensel.to_string().is_empty());
 }
 
 // ─── KAT 7: lift at precision k=1 (trivial case) ─────────────────────────────
@@ -622,4 +654,178 @@ fn kat_verify_anomalous_exact_where_cube_overflows_u64() {
         Ok(false),
         "y² = x³ + 1 over F_{p} is not anomalous"
     );
+}
+
+// ─── input validation ─────────────────────────────────────────────────────────
+
+/// A curve over `F_p` with the given coefficients and stated order.
+fn curve_over(p: u64, a: u64, b: u64, n: u64) -> Curve {
+    Curve {
+        p: Uint::<4>::from(p),
+        a: Uint::<4>::from(a),
+        b: Uint::<4>::from(b),
+        n: Uint::<4>::from(n),
+        gx: Uint::<4>::from(0u64),
+        gy: Uint::<4>::from(0u64),
+    }
+}
+
+fn invalid(defect: SsaInputDefect) -> Result<u64, SsaError> {
+    Err(SsaError::InvalidInput(defect))
+}
+
+/// A composite field modulus is `FieldNotPrime`, from both entry points and ahead of the
+/// singularity check.
+#[test]
+fn kat_composite_modulus_is_field_not_prime() {
+    let g = point_on(3, 2, 9);
+    // 9 = 3²: y² = x³ + 5 is nonsingular mod 9 here, so only primality is wrong.
+    let curve = curve_over(9, 0, 5, 9);
+    assert_eq!(
+        verify_anomalous::<FpNaive>(&curve),
+        Err(SsaError::InvalidInput(SsaInputDefect::FieldNotPrime))
+    );
+    assert_eq!(ssa_solve::<FpNaive>(&curve, &g, &g, 9), invalid(SsaInputDefect::FieldNotPrime));
+
+    // A composite modulus that is also singular still reports the modulus first.
+    let singular = curve_over(9, 0, 0, 9);
+    assert_eq!(
+        ssa_solve::<FpNaive>(&singular, &g, &g, 9),
+        invalid(SsaInputDefect::FieldNotPrime)
+    );
+
+    // A large composite below 2^64 is caught by the primality test, not by the count.
+    let big = u64::MAX; // 2^64 − 1 = 3 · 5 · 17 · 257 · 641 · 65537 · 6700417
+    assert_eq!(
+        verify_anomalous::<FpNaive>(&curve_over(big, 0, 5, big)),
+        Err(SsaError::InvalidInput(SsaInputDefect::FieldNotPrime))
+    );
+}
+
+/// A singular cubic is `SingularCurve`, from both entry points, never an anomalous count.
+///
+/// `y² = x³ + x + 5 = (x − 3)²(x + 6)` over `F_7` has a split node at `x = 3` (the tangent slopes
+/// satisfy `s² = 3·3 ≡ 2`, a square), so it has exactly `p` points: a count alone would call it
+/// anomalous. The other cases are singular by `4a³ + 27b² ≡ 0`.
+#[test]
+fn kat_singular_curve_is_rejected_before_the_count() {
+    let p = 7u64;
+    let g = point_on(3, 2, p);
+
+    // The split-node cubic really has p points (brute-force count, independent of the solver).
+    let points = 1 + (0..p)
+        .map(|x| {
+            let rhs = (x * x * x + x + 5) % p;
+            (0..p).filter(|y| y * y % p == rhs).count() as u64
+        })
+        .sum::<u64>();
+    assert_eq!(points, p, "the split-node cubic counts exactly p");
+
+    for (a, b) in [(1u64, 5u64), (0, 0), (4, 2)] {
+        let curve = curve_over(p, a, b, p);
+        assert_eq!(
+            verify_anomalous::<FpNaive>(&curve),
+            Err(SsaError::InvalidInput(SsaInputDefect::SingularCurve)),
+            "a = {a}, b = {b}"
+        );
+        assert_eq!(
+            ssa_solve::<FpNaive>(&curve, &g, &g, p),
+            invalid(SsaInputDefect::SingularCurve),
+            "a = {a}, b = {b}"
+        );
+    }
+}
+
+/// `G = ∞` is `GeneratorAtInfinity`, even when `Q = ∞` too.
+#[test]
+fn kat_generator_at_infinity() {
+    let curve = anomalous_toy();
+    let inf = AffinePoint::<FpNaive>::Infinity;
+    for q in [toy_point(6, 5), AffinePoint::Infinity] {
+        assert_eq!(
+            ssa_solve::<FpNaive>(&curve, &inf, &q, ANOMALOUS_TOY_P),
+            invalid(SsaInputDefect::GeneratorAtInfinity)
+        );
+    }
+}
+
+/// `G` off the curve is `GeneratorNotOnCurve`, ahead of any check on `Q`.
+#[test]
+fn kat_generator_off_curve() {
+    let curve = anomalous_toy();
+    // (3, 3): 9 ≢ 3³ + 5 = 4 mod 7.
+    let g = toy_point(3, 3);
+    for q in [toy_point(6, 5), toy_point(6, 6), AffinePoint::Infinity] {
+        assert_eq!(
+            ssa_solve::<FpNaive>(&curve, &g, &q, ANOMALOUS_TOY_P),
+            invalid(SsaInputDefect::GeneratorNotOnCurve)
+        );
+    }
+}
+
+/// `Q` off the curve is `TargetNotOnCurve`, ahead of the count (so on a non-anomalous curve too).
+#[test]
+fn kat_target_off_curve() {
+    let curve = anomalous_toy();
+    let g = toy_point(3, 2);
+    // (6, 6): 36 ≡ 1 ≢ 6³ + 5 = 221 ≡ 4 mod 7.
+    assert_eq!(
+        ssa_solve::<FpNaive>(&curve, &g, &toy_point(6, 6), ANOMALOUS_TOY_P),
+        invalid(SsaInputDefect::TargetNotOnCurve)
+    );
+
+    let control = curve_over(7, 3, 1, 12);
+    assert_eq!(
+        ssa_solve::<FpNaive>(&control, &point_on(0, 1, 7), &point_on(0, 2, 7), 12),
+        invalid(SsaInputDefect::TargetNotOnCurve)
+    );
+}
+
+/// On an anomalous curve any `n ≠ p` is `OrderNotFieldPrime`; `Q = ∞` and a non-anomalous curve
+/// are decided before `n` is looked at.
+#[test]
+fn kat_order_must_equal_field_prime() {
+    let curve = anomalous_toy();
+    let g = toy_point(3, 2);
+    let q = toy_point(6, 5);
+    for n in [0, 1, 5, 12, 14] {
+        assert_eq!(
+            ssa_solve::<FpNaive>(&curve, &g, &q, n),
+            invalid(SsaInputDefect::OrderNotFieldPrime),
+            "n = {n}"
+        );
+    }
+    assert_eq!(ssa_solve::<FpNaive>(&curve, &g, &q, ANOMALOUS_TOY_P), Ok(3));
+
+    // Q = ∞ is answered before n is checked.
+    assert_eq!(ssa_solve::<FpNaive>(&curve, &g, &AffinePoint::Infinity, 5), Ok(0));
+    // A non-anomalous curve is a proven negative whatever n says.
+    let control = curve_over(7, 3, 1, 12);
+    assert_eq!(
+        ssa_solve::<FpNaive>(&control, &point_on(0, 1, 7), &point_on(0, 1, 7), 7),
+        Err(SsaError::NotAnomalous)
+    );
+}
+
+/// No `SsaError` variant wraps another error, so none has a source; each displays something.
+#[test]
+fn kat_ssa_error_has_no_source() {
+    use std::error::Error;
+
+    let all = [
+        SsaError::InvalidInput(SsaInputDefect::FieldNotPrime),
+        SsaError::InvalidInput(SsaInputDefect::SingularCurve),
+        SsaError::InvalidInput(SsaInputDefect::GeneratorAtInfinity),
+        SsaError::InvalidInput(SsaInputDefect::GeneratorNotOnCurve),
+        SsaError::InvalidInput(SsaInputDefect::TargetNotOnCurve),
+        SsaError::InvalidInput(SsaInputDefect::OrderNotFieldPrime),
+        SsaError::NotAnomalous,
+        SsaError::Unsupported("x"),
+        SsaError::Inconsistent { k: 3 },
+        SsaError::InvariantFailure("x"),
+    ];
+    for e in all {
+        assert!(e.source().is_none(), "{e:?}");
+        assert!(!e.to_string().is_empty(), "{e:?}");
+    }
 }

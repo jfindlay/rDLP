@@ -53,14 +53,14 @@
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::{One, Zero};
-use shared_padic::Zp;
+use shared_padic::{Zp, ZpError};
 
 use shared_field::Fp;
 
 use crate::curve::{AffinePoint, Curve};
 use crate::ssa::formal_log::{elliptic_log_proj, padic_valuation_bigint, pow_bigint};
 use crate::ssa::lift::lift_point;
-use crate::ssa::{SsaError, curve_params_u64, uint4_to_bigint, verify_anomalous};
+use crate::ssa::{SsaError, SsaInputDefect, check_curve, uint4_to_bigint, verify_anomalous};
 
 // ─── SSA entry point ──────────────────────────────────────────────────────────
 
@@ -79,17 +79,32 @@ use crate::ssa::{SsaError, curve_params_u64, uint4_to_bigint, verify_anomalous};
 /// # Returns
 ///
 /// `k` such that `Q = k·G` in E(F_p), as a `u64`, checked by `k·G = Q` before returning.
-/// `Q = ∞` returns `0` immediately, on any curve.
+/// `Q = ∞` returns `0` once the curve, `G` and `Q` have been validated, on any such curve.
 ///
 /// # Errors
 ///
-/// - [`SsaError::Unsupported`] if `p`, `a` or `b` does not fit in 64 bits or `p < 5`.
-/// - [`SsaError::NotAnomalous`] if an exact count gives `#E(F_p) ≠ p`.
-/// - [`SsaError::LiftFailed`] if the Hensel lift fails (e.g., 2-torsion base point).
-/// - [`SsaError::Padic`] for Z/p^k arithmetic errors.
-/// - [`SsaError::Inconsistent`] if the curve is anomalous and the points lifted but neither
-///   candidate (`k_raw`, `k_raw / 2`) satisfies `k·G = Q`; see the module documentation for the
-///   candidates.
+/// The first failing check is returned, in this order:
+///
+/// 1. [`SsaError::Unsupported`] if `p`, `a` or `b` does not fit in 64 bits or `p < 5`.
+/// 2. [`SsaError::InvalidInput`] with [`SsaInputDefect::FieldNotPrime`] if `p` is composite.
+/// 3. [`SsaInputDefect::SingularCurve`] if `4a³ + 27b² ≡ 0 (mod p)`.
+/// 4. [`SsaInputDefect::GeneratorAtInfinity`] if `G = ∞`.
+/// 5. [`SsaInputDefect::GeneratorNotOnCurve`] if `G` fails the curve equation.
+/// 6. [`SsaInputDefect::TargetNotOnCurve`] if `Q` fails the curve equation.
+/// 7. `Q = ∞` returns `Ok(0)`.
+/// 8. [`SsaError::NotAnomalous`] if an exact count gives `#E(F_p) ≠ p`.
+/// 9. [`SsaInputDefect::OrderNotFieldPrime`] if `n ≠ p`.
+///
+/// After these checks `E(F_p)` has prime order `p`, so every finite point on it generates the
+/// group: `n·G = ∞`, `n·Q = ∞` and `Q ∈ ⟨G⟩` follow, and are not tested separately. Then the
+/// reduction runs, and can fail only with:
+///
+/// - [`SsaError::Inconsistent`] if the quotient of the formal logarithms fails `k·G = Q`
+///   (neither the raw quotient nor its half does; see the module documentation).
+/// - [`SsaError::InvariantFailure`] if a property that must hold on validated input is violated
+///   (a lift or p-adic error, a point outside the kernel of reduction, a vanishing or non-unit
+///   logarithm). Where `p·G̃` lies in `E₂` on the stored `a = 0` lift, some of these can occur on
+///   valid input.
 ///
 /// # Scale limits
 ///
@@ -99,24 +114,36 @@ pub fn ssa_solve<F: Fp<4>>(
     curve: &Curve,
     g: &AffinePoint<F>,
     q: &AffinePoint<F>,
-    _n: u64,
+    n: u64,
 ) -> Result<u64, SsaError> {
-    // Q = ∞ is 0·G whatever the curve: the logarithm is 0, with no reduction to run.
+    // Validate the input in the documented order; the first failure is returned. The count is a
+    // proven negative only on a nonsingular curve over a prime field, so the curve check precedes
+    // it. A prime outside the counting range is `Unsupported`, not a negative.
+    let (p, _, _) = check_curve(curve)?;
+    if matches!(g, AffinePoint::Infinity) {
+        return Err(SsaError::InvalidInput(SsaInputDefect::GeneratorAtInfinity));
+    }
+    if !curve.is_on_curve(g) {
+        return Err(SsaError::InvalidInput(SsaInputDefect::GeneratorNotOnCurve));
+    }
+    if !curve.is_on_curve(q) {
+        return Err(SsaError::InvalidInput(SsaInputDefect::TargetNotOnCurve));
+    }
+    // Q = ∞ is 0·G whatever the (valid) curve: the logarithm is 0, with no reduction to run.
     if matches!(q, AffinePoint::Infinity) {
         return Ok(0);
     }
-
-    // Step 1: verify the curve is anomalous (#E(F_p) = p) by an exact count. A prime outside the
-    // counting range is `Unsupported` (from `verify_anomalous`), not a negative.
     if !verify_anomalous::<F>(curve)? {
         return Err(SsaError::NotAnomalous);
     }
+    if n != p {
+        return Err(SsaError::InvalidInput(SsaInputDefect::OrderNotFieldPrime));
+    }
 
-    // Past the check above `p`, `a` and `b` each fit in one limb, so these conversions are exact.
+    // Past the checks above `p`, `a` and `b` each fit in one limb, so these conversions are exact.
     // `a` and `b` are taken as stored (not reduced mod p): they define the lift of the curve to
     // Z_p, and the point lifts and the multiply-by-p loop must use the same lifted curve.
     // SCALE: toy-scale only — the multiply-by-p loop below is O(p) BigInt work.
-    let (p, _, _) = curve_params_u64(curve)?;
     let p_big = uint4_to_bigint(&curve.p);
     let a_big = uint4_to_bigint(&curve.a);
     let b_big = uint4_to_bigint(&curve.b);
@@ -132,8 +159,13 @@ pub fn ssa_solve<F: Fp<4>>(
     let k: u32 = 8;
 
     // Step 2: lift G and Q to Z_p at precision k.
-    let (x_g, y_g) = lift_point::<F>(g, curve, k)?;
-    let (x_q, y_q) = lift_point::<F>(q, curve, k)?;
+    //
+    // On validated input G, Q ≠ ∞ and y₀ ≠ 0 (an odd prime order has no 2-torsion), so neither
+    // lift can fail; a failure is an invariant breach, mapped explicitly, never through `From`.
+    let (x_g, y_g) = lift_point::<F>(g, curve, k)
+        .map_err(|_| SsaError::InvariantFailure("lift of G failed on validated input"))?;
+    let (x_q, y_q) = lift_point::<F>(q, curve, k)
+        .map_err(|_| SsaError::InvariantFailure("lift of Q failed on validated input"))?;
 
     // Step 3: multiply both lifts by p using projective coordinates over Z/p^k.
     //
@@ -142,8 +174,12 @@ pub fn ssa_solve<F: Fp<4>>(
     // which happens at the p-th addition step (the result reduces to infinity mod p).
     //
     // Starting point: (x_g, y_g, 1) in projective.
-    let pg_proj = multiply_by_p_proj(&x_g, &y_g, &a_big, &b_big, &p_big, k, p)?;
-    let pq_proj = multiply_by_p_proj(&x_q, &y_q, &a_big, &b_big, &p_big, k, p)?;
+    let pg_proj = multiply_by_p_proj(&x_g, &y_g, &a_big, &b_big, &p_big, k, p).map_err(|_| {
+        SsaError::InvariantFailure("p-adic layer rejected the coordinates of p·G̃")
+    })?;
+    let pq_proj = multiply_by_p_proj(&x_q, &y_q, &a_big, &b_big, &p_big, k, p).map_err(|_| {
+        SsaError::InvariantFailure("p-adic layer rejected the coordinates of p·Q̃")
+    })?;
 
     // Step 4: apply log(1 + t) at t = −X/Y to both p·G̃ and p·Q̃.
     //
@@ -168,9 +204,9 @@ pub fn ssa_solve<F: Fp<4>>(
 
     // Verification: the quotient is only a candidate. `k·G = Q` is checked in E(F_p) before
     // anything is returned, so the answer does not depend on how the quotient was obtained.
-    let (k, _candidate) = resolve_candidate(k_raw, g, q, curve, p)?;
+    let (k_found, _candidate) = resolve_candidate(k_raw, g, q, curve, p)?;
 
-    Ok(k)
+    Ok(k_found)
 }
 
 // ─── multiply-by-p in projective coordinates ─────────────────────────────────
@@ -195,7 +231,7 @@ fn multiply_by_p_proj(
     p: &BigInt,
     k: u32,
     p_u64: u64,
-) -> Result<(Zp, Zp), SsaError> {
+) -> Result<(Zp, Zp), ZpError> {
     let pk = pow_bigint(p, k);
 
     // Starting point in standard projective: (X, Y, Z) = (x̃, ỹ, 1).
@@ -334,6 +370,12 @@ fn proj_double_std(
 /// Both `psi_g` and `psi_q` are in `p^v·Z_p` for some `v ≥ 1`. Extracts the unit parts
 /// (divides by `p^v`), then computes `(psi_q / p^v) · (psi_g / p^v)⁻¹ mod p`.
 ///
+/// # Errors
+///
+/// [`SsaError::InvariantFailure`] if either log is zero at working precision (its valuation is at
+/// least the precision, which is never read as valuation 0), or if the g-log is not a unit once
+/// the common `p^v` is divided out (`v(ψ_G) > v(ψ_Q)`).
+///
 /// # Scale limits
 ///
 /// SCALE: toy-scale only. The extraction of the unit part assumes small p.
@@ -341,47 +383,38 @@ fn fp_divide_logs(psi_g: &Zp, psi_q: &Zp, p_u64: u64, p: &BigInt) -> Result<u64,
     let g_res = psi_g.residue().clone();
     let q_res = psi_q.residue().clone();
 
-    // Find the minimum valuation.
+    // `padic_valuation_bigint` returns 0 for zero, which would misread a vanishing log as a unit.
+    if g_res.is_zero() {
+        return Err(SsaError::InvariantFailure(
+            "formal logarithm of p·G̃ vanishes at working precision",
+        ));
+    }
+    if q_res.is_zero() {
+        return Err(SsaError::InvariantFailure(
+            "formal logarithm of p·Q̃ vanishes at working precision",
+        ));
+    }
+
+    // Divide out the common power p^v, the smaller valuation.
     let vg = padic_valuation_bigint(&g_res, p);
     let vq = padic_valuation_bigint(&q_res, p);
     let v = vg.min(vq);
 
-    if v == 0 {
-        // Both are units mod p — divide directly.
-        let p_big = BigInt::from(p_u64);
-        let g_mod_p = g_res.mod_floor(&p_big);
-        let q_mod_p = q_res.mod_floor(&p_big);
-        let g_mod_p_u64 = g_mod_p.to_u64_digits().1.first().copied().unwrap_or(0);
-        let q_mod_p_u64 = q_mod_p.to_u64_digits().1.first().copied().unwrap_or(0);
-        if g_mod_p_u64 == 0 {
-            return Err(SsaError::Padic(shared_padic::ZpError::NonUnit {
-                residue: psi_g.residue().clone(),
-                valuation: 0,
-                k: psi_g.precision(),
-            }));
-        }
-        let g_inv = mod_inv_u64(g_mod_p_u64, p_u64);
-        return Ok(mul_mod_u64(q_mod_p_u64, g_inv, p_u64));
-    }
-
-    // Divide by p^v to get unit parts.
     let p_pow_v = pow_bigint(p, v);
     let g_unit = &g_res / &p_pow_v;
     let q_unit = &q_res / &p_pow_v;
 
     // Reduce mod p.
-    let g_unit_mod_p = ((&g_unit).mod_floor(&BigInt::from(p_u64))).to_u64_digits().1;
-    let g_unit_mod_p = if g_unit_mod_p.is_empty() { 0u64 } else { g_unit_mod_p[0] };
+    let p_big = BigInt::from(p_u64);
+    let g_unit_mod_p = g_unit.mod_floor(&p_big).to_u64_digits().1.first().copied().unwrap_or(0);
+    let q_unit_mod_p = q_unit.mod_floor(&p_big).to_u64_digits().1.first().copied().unwrap_or(0);
 
-    let q_unit_mod_p = ((&q_unit).mod_floor(&BigInt::from(p_u64))).to_u64_digits().1;
-    let q_unit_mod_p = if q_unit_mod_p.is_empty() { 0u64 } else { q_unit_mod_p[0] };
-
+    // The g-log must be a unit after the common power is removed; ψ_Q ≡ k·ψ_G forces
+    // v(ψ_Q) ≥ v(ψ_G), so a non-unit means the reduction's data is contradictory.
     if g_unit_mod_p == 0 {
-        return Err(SsaError::Padic(shared_padic::ZpError::NonUnit {
-            residue: psi_g.residue().clone(),
-            valuation: v as u64,
-            k: psi_g.precision(),
-        }));
+        return Err(SsaError::InvariantFailure(
+            "formal logarithm of p·G̃ is not a unit after dividing out the common power of p",
+        ));
     }
 
     let g_inv = mod_inv_u64(g_unit_mod_p, p_u64);
@@ -428,7 +461,7 @@ fn resolve_candidate<F: Fp<4>>(
         return Ok((k_halved, Candidate::Halved));
     }
 
-    Err(SsaError::Inconsistent { k_raw })
+    Err(SsaError::Inconsistent { k: k_raw })
 }
 
 // ─── modular arithmetic helpers ───────────────────────────────────────────────
@@ -510,8 +543,40 @@ mod tests {
         // 2 and 2·2⁻¹ = 1 both differ from k = 3; 0 never verifies for Q ≠ ∞.
         for k_raw in [2, 0] {
             let resolved = resolve_candidate::<FpNaive>(k_raw, &g, &q, &curve, ANOMALOUS_TOY_P);
-            assert_eq!(resolved, Err(SsaError::Inconsistent { k_raw }));
+            assert_eq!(resolved, Err(SsaError::Inconsistent { k: k_raw }));
         }
+    }
+
+    fn zp(residue: i64) -> Zp {
+        Zp::new(&BigInt::from(residue), &BigInt::from(ANOMALOUS_TOY_P), 8).expect("valid Zp")
+    }
+
+    /// A g-log of higher valuation than the q-log is not a unit once the common power is removed:
+    /// an invariant failure.
+    #[test]
+    fn fp_divide_logs_rejects_non_unit_g_log() {
+        // v(ψ_G) = 2 > v(ψ_Q) = 1.
+        let result = fp_divide_logs(&zp(49), &zp(7), ANOMALOUS_TOY_P, &BigInt::from(7));
+        assert!(matches!(result, Err(SsaError::InvariantFailure(_))), "got {result:?}");
+    }
+
+    /// A zero log, on either side, is a breach and is not read as valuation 0.
+    #[test]
+    fn fp_divide_logs_rejects_zero_logs() {
+        for (g, q) in [(0, 7), (7, 0), (0, 0)] {
+            let result = fp_divide_logs(&zp(g), &zp(q), ANOMALOUS_TOY_P, &BigInt::from(7));
+            assert!(matches!(result, Err(SsaError::InvariantFailure(_))), "got {result:?}");
+        }
+    }
+
+    /// The common power of p is divided out before the F_p quotient is taken.
+    #[test]
+    fn fp_divide_logs_divides_out_common_power() {
+        // (3·7²) / (2·7²) = 3 · 2⁻¹ = 3 · 4 = 12 ≡ 5 (mod 7), and the same with a unit pair.
+        let result = fp_divide_logs(&zp(2 * 49), &zp(3 * 49), ANOMALOUS_TOY_P, &BigInt::from(7));
+        assert_eq!(result, Ok(5));
+        let result = fp_divide_logs(&zp(2), &zp(3), ANOMALOUS_TOY_P, &BigInt::from(7));
+        assert_eq!(result, Ok(5));
     }
 
     /// Multiplication modulo a 64-bit modulus does not overflow.

@@ -35,7 +35,7 @@
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
-use shared_padic::{Zp, ZpError, padic_log};
+use shared_padic::{PadicLogError, Zp, ZpError, padic_log};
 
 use crate::ssa::SsaError;
 
@@ -62,8 +62,18 @@ use crate::ssa::SsaError;
 ///
 /// # Errors
 ///
-/// - [`SsaError::Padic`] if `v_p(t) < 1` (the point is not in the kernel of reduction, so the
-///   series does not converge), or if the p-adic logarithm itself fails.
+/// [`SsaError::InvariantFailure`], with a message naming the breach, if:
+///
+/// - `X` or `Y` is zero at working precision (its valuation is at least the precision; this is
+///   never read as valuation 0);
+/// - `v_p(t) < 1` (the point is not in the kernel of reduction, so the series does not converge);
+/// - `t` has no precision left after its valuation is removed;
+/// - the p-adic layer rejects `t`, `1 + t` or the logarithm, or reports the convergence
+///   condition violated after the kernel check passed.
+///
+/// On a lift where `p·P̃` has valuation exactly 1 these cannot occur for a point of an anomalous
+/// curve. On the stored `a = 0` lift `p·P̃` may lie in `E₂`, and the zero-residue and
+/// precision breaches can then occur on valid input.
 ///
 /// # Scale limits
 ///
@@ -74,6 +84,15 @@ pub fn elliptic_log_proj(x_proj: &Zp, y_proj: &Zp) -> Result<Zp, SsaError> {
 
     let x_res = x_proj.residue().clone();
     let y_res = y_proj.residue().clone();
+
+    // A zero residue means the valuation is at least the precision; `padic_valuation_bigint`
+    // returns 0 for zero, which would silently misread it, so it is a breach.
+    if x_res.is_zero() {
+        return Err(SsaError::InvariantFailure("projective X vanishes at working precision"));
+    }
+    if y_res.is_zero() {
+        return Err(SsaError::InvariantFailure("projective Y vanishes at working precision"));
+    }
 
     // Compute t = −X/Y in Z_p.
     //
@@ -90,17 +109,20 @@ pub fn elliptic_log_proj(x_proj: &Zp, y_proj: &Zp) -> Result<Zp, SsaError> {
     // vt = vX − vY. For kernel-of-reduction points, vt ≥ 1.
     let vt = vx as i64 - vy as i64;
     if vt < 1 {
-        // The point is not in the kernel of reduction. Unreachable once the curve is proven
-        // anomalous (#E = p puts every p·P̃ in the kernel of reduction); reported as a p-adic
-        // parameter error.
-        return Err(SsaError::Padic(ZpError::InvalidParams { p, k: 0 }));
+        // The point is not in the kernel of reduction. #E = p puts every p·P̃ in the kernel of
+        // reduction, so on a proven anomalous curve this is an invariant failure.
+        return Err(SsaError::InvariantFailure(
+            "formal parameter has valuation below 1: point outside the kernel of reduction",
+        ));
     }
     let vt = vt as u32;
 
     // Precision of t: k_t = k − vt.
     let k_t = k.saturating_sub(vt);
     if k_t < 1 {
-        return Err(SsaError::Padic(ZpError::InvalidParams { p, k: k_t }));
+        return Err(SsaError::InvariantFailure(
+            "formal parameter has no precision left after removing its valuation",
+        ));
     }
     let pk_t = pow_bigint(&p, k_t);
 
@@ -116,20 +138,25 @@ pub fn elliptic_log_proj(x_proj: &Zp, y_proj: &Zp) -> Result<Zp, SsaError> {
     let t_residue = (-(&p_pow_vt * &x_unit * &y_unit_inv)).mod_floor(&pk_t);
 
     // Construct t as a Zp element at precision k_t.
-    let t = Zp::new(&t_residue, &p, k_t)?;
+    let zp_breach = |why: &'static str| move |_: ZpError| SsaError::InvariantFailure(why);
+    let t = Zp::new(&t_residue, &p, k_t)
+        .map_err(zp_breach("p-adic layer rejected the formal parameter t"))?;
 
     // Construct z = 1 + t for the padic_log call.
     // v_p(z − 1) = v_p(t) = vt ≥ 1. ✓ (convergence condition satisfied)
-    let one = Zp::new(&BigInt::one(), &p, k_t)?;
-    let z = one.add(&t)?;
+    let one = Zp::new(&BigInt::one(), &p, k_t)
+        .map_err(zp_breach("p-adic layer rejected the unit 1 at the precision of t"))?;
+    let z = one.add(&t).map_err(zp_breach("p-adic layer rejected 1 + t"))?;
 
     // Apply the p-adic logarithm: log(1 + t) = log(z).
     let log_z = padic_log(&z).map_err(|e| match e {
-        shared_padic::PadicLogError::ConvergenceViolation { .. } => {
-            // Should not happen: we checked vt ≥ 1 above.
-            SsaError::Padic(ZpError::InvalidParams { p: p.clone(), k: k_t })
+        // vt ≥ 1 was checked above, so the convergence condition holds.
+        PadicLogError::ConvergenceViolation { .. } => SsaError::InvariantFailure(
+            "p-adic logarithm convergence violated after the kernel-of-reduction check",
+        ),
+        PadicLogError::Zp(_) => {
+            SsaError::InvariantFailure("p-adic layer failed inside the logarithm of 1 + t")
         }
-        shared_padic::PadicLogError::Zp(e) => SsaError::Padic(e),
     })?;
 
     Ok(log_z)
@@ -181,4 +208,46 @@ pub(crate) fn mod_inverse_bigint(a: &BigInt, m: &BigInt) -> BigInt {
     );
 
     old_s.mod_floor(m)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn zp(residue: i64, p: i64, k: u32) -> Zp {
+        Zp::new(&BigInt::from(residue), &BigInt::from(p), k).expect("valid Zp")
+    }
+
+    /// A point outside the kernel of reduction (X and Y both units) is an invariant failure, not
+    /// a p-adic parameter error.
+    #[test]
+    fn elliptic_log_proj_rejects_point_outside_kernel() {
+        let result = elliptic_log_proj(&zp(3, 7, 8), &zp(2, 7, 8));
+        assert!(matches!(result, Err(SsaError::InvariantFailure(_))), "got {result:?}");
+    }
+
+    /// A kernel point (v(X) = v(Y) + 1) yields a logarithm of valuation at least 1.
+    #[test]
+    fn elliptic_log_proj_accepts_kernel_point() {
+        let log = elliptic_log_proj(&zp(7, 7, 8), &zp(1, 7, 8)).expect("kernel point");
+        assert_ne!(*log.residue(), BigInt::zero());
+    }
+
+    /// A zero residue is a breach, never read as valuation 0.
+    #[test]
+    fn elliptic_log_proj_rejects_zero_residues() {
+        for (x, y) in [(0, 1), (7, 0)] {
+            let result = elliptic_log_proj(&zp(x, 7, 8), &zp(y, 7, 8));
+            assert!(matches!(result, Err(SsaError::InvariantFailure(_))), "got {result:?}");
+        }
+    }
+
+    /// A valuation of t that consumes the working precision (the lower of the two input
+    /// precisions) is a breach, distinct from the kernel check.
+    #[test]
+    fn elliptic_log_proj_rejects_exhausted_precision() {
+        // v(X) = 5 at precision 8, Y a unit at precision 2: v(t) = 5 exceeds k = 2.
+        let result = elliptic_log_proj(&zp(16807, 7, 8), &zp(1, 7, 2));
+        assert!(matches!(result, Err(SsaError::InvariantFailure(_))), "got {result:?}");
+    }
 }
