@@ -439,6 +439,14 @@ checkpoint):
 - Row 6 `cargo test --workspace` — reused (same identity) — exit 0 — 2026-11-10T10:11:24-05:00 — log
   `/tmp/opencode/rdlp/inc-test.log` (86 `test result: ok`, no failures) — same environment.
 - Row 6 `cargo coverage` — deferred → ◆ boundary (row 10); 1 test deleted, 17 added.
+- Row 7 `cargo check --workspace` — reused (worker record, validated) — `/home/justin/Source/rDLP` —
+  exit 0 — 2026-11-10T10:14:51-05:00 — log `/tmp/opencode/rdlp/rhob-check.log` — input identity
+  `b9df6552…7de1` (same recipe, base `afd07af`; recomputed by the driver and equal) — rustc/cargo
+  1.95.0, dev profile, default features. No manifest or lockfile changed.
+- Row 7 `cargo test --workspace` — reused (same identity) — exit 0 — 2026-11-10T10:19:14-05:00 — log
+  `/tmp/opencode/rdlp/rhob-test.log` (86 `test result: ok`, no failures) — same environment.
+- Row 7 `cargo coverage` — deferred → ◆ boundary (row 10). Judged not "substantial test removal":
+  1 test and 1 branch + 1 constant deleted, 2 tests added, 1 extended.
 - Row 1 `cargo coverage` — deferred → ◆ boundary (row 10) or earlier after substantial test removal
   (row 2 or 7).
 
@@ -454,7 +462,7 @@ change and on first active run of each new day.
 | 4 | Guard MOV's single-limb field domain in release builds | done | 32452cd | C-MovDomain (coverage deferred to ◆) |
 | 5 | Apply ECM stage-1 prime powers one ladder call at a time | done | a4a040f | C-EcmStage1 (coverage deferred to ◆) |
 | 6 | Report non-dividing factor candidates as `Inconsistent` | done | 7ce7340 | C-FactorInconsistent (allowed extra `rho/src/factor/cli.rs`; coverage deferred to ◆) |
-| 7 | Certify rho-factoring primes below 2^80 with the 13-base bound | pending | | |
+| 7 | Certify rho-factoring primes below 2^80 with the 13-base bound | done | 53b072e | C-RhoPrimeBound (allowed extras: `factor/{mod,cli}.rs`, both PEDAGOGY files; coverage deferred to ◆) |
 | 8 | Project the generic rho-dlog curve onto its prime-order subgroup | pending | | |
 | 9 | Retarget the ECDLP benches to groups that finish | pending | | |
 | 10 | Correct the follow-up exposition ◆ | pending | | |
@@ -549,6 +557,20 @@ Deferred: yes — two human docs omit the new variants and are outside row 6's f
 `shared/numth/docs/PEDAGOGY.md` (~:317) and `docs/PEDAGOGY.md` (~:767) list the factor/ECM outcomes;
 row 10's sweep must add `Inconsistent`. Row 7 edits `rho.rs` and `factor_kat.rs` again.
 Texture: ECM and rho unit tests live in-module (new `mod tests` in `rho.rs`).
+
+### 7 — 2026-11-10
+Discovery/flex: The recalled constants were read and confirmed: Sorenson–Webster (arXiv:1509.00864,
+Math. Comp. 2017) Theorem 1.1, ψ₁₂ = 318665857834031151167461, ψ₁₃ = 3317044064679887385961981;
+2^80 < ψ₁₃; `is_prime` uses 12 bases below ψ₁₂ and the first 13 primes on [ψ₁₂, ψ₁₃). The
+additive-reshard fallback for an unreadable paper did not fire. `MILLER_RABIN_PROOF_BOUND` already
+existed; `PRIME_PROOF_BOUND` and the `Unsupported`-prime branch are gone; compile-time
+`MAX_SUPPORTED ≤ MILLER_RABIN_PROOF_BOUND` assertion added.
+Affected: C-RhoPrimeBound (frozen at 7); no downstream contract.
+Deferred: yes — `docs/ROADMAP.md` ~:206–209 still says rho certifies only below ψ₁₂ and that the
+constants are "recalled, not re-read" (rolling doc, outside any row's files; ◆ sweep decides whether
+to touch it or leave it for the roadmap owner). Worker fixed `docs/PEDAGOGY.md` :777 and numth
+PEDAGOGY :465 outside the listed files — row 10's sweep should re-read them.
+Texture: none.
 
 ## Discoveries & risks
 
