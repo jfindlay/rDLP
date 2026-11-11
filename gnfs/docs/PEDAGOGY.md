@@ -171,13 +171,14 @@ gives m = 101 and f(x) = c₀ + c₁x + c₂x² + c₃x³ with c₃ < 101. The `
 
 ### The L-notation balance
 
-The optimal degree d for NFS polynomial selection is determined by balancing the smoothness bounds
-on the algebraic and rational sides. The classical heuristic derives from the L-notation complexity
-of NFS:
+The optimal degree d for NFS polynomial selection comes from minimising the total cost over the
+degree, the smoothness bound and the sieve box together (`docs/MATHEMATICS.md` §7, Steps 9–10),
+not from balancing the algebraic side against the rational side: the two values differ in size at
+the optimum. The classical heuristic derives from the L-notation complexity of NFS:
 
 > The NFS running time is L_N[1/3, c] = exp((c + o(1)) · (ln N)^{1/3} · (ln ln N)^{2/3})
 
-Balancing the algebraic and rational sides gives the condition:
+Minimising the cost over the degree gives the condition:
 
 > d ≈ (3 ln N / ln ln N)^{1/3}
 
@@ -212,13 +213,18 @@ minimum that makes the NFS algebraic side non-trivial.
 ### The degree-smoothness tradeoff
 
 Higher degree means:
-- Larger algebraic norms (the coefficients of f grow as N^{1/d}, so larger d means smaller
-  coefficients, but the norm F(a, b) = b^d · f(a/b) grows with d for fixed sieve region).
+- Larger algebraic values (the digits of f are below m = N^{(1+o(1))/d}, so larger d means smaller
+  coefficients, but F(a, b) = b^d · f(a/b) = c · N(a − bα) is bounded by (d+1) · m · M^d for a
+  sieve box of side M, and M^d grows with d).
 - More roots mod small primes (a degree-d polynomial can have up to d roots mod p, giving more
   factor-base elements).
 
-The L-notation balance is the point where these effects cancel. At toy scale, the balance is
-approximate and the degree choice matters less than at cryptographic scale.
+The degree balance of `docs/MATHEMATICS.md` §7 (Step 11) is where these effects cancel in order of
+magnitude: log|F| ≈ (ln N)/d + d · ln M has two terms of the same order when
+d ≍ (ln N / ln M)^{1/2}. The constant in d ≈ (3 ln N / ln ln N)^{1/3} comes from the full
+optimisation of Steps 9–10, at which the algebraic values are about N^{3/d} and the rational
+values about N^{1/d}. At toy scale, the balance is approximate and the degree choice matters less
+than at cryptographic scale.
 
 ---
 
@@ -4994,197 +5000,108 @@ that run by hand (§50); the CADO-NFS / msieve cross-checks are ignored placehol
 
 ## 60. L-Notation Complexity Analysis of GNFS
 
-This section derives the heuristic complexity $L_N[1/3, (64/9)^{1/3}]$ of GNFS. The derivation
-is the payoff: it shows *why* the smoothness-probability / sieving-cost tradeoff optimises to
-exponent 1/3, and where the constant $(64/9)^{1/3}$ comes from. For the full payoff proof at
-textbook depth, see `docs/MATHEMATICS.md` §GNFS (the T.G chapter, to be appended).
+This section summarises the heuristic complexity $L_N[1/3, (64/9)^{1/3}]$ of GNFS and ties its
+quantities to the parameters of the implementation. The full derivation, with every step labelled
+by its source, is `docs/MATHEMATICS.md` §7; the step numbers below are that section's. The result
+is a heuristic expected running time, not a theorem (see "Status" at the end of this section).
 
 ### The L-notation
 
-Recall the L-notation from `docs/MATHEMATICS.md` §Prerequisites:
+Recall the L-notation from `docs/MATHEMATICS.md` §Prerequisites. Write $\lambda = \ln N$ and
+$\mu = \ln\ln N$:
 
-$$L_N[\alpha, c] = \exp\!\left(c \cdot (\log N)^\alpha \cdot (\log \log N)^{1-\alpha}\right)$$
+$$L_N[\alpha, c] = \exp\!\left(c \cdot (\log N)^\alpha \cdot (\log \log N)^{1-\alpha}\right)
+  = \exp\!\left(c\,\lambda^\alpha\mu^{1-\alpha}\right)$$
 
 This interpolates between polynomial ($\alpha = 0$) and fully exponential ($\alpha = 1$). The
 intermediate regime $0 < \alpha < 1$ is *subexponential*. The GNFS achieves $\alpha = 1/3$,
-which is the best known exponent for the general integer factorisation problem.
+which is the best known exponent for the general integer factorisation problem. Asymptotic results
+are written with the $o(1)$ inside the constant, $L_N[\alpha, c + o(1)]$, and a probability as
+$1/L_N[\alpha, \gamma + o(1)]$.
 
-Write $\log N = n$ for brevity (natural logarithm). Then $L_N[\alpha, c] = e^{c \cdot n^\alpha
-\cdot (\log n)^{1-\alpha}}$.
+### Parameters and sizes (Steps 1–4)
 
-### The three costs
+The implementation's parameters correspond to three quantities of the derivation: the degree
+$d = \delta(\lambda/\mu)^{1/3}$ (`optimal_degree` before its clamp), the smoothness bound
+$B = L_N[1/3, \beta]$, and the sieve box $|a| \le M$, $0 < b \le M$ with $M = L_N[1/3, \eta]$.
+Base-$m$ selection (§3) gives $m = N^{(1+o(1))/d}$ and digits below $m$, so the leading coefficient
+$c$ of $f$ is below $m$; $c$ is carried, not assumed to be 1. The two integers tested are
 
-The GNFS complexity is determined by three costs:
+- the rational value $G(a, b) = a - bm$, with $|G| \le 2Mm$, so
+  $\log|G| \le (1/\delta + o(1))\lambda^{2/3}\mu^{1/3}$;
+- the algebraic value $F(a, b) = b^d f(a/b) = c \cdot N_{K/\mathbb{Q}}(a - b\alpha)$, with
+  $|F| < (d+1)\,m\,M^d$, so $\log|F| \le (1/\delta + \delta\eta + o(1))\lambda^{2/3}\mu^{1/3}$.
 
-1. **Sieving cost.** The sieve must collect enough smooth relations to fill the matrix. The
-   number of relations needed is approximately equal to the number of factor-base elements,
-   which is $\pi(B) \approx B / \log B$ for a smoothness bound $B$. The sieve examines pairs
-   (a, b) in a region of size $\sim B^2$ (the sieve region must be large enough to find enough
-   smooth pairs). The sieving cost is therefore:
+The ratios $u = \log(\text{value})/\log B$ are $u_G = (1/(\delta\beta) + o(1))(\lambda/\mu)^{1/3}$
+and $u_F = ((1/\delta + \delta\eta)/\beta + o(1))(\lambda/\mu)^{1/3}$, with
+$\log u = (1/3 + o(1))\mu$ on both sides.
 
-   $$C_{\text{sieve}} \approx B^2 / \log B \approx B^2$$
+### The smoothness estimate (Step 5)
 
-   (ignoring logarithmic factors, which are absorbed into the $o(1)$ in the L-notation).
+One estimate drives everything: the Canfield–Erdős–Pomerance estimate, as stated in
+Bai (PhD thesis, ANU, 2011, Thm 2.5), $\Psi(x, x^{1/u}) = x\,u^{-u(1+o(1))}$ as $u \to \infty$,
+uniformly for $x \ge u^{u/(1-\varepsilon)}$. Its $L$-form (derived in `docs/MATHEMATICS.md` §7):
+for $x = L_N[2/3, \kappa]$ and $y = L_N[1/3, \beta]$,
 
-2. **Smoothness probability.** A random integer near $N$ is $B$-smooth with probability
-   approximately $\rho(u)$ where $u = \log N / \log B$ (Canfield–Erdős–Pomerance). For the
-   algebraic norm $N_{\text{alg}}(a, b) \approx N^{1/d}$ (the norm of a degree-d polynomial
-   with coefficients $\sim N^{1/d}$ evaluated at a sieve pair), the smoothness probability is
-   $\rho(u')$ where $u' = \log(N^{1/d}) / \log B = n / (d \log B)$. The number of sieve pairs
-   needed to find one smooth relation is $\sim \rho(u')^{-2}$ (both sides must be smooth,
-   approximately independently). The total sieve cost is:
+$$\frac{\Psi(x, y)}{x} = \frac{1}{L_N[1/3,\ \kappa/(3\beta) + o(1)]}.$$
 
-   $$C_{\text{sieve}} \approx \rho(u')^{-2} \cdot (\text{cost per pair})$$
+Dickman's $\rho(u)$ is the fixed-$u$ limit of the same ratio. At the values of $u$ that occur in
+practice (about 3 to 10) $\rho$ is evaluated numerically, as the Murphy-E score does; $u^{-u}$ is
+only the large-$u$ asymptotic.
 
-   where the cost per pair is $O(\log B)$ (the log-sieve step).
+### Probability, relations and costs (Steps 6–8)
 
-3. **Linear algebra cost.** The matrix has $\sim B / \log B$ rows and columns. Structured
-   Gaussian elimination (or block Lanczos/Wiedemann) costs $\sim (B / \log B)^2$ operations.
-   Ignoring logarithmic factors:
+Assuming each value is smooth as often as a random integer of its size and that the two sides are
+independent, the probability that $(a, b)$ is a relation is
+$1/L_N[1/3,\ (2/\delta + \delta\eta)/(3\beta) + o(1)]$. The matrix has $B^{1+o(1)}$ columns
+(rational primes, degree-one prime ideals, $O(\lambda)$ character columns), so the box must yield
+$B^{1+o(1)}$ relations: $M^2 \cdot \Pr \ge B^{1+o(1)}$. Sieving the box costs
+$M^{2+o(1)} = L_N[1/3, 2\eta + o(1)]$, and sparse linear algebra on the $B^{1+o(1)}$-square matrix
+(about $\lambda$ entries per row) costs $B^{2+o(1)} = L_N[1/3, 2\beta + o(1)]$. The total is
+$L_N[1/3, 2\max(\beta, \eta) + o(1)]$.
 
-   $$C_{\text{linalg}} \approx B^2$$
+### The optimum (Steps 9–10)
 
-### The optimal smoothness bound
+Take $M = B$ (sieve and linear algebra balanced); the yield condition then reads
+$3\beta^2 \ge \delta\beta + 2/\delta$, and the cost is least at equality. Setting
+$d\beta/d\delta = 0$ in $3\beta^2 = \delta\beta + 2/\delta$ gives $\beta = 2/\delta^2$ and then
+$\delta^3 = 3$. Hence, at the optimum:
 
-The total cost is dominated by the maximum of $C_{\text{sieve}}$ and $C_{\text{linalg}}$. Both
-are $\sim B^2$ (up to logarithmic factors), so the total cost is $\sim B^2$ regardless of the
-smoothness probability — as long as the sieve can find enough smooth pairs.
+| Quantity | Value |
+|----------|-------|
+| Degree | $d = (3^{1/3} + o(1))(\lambda/\mu)^{1/3}$, the `optimal_degree` formula before its $[3, 6]$ clamp |
+| Smoothness bound and box | $B = M = L_N[1/3, (8/9)^{1/3} + o(1)]$ |
+| Rational value | $\lvert G\rvert = N^{(1+o(1))/d}$ |
+| Algebraic value | $\lvert F\rvert = N^{(3+o(1))/d}$, since $M^d = N^{(2+o(1))/d}$ |
+| $u$, rational / algebraic | $(3^{1/3}/2 + o(1))(\lambda/\mu)^{1/3}$ / $((3/2)\,3^{1/3} + o(1))(\lambda/\mu)^{1/3}$ |
+| Probability both values smooth | $1/L_N[1/3, (8/9)^{1/3} + o(1)] = B^{-1+o(1)}$ |
+| Sieve = linear algebra | $L_N[1/3, (64/9)^{1/3} + o(1)]$ |
 
-The constraint is that the sieve must find enough smooth pairs. The number of smooth pairs in
-the sieve region of size $\sim B^2$ is $\sim B^2 \cdot \rho(u')^2$. For this to be at least
-$B / \log B$ (the number of relations needed), we need:
+The two sides are not the same size, and $(8/9)^{1/3}$ is the constant of $B$, not an alternative
+cost constant: the cost constant is $2(8/9)^{1/3} = (64/9)^{1/3} \approx 1.923$.
 
-$$B^2 \cdot \rho(u')^2 \gtrsim B / \log B \implies B \cdot \rho(u')^2 \gtrsim 1 / \log B$$
+### Why the exponent is 1/3, not 1/2 (Step 11)
 
-The smoothness probability $\rho(u')$ for $u' = n / (d \log B)$ is, for large $u'$:
+Two balances force the exponent. The *degree balance* $\lambda/d \asymp d\log M$ (the two terms
+of $\log|F|$) gives $d \asymp (\lambda/\log B)^{1/2}$. The *smoothness balance*
+$u\log u \asymp \log B$, with $u \asymp (\lambda/d)/\log B$, then gives
+$\log B \asymp \lambda^{1/3}\mu^{2/3}$. With the degree held fixed the values are $N^{\Theta(1)}$
+and the same balance gives exponent $1/2$. The quadratic sieve, whose values are $N^{1/2+o(1)}$,
+has the published exponent and constant $L_N[1/2, 1]$ (recalled from Crandall–Pomerance,
+*Prime Numbers*, §6.2). GNFS reaches exponent $1/3$ because the degree grows with $N$, so that
+the values have logarithm $O(\log N/d)$ rather than $\Theta(\log N)$.
 
-$$\rho(u') \approx u'^{-u'} = \exp(-u' \log u')$$
+### Status
 
-Setting $B = L_N[1/3, c] = e^{c \cdot n^{1/3} \cdot (\log n)^{2/3}}$, we get $\log B = c \cdot
-n^{1/3} \cdot (\log n)^{2/3}$ and:
-
-$$u' = \frac{n}{d \log B} = \frac{n}{d \cdot c \cdot n^{1/3} \cdot (\log n)^{2/3}}
-     = \frac{n^{2/3}}{d \cdot c \cdot (\log n)^{2/3}}
-     = \frac{1}{dc} \cdot \left(\frac{n}{\log n}\right)^{2/3}$$
-
-For large $N$, $u' \to \infty$, and $\rho(u') \approx e^{-u' \log u'}$. The smoothness
-probability is:
-
-$$\rho(u')^2 \approx e^{-2 u' \log u'}$$
-
-The total cost is:
-
-$$C_{\text{total}} \approx B^2 \cdot \rho(u')^{-2} = e^{2c \cdot n^{1/3} (\log n)^{2/3}}
-\cdot e^{2 u' \log u'}$$
-
-To minimise this, we need to choose $c$ and $d$ to balance the two exponentials. The key
-observation is that both $B^2 = e^{2c \cdot n^{1/3} (\log n)^{2/3}}$ and $\rho(u')^{-2}$
-are of the form $L_N[1/3, \cdot]$. The total cost is minimised when both are equal — i.e.,
-when the sieving cost and the smoothness-probability cost are balanced.
-
-### The exponent-1/3 derivation
-
-The exponent $\alpha = 1/3$ arises from the balance condition. Let $B = L_N[\alpha, c]$ for
-some $\alpha$ to be determined. The sieving cost is $B^2 = L_N[\alpha, 2c]$. The smoothness
-probability for norms of size $\sim N^{1/d}$ is:
-
-$$\rho(u') \approx L_N\!\left[-\alpha, -\frac{1}{dc}\right]$$
-
-(using the Corollary in `docs/MATHEMATICS.md` §Prerequisites with $x = N^{1/d}$ and $y = B$).
-The number of sieve pairs needed is $\rho(u')^{-2} = L_N[\alpha, 2/(dc)]$. The total cost is:
-
-$$C_{\text{total}} \approx L_N\!\left[\alpha,\, 2c + \frac{2}{dc}\right]$$
-
-The linear algebra cost is also $B^2 = L_N[\alpha, 2c]$. The total cost is dominated by the
-maximum of the sieving and linear algebra costs:
-
-$$C_{\text{total}} \approx L_N\!\left[\alpha,\, \max\!\left(2c,\, 2c + \frac{2}{dc}\right)\right]
-= L_N\!\left[\alpha,\, 2c + \frac{2}{dc}\right]$$
-
-To minimise over $c$ (for fixed $\alpha$ and $d$), differentiate with respect to $c$:
-
-$$\frac{d}{dc}\!\left(2c + \frac{2}{dc}\right) = 2 - \frac{2}{dc^2} = 0 \implies c^2 = \frac{1}{d}
-\implies c = \frac{1}{\sqrt{d}}$$
-
-At the optimal $c = 1/\sqrt{d}$, the total cost is:
-
-$$C_{\text{total}} \approx L_N\!\left[\alpha,\, \frac{2}{\sqrt{d}} + \frac{2\sqrt{d}}{d}\right]
-= L_N\!\left[\alpha,\, \frac{4}{\sqrt{d}}\right]$$
-
-Now minimise over $d$: the cost $4/\sqrt{d}$ decreases as $d$ increases, but the norm size
-$N^{1/d}$ also decreases, which changes the smoothness probability. The correct balance
-requires the norm size to be $L_N[\alpha, \cdot]$, which means:
-
-$$N^{1/d} = L_N[\alpha, \cdot] \implies \frac{1}{d} \log N = O(n^\alpha (\log n)^{1-\alpha})
-\implies d = O\!\left(\frac{n^{1-\alpha}}{(\log n)^{1-\alpha}}\right)$$
-
-For the smoothness probability to be $L_N[\alpha, \cdot]$, we need $u' = \log(N^{1/d}) / \log B$
-to be $O(n^{1-2\alpha} / (\log n)^{1-2\alpha})$. The balance condition $u' = O(1)$ (so that
-$\rho(u')$ is a constant, not subexponentially small) requires $1 - 2\alpha = 0$, i.e.,
-$\alpha = 1/2$. But this gives $C_{\text{total}} = L_N[1/2, \cdot]$, which is the quadratic
-sieve complexity — not the GNFS complexity.
-
-The GNFS improvement comes from the **two-sided sieve**: both the rational norm and the
-algebraic norm must be smooth. The algebraic norm has size $\sim N^{1/d}$ (much smaller than
-$N$ for large $d$), so the smoothness probability is much higher. The optimal degree $d$ is
-chosen to make the algebraic norm size $L_N[1/3, \cdot]$, which requires:
-
-$$N^{1/d} = L_N[1/3, \cdot] \implies \frac{n}{d} = O(n^{1/3} (\log n)^{2/3})
-\implies d = O\!\left(\frac{n^{2/3}}{(\log n)^{2/3}}\right)$$
-
-This is the optimal degree formula $d \sim (3n / \log n)^{1/3}$ (as implemented in
-`optimal_degree`). With this choice, the algebraic norm is $L_N[1/3, \cdot]$-smooth with
-probability $L_N[-1/3, \cdot]$, and the total cost is:
-
-$$C_{\text{total}} \approx L_N\!\left[\frac{1}{3},\, 2c + \frac{2}{dc}\right]$$
-
-The optimal $c$ for fixed $d$ is $c = 1/\sqrt{d}$, giving cost $L_N[1/3, 4/\sqrt{d}]$. With
-$d \sim (3n/\log n)^{1/3}$, the cost is:
-
-$$C_{\text{total}} \approx L_N\!\left[\frac{1}{3},\, \frac{4}{\sqrt{(3n/\log n)^{1/3}}}\right]$$
-
-In the L-notation, the $n$ and $\log n$ factors in $d$ contribute to the constant $c$ in
-$L_N[1/3, c]$. The precise computation (see `docs/MATHEMATICS.md` §GNFS for the full
-derivation) gives:
-
-$$C_{\text{total}} = L_N\!\left[\frac{1}{3},\, \left(\frac{64}{9}\right)^{1/3}\right]$$
-
-### Why the exponent is 1/3, not 1/2
-
-The quadratic sieve achieves $L_N[1/2, 1]$ by sieving for smooth values of a single quadratic
-polynomial $f(x) = x^2 - N$. The GNFS achieves $L_N[1/3, (64/9)^{1/3}]$ by sieving for smooth
-values of *two* polynomials — the rational norm and the algebraic norm — where the algebraic
-norm has size $\sim N^{1/d}$ for a carefully chosen degree $d$.
-
-The key improvement is that the algebraic norm is much smaller than $N$ (by a factor of
-$N^{1 - 1/d}$), so it is smooth with much higher probability. The optimal degree $d \sim
-(3n/\log n)^{1/3}$ balances the smoothness probability against the cost of the linear algebra
-step. The exponent $1/3$ is the result of this balance: it is the unique $\alpha$ such that
-the sieving cost $L_N[\alpha, \cdot]$ and the smoothness-probability cost $L_N[\alpha, \cdot]$
-are both $L_N[1/3, \cdot]$ at the optimal degree.
-
-### The constant $(64/9)^{1/3}$
-
-The constant $(64/9)^{1/3} \approx 1.923$ arises from the precise computation of the optimal
-$c$ and $d$. The key steps are:
-
-1. The optimal degree is $d = (3n / \log n)^{1/3}$ (from the balance condition).
-2. The optimal smoothness bound is $B = L_N[1/3, c]$ with $c = (8/9)^{1/3}$ (from the
-   per-side optimisation).
-3. The total cost is $L_N[1/3, 2c + 2/(dc)]$ evaluated at the optimal $c$ and $d$, which
-   gives $L_N[1/3, (64/9)^{1/3}]$.
-
-The derivation is heuristic: it assumes that the smoothness probabilities for the rational and
-algebraic norms are approximately independent, and that the Dickman-ρ approximation is accurate
-in the relevant range. These assumptions are believed to be correct in the asymptotic regime
-but are not proved. The constant $(64/9)^{1/3}$ is therefore a heuristic constant, not a
-theorem.
-
-For the complete payoff proof — the full derivation with all steps, the precise statement of
-the heuristic assumptions, and the comparison with the quadratic sieve — see
-`docs/MATHEMATICS.md` §GNFS (the T.G chapter, to be appended). That chapter is the maths-first
-sibling to this code-tour: it develops the same derivation for a reader who does not already
-know the implementation.
+The result is a heuristic expected running time, not a theorem. The Canfield–Erdős–Pomerance
+estimate is a theorem about all integers up to $x$; it is applied to the values $G(a, b)$ and
+$F(a, b)$ of two polynomials over a box of pairs. Three things are assumed, not proved: that each
+value is $B$-smooth as often as a random integer of its size, that the two sides are independent,
+and that $B^{1+o(1)}$ relations give dependencies whose square roots yield a nontrivial congruence
+with probability bounded below (the quadratic characters handle the unit and class-group
+obstructions). The constant $(64/9)^{1/3}$ is therefore a heuristic constant. The complete
+derivation, with each step's source and the precise statement of the assumptions, is
+`docs/MATHEMATICS.md` §7.
 
 ### The L-notation hierarchy in context
 
