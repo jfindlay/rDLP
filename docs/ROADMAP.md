@@ -1,6 +1,7 @@
 # rDLP — outstanding work
 
 Reviewed 2026-11-08 against current source, recorded verification and mathematical references.
+Reconciled 2026-11-11 at the solver-outcome follow-up boundary.
 This is the single project-level register of known outstanding work. `PLAN.md` is reserved for the
 currently authorised execution graph; it is not a second project backlog. Completed work and
 superseded decisions belong in git history, not an accumulating status log here.
@@ -54,10 +55,11 @@ their presence here. Shard a selected scope into `PLAN.md` only after its contra
 | Scope | Current state | Dependency / priority |
 |---|---|---|
 | NFS-DL composition | Placeholder and unresolved maths | Design before implementation |
-| Solver-outcome audit | Follow-ups decided; executing in PLAN | In progress; NFS-DL via its design |
+| Solver-outcome audit | Done 2026-11-10; residual findings below | NFS-DL and MOV k=2 via its design |
+| DP walk step counts | Negation-map/batch far above expectation | Diagnose before any speedup claim |
 | Oracles / CADO sidecar | Early GNFS slice selected | Design separately; parallel with repairs |
 | GNFS assurance | Coverage limits, not proven defects | After urgent repairs |
-| Mathematical exposition | Errors and unsupported claims | Correct with algorithm adjudication |
+| Mathematical exposition | Non-NFS-DL corrections executing in PLAN | In progress; NFS-DL claims via its design |
 | Project-wide anneal | Legacy surfaces need a full pass | Audit broadly; repair in bounded units |
 | Format / lint / measurements | Gates unadopted; timings stale | Dedicated changes |
 | Four-surface minimalism | Explanation and machinery audit | Preserve evidence; simplify by topic |
@@ -137,77 +139,35 @@ time–memory step. A bare `Option` is not a violation when it documents a singl
 **Outside this scope:** NFS-DL's `solve_dl` returns `Ok(0)` for an empty frontier, and MOV's
 k=2 discrete log runs through its exhaustive toy table; both belong to the NFS-DL contract design.
 
-The items below are open. Each was found while repairing, and each lies outside what that repair
-was allowed to change. Record new findings here with an evidence label, a destination and a
-closure condition; delete an item when its fix lands. In the solver items every success is still
-checked against the group or divisibility identity, so none returns a wrong answer; the GHS item
-concerns the transfer, which has no such end-to-end check, so its wrong-result exposure is
-**inferred**, not demonstrated.
+All follow-ups decided on 2026-11-09 landed on 2026-11-10; source, tests and git history are the
+record. Residual findings, each outside what that work was allowed to change. Record new findings
+here with an evidence label, a destination and a closure condition; delete an item when its fix
+lands.
 
-**Decided 2026-11-09 and sharded into the current PLAN:** SSA lifts non-canonically, drops the
-halving and gains `InvalidInput` plus a dedicated invariant-failure class; GHS adopts
-`shared_gf2m::restrict` with independently derived constants; MOV gains a release-mode
-unsupported-domain outcome, and the R = G zero is documented as a Miller evaluation on the
-divisor support (kept as `DegeneratePairing`); ECM applies stage-1 prime powers one ladder call at
-a time and stays a standalone primitive; `rho-dlog --curve generic` projects onto its prime-order
-subgroup and the ECDLP benches move to instances that finish; rho factoring and ECM report a
-non-dividing candidate as `Inconsistent`; rho factoring certifies primes up to 2^80 from the
-13-base bound. Delete each item below as its fix lands.
+- **MOV k=2 engine has no budget (confirmed).** `mov_reduce` accepts single-limb k=2 fields, but
+  the toy log engine's `find_irreducible_degree2` scans every r in 0..p, so a field near 2^64
+  hangs instead of returning a typed outcome. Destination: the NFS-DL/MOV k=2 design. Closure: a
+  budgeted or replaced k=2 engine with a typed exhaustion outcome.
+- **Miller vertical line at x_Q = x_T (inferred, untested).** `vertical_at` returns 1 there, so for
+  R ∈ ⟨G⟩ other than G nothing guarantees that a degenerate evaluation is detected. Every `Ok` is
+  verified, so exposure is `Inconsistent` or `DegeneratePairing`, not a wrong logarithm. Closure:
+  a derivation or a test over R ∈ ⟨G⟩.
+- **Default CLI curve (confirmed, documented).** The default `secp-toy` Brent run cannot finish
+  within its per-attempt cap (2²⁹ − 1 against ≈ 2.7·10⁹ expected steps; arithmetic, not run).
+  The docs say so; decide whether the default should change.
 
-- **SSA on the canonical lift (confirmed; decision needed).** On the stored a = 0 lift of
-  `anomalous_toy` (y² = x³ + 5 over F₇), multiplication by p lands at valuation 2, and the
-  raw quotient is k_raw = 1, 4, 6, 1, 3, 6 for k = 1..6. Lifting a to 7, 14 or 21 gives valuation
-  1 and k_raw = k. `ssa_solve` therefore tries the raw quotient and its half; the halving is an
-  empirical compensation, not a derivation, and only the final k·G = Q check makes it sound.
-  **Inferred:** the stored lift is the canonical lift (CM by ℤ[ζ₃]), where the method
-  breaks; the literature claim (Leprévost–Monnerat–Varrette–Vaudenay 2005) is recalled,
-  not read. Closure: lift non-canonically (a → a + p·s) in `lift_point` and the multiply-by-p
-  loop, retry with a second lift if the first lands in E₂, delete the halving and `Candidate`,
-  and test that the stored lift lands in E₂ and that every k comes out as the raw quotient
-  on a second anomalous fixture with a ≠ 0. Decide at the same time whether `SsaError` gains
-  `InvalidInput` (today `LiftFailed` stands for bad input); until then `Inconsistent` can occur
-  on valid canonical-lift input. Also: `formal_log.rs` reports a breached invariant (valuation
-  < 1 on a proven-anomalous curve) as `SsaError::Padic(InvalidParams { k: 0 })` (**inferred**
-  unreachable on valid input), and the implementation is O(p), not polynomial in log p.
-- **GHS field identification (confirmed; decision needed).** `transfer_point` reinterprets
-  the conorm's GF(2⁶) bits as GF(2^l) elements by reducing the raw bits, which is not a
-  field homomorphism in general (x²+x+1 does not divide x⁶+x+1). On GF(4) ⊂ GF(2⁶)
-  it sends 0x3b→3 and 0x3a→2, while `shared_gf2m::restrict` sends 0x3b→2 and 0x3a→3,
-  the Frobenius conjugate. Using `restrict` fails `transfer_sample_point_known_answer` and
-  `transfer_g_plus_p_known_answer` and leaves the homomorphism and log-preservation tests passing.
-  Decide: adopt `restrict` and rewrite the two constants after checking them independently, or
-  document the identification as valid only on the fixture field.
-- **MOV domain limit (confirmed; decision needed).** The single-limb p < 2^64 limit is a
-  `debug_assert` in `fpext_to_bigint`; a larger p is truncated silently in release builds,
-  and `MovError` has no unsupported-domain variant. Closure: a release-mode guard and an
-  unsupported outcome. Separately, `reduced_tate(R, G)` with R = G returns 0 rather than 1;
-  decide whether that is a defect in the pairing or an acceptable degenerate value (it is
-  reported as `DegeneratePairing`). The k=2 log engine stays with the NFS-DL design.
-- **ECM stage-1 scalar (confirmed).** `stage1_scalar` accumulates the product of prime powers up
-  to B1 with `wrapping_mul` in `Uint<4>`; the product is about e^B1 and exceeds 256 bits for B1
-  above roughly 177, after which the scalar is silently wrong and stage 1 is not B1-power-smooth.
-  The existing tests (B1 = 200, 300) still pass, and returned factors are verified independently,
-  so this costs strength, not soundness. Closure: apply the prime powers to the point one at
-  a time, or reject a too-large B1 with a typed error, with a test at large B1. Also decide
-  whether `ecm_factor` stays a standalone primitive: nothing in the workspace calls it outside
-  its own tests.
-- **CLI and bench defaults (confirmed / inferred).** **Confirmed:** `rho-dlog --curve generic`
-  uses order 9_223_372_037_218_517_353 = 7 · 17 · 77_507_328_043_853_087, so Brent reports
-  `InvalidInput(OrderNotPrime)`. **Inferred by arithmetic, not run:** the default Brent run
-  on `secp-toy` and `bench_brent` end `BudgetExhausted` (per-attempt cap 2²⁹ − 1 ≈
-  0.25·√n), and the 62-bit distinguished-point bench needs about 2.7·10⁹ steps, so it
-  is not practically runnable.  Decide: project the generator onto a prime-order subgroup or
-  drop `generic`; choose defaults that can succeed or remove the Brent bench.
-- **Outcome-shape choices (decision needed).** Rho factoring and ECM have no invariant-failure
-  variant although the standard separates that class. **Inferred:** a gcd is always a divisor, so
-  the only way the divisor check fails is a trivial d, which is an ordinary failed attempt. Add
-  an `Inconsistent` variant to both, or record the exemption in `docs/development.md`. Related:
-  after the base-41 fix `is_prime` is proven below ψ₁₃ ≈ 2^81.5, while rho factoring
-  still certifies primes only below ψ₁₂ ≈ 2^78.1 (an odd probable prime between them,
-  such as 2^79 − 67, is `Unsupported`).  Raising rho's bound is optional and changes that
-  known-answer test. Either way, confirm the Sorenson–Webster constants against the paper;
-  they are recalled, not re-read, and the evidence in tree is the factorisation of ψ₁₂
-  and the regression tests.
+### Distinguished-point walk step counts
+
+**Confirmed observation, cause unknown:** on the 25-bit bench fixture `solve_dp_negmap` needs
+3·10⁴–7·10⁴ steps against ≈ 2·10³–10⁴ for `solve_dp`, and 1 of 6 seeds timed out at 30 s; on a
+31-bit group (p = 2_147_483_659, n = 2_147_490_413) it did not finish in 60–120 s for θ ∈ {1, 2,
+3, 4, 6, 8}, and `solve_dp_batch` took 1.1·10⁶–6.3·10⁶ steps against ≈ 6·10⁴ expected. Step
+counts cluster at multiples of the walker-restart threshold (**inferred:** walkers trapped in
+fruitless cycles). Budgets bound every call and outcomes stay typed; no wrong answer is
+implicated. The ECDLP benches' fixed seed masks the stall. Closure: a diagnosis, then a repair by
+a published fruitless-cycle technique (read the source; recalled candidates: Bos–Kleinjung–Lenstra
+2010, Bernstein–Lange–Schwabe 2011), before any negation-map or batch speedup is claimed or
+measured.
 
 ## Oracles and assurance
 
@@ -309,9 +269,8 @@ test succeed. Preserve the distinction between exact per-instance validation and
   for non-monic f, `discriminant` returns lc(f)·disc(f), so `is_bad_prime` does flag p | c.
 - `docs/development.md` incorrectly says there is no proptest layer. Describe the actual KAT-first
   mix and mathematical assertions, not stale counts or unconditional correctness guarantees.
-- `shor/docs/PEDAGOGY.md` gives about 40 tests for `pointadd_kat.rs` (45 exist), and BENCHMARKS's
-  N=91 passage says 21 qubits where its own table gives 14. Adjudicate; prefer removing drifting
-  counts to updating them.
+- `shor/docs/PEDAGOGY.md` gives about 40 tests for `pointadd_kat.rs` (45 exist); several other
+  orientation-doc counts have drifted. Prefer removing drifting counts to updating them.
 - `docs/PEDAGOGY.md`'s GLV and negation-map passages (roughly the rho-optimisation tour) state √3
   and √6 walk-length reductions, some without the word "expected". **Confirmed:** no test asserts
   them; `glv_fewer_steps_than_negmap` checks only a 2× no-regression bound, and the Koblitz √(2m)
@@ -398,6 +357,14 @@ Resolve these remaining documentation scopes without assuming a wholesale textbo
   in `AGENTS-ROSTER.md`) and one later ledger commit has an unwrapped body, both fixable with
   `@git-editor`; a stale `git stash` entry ("WIP on master: d50ab68", a discarded experiment already
   superseded by committed work) can be dropped.
+- Left for human triage by the last anneal pass (2026-11-10): "track"/family-letter vocabulary
+  ("cross-track", "all five tracks" against six family letters, "α-Substrate" chapter titles,
+  `docs/PEDAGOGY.md`'s "α"/"NF" labels, MATHEMATICS's "cross-track bridge"); "substrate
+  over-specifies discipline" in two PEDAGOGY files; BENCHMARKS's "Tests added" headings;
+  MATHEMATICS's Markup note on "the earlier undecided … choice"; README's "Two complementary
+  artifacts" listing three and its stale `DynResidue` layout line; "frozen contract", "option A/B"
+  and "Principle 1/3/4" in `rho/src/pairing/{ecext,mod}.rs`. Decide whether the track vocabulary
+  is a reader-facing taxonomy (keep, define once) or construction residue (translate).
 - Remove bare ROADMAP references as well as PLAN.md/NOTES.md/SURVEY.md references from durable
   prose and inline comments. The old token sweep missed extensionless names. Replace historical
   pass-verdict sections with honest scope statements where they contain useful substance.
