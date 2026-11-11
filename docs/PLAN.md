@@ -193,10 +193,108 @@ integral α, otherwise ℤ[cα] or a localisation away from c. Identifiers are n
 
 ### C-GnfsComplexity
 
-Prose-enforced. To be frozen at 1 by the inflection juncture, which writes here: the step list
-(norm-size model, u, the one smoothness estimate, cost terms, optimisation), the reconciled
-constants, the heuristic-status statement, and which reference each step follows (read or
-recalled). Consumed by 1, 8. The `§7` heading and its position stay stable.
+Prose-enforced. Frozen at 1 by the inflection juncture. Consumed by 1, 8. The `§7` heading and its
+position stay stable.
+
+**Notation.** λ = log N, μ = log log N (natural logs). The definition of L_N[α, c] is kept; every
+asymptotic result is written L_N[α, c + o(1)] (the o(1) inside the constant) and a probability as
+1/L_N[α, γ + o(1)]. Never "· (1 + o(1))" outside an L, never L_N[−1/3, ·]. One sentence stating
+this convention is added at the L-notation definition (Prerequisites).
+
+**Sources.** READ: [Bai11] S. Bai, *Polynomial Selection for the Number Field Sieve*, PhD thesis,
+ANU, 2011, §2.3, pp. 22–24 (CEP form and range as its Theorem 2.5; box |a| ≤ U, 0 < b ≤ U; bounds
+|N(a − bα)| ≤ (d+1)n^{1/d}U^d, |a − bm| ≤ n^{1/d}U; random-integer assumption; factor base
+B^{1+o(1)}; sieve U^{2+o(1)}, linear algebra B^{2+o(1)}, B ≈ U; d = (3^{1/3} + o(1))(λ/μ)^{1/3},
+U = B = L(1/3, (8/9)^{1/3}), time L(1/3, (64/9)^{1/3}); it assumes f, g monic). Add it to the GNFS
+reference list. RECALLED (cite only for the published final statement, no section number):
+[BLP93] (the Leiden PDF is a scan without text, not read), [CP05] §6.2, [LLMP93]. CEP 1983 is
+cited "as stated in [Bai11, Thm 2.5]". Pomerance's "A Tale of Two Sieves" was not read; do not
+cite it as read. Every step below is "derived here" unless it names [Bai11].
+
+**Step list (the checkable skeleton of §7).**
+
+1. Polynomials and box ([Bai11] read; c carried here). Base-m: m = N^{(1+o(1))/d} (the code takes
+   the least m with m^{d+1} > N; the difference from N^{1/d} is λ/d² = o(λ/d), o(1) in the
+   leading term). Digits |f_i| < m; leading coefficient c = f_d ∈ [1, m); g(x) = x − m. Box
+   |a| ≤ M, 0 < b ≤ M, gcd(a, b) = 1.
+2. Sizes, both sides. |G(a, b)| = |a − bm| ≤ 2Mm, so log|G| ≤ λ/d + log M + O(1).
+   |F(a, b)| = |b^d f(a/b)| ≤ (d+1)·m·M^d, so log|F| ≤ λ/d + d·log M + log(d+1). The quantity
+   sieved and sized is F(a, b) = c·N_{K/ℚ}(a − bα) (C-NonMonicNorm), not N(a − bα); c enters
+   only through max|f_i| < m, so no monic simplification is needed, and the prose says so.
+3. Ansatz B = L_N[1/3, β], M = L_N[1/3, η], d = δ(λ/μ)^{1/3}. Then
+   log|G| = (1/δ + o(1))λ^{2/3}μ^{1/3} and log|F| = (1/δ + δη + o(1))λ^{2/3}μ^{1/3}. The only
+   absorptions are log M on the rational side and log(d+1), both O(λ^{1/3}μ^{2/3}), smaller than
+   the leading term by (μ/λ)^{1/3}. δ, β, η, 3 and 3^{1/3} are never absorbed.
+4. u per side: u_G = (1/(δβ) + o(1))(λ/μ)^{1/3}, u_F = ((1/δ + δη)/β + o(1))(λ/μ)^{1/3};
+   log u = (1/3 + o(1))μ on both sides.
+5. The one smoothness estimate ([Bai11] Thm 2.5, read): Ψ(x, x^{1/u}) = x·u^{−u(1+o(1))} as
+   u → ∞, uniformly for x ≥ u^{u/(1−ε)}; here u^u = exp(O(λ^{1/3}μ^{2/3})), inside the range.
+   Its L-form (derived here): if x = L_N[a, κ] and y = L_N[b, β] with 0 < b < a ≤ 1, then
+   Ψ(x, y)/x = 1/L_N[a − b, (a − b)κ/β + o(1)]. GNFS instance: a = 2/3, b = 1/3 gives
+   1/L_N[1/3, κ/(3β) + o(1)]. Instance x = N: 1/L_N[2/3, 2/(3β) + o(1)]. Dickman's ρ(u) is the
+   fixed-u limit of Ψ(x, x^{1/u})/x; u^{−u(1+o(1))} is its large-u asymptotic; at practical u
+   (≈ 3–10) ρ is evaluated numerically, never by u^{−u}.
+6. Joint probability (heuristics H1, H2 below): Pr = 1/L_N[1/3, (2/δ + δη)/(3β) + o(1)]. This
+   equals treating G·F as one random integer of log-size (2/δ + δη)λ^{2/3}μ^{1/3} ([Bai11]'s
+   form), because log u is (1/3)μ on both sides; the prose says so.
+7. Relations needed ([Bai11] read): rational primes ≤ B, degree-1 prime ideals (p, r) with
+   p ≤ B, and O(λ) character columns: B^{1+o(1)} columns. Yield condition M²·Pr ≥ B^{1+o(1)},
+   i.e. 2η − (2/δ + δη)/(3β) ≥ β.
+8. Costs ([Bai11] read): sieving the box costs M^{2+o(1)} = L_N[1/3, 2η + o(1)] (each p ≤ B hits
+   about M²/p cells; Σ_{p≤B} 1/p = O(μ)); sparse linear algebra (Wiedemann or block Lanczos) on a
+   B^{1+o(1)}-square matrix with O(λ) entries per row costs B^{2+o(1)} = L_N[1/3, 2β + o(1)].
+   Total L_N[1/3, 2·max(β, η) + o(1)].
+9. Optimisation over B, M, d. Take M = B (η = β, sieve and linear algebra balanced, as [Bai11]
+   "B ≈ U"). Step 7 becomes 3β² ≥ δβ + 2/δ; minimal β at equality. Differentiating
+   3β² = δβ + 2/δ with dβ/dδ = 0 gives β = 2/δ²; substituting, 12/δ⁴ = 4/δ, so δ³ = 3.
+   Hence δ = 3^{1/3}, β = 2·3^{−2/3} = (8/9)^{1/3} ≈ 0.961, and total cost
+   L_N[1/3, 2β + o(1)] = L_N[1/3, (64/9)^{1/3} + o(1)], (64/9)^{1/3} ≈ 1.923.
+10. Values at the optimum (summary tables use these): d = (3^{1/3} + o(1))(λ/μ)^{1/3} (the
+    `optimal_degree` formula before its [3, 6] clamp); B = M = L_N[1/3, (8/9)^{1/3} + o(1)];
+    |G| = N^{(1+o(1))/d} = L_N[2/3, 3^{−1/3} + o(1)]; M^d = N^{(2+o(1))/d}, so
+    |F| = N^{(3+o(1))/d}; u_G = (3^{1/3}/2 + o(1))(λ/μ)^{1/3},
+    u_F = ((3/2)·3^{1/3} + o(1))(λ/μ)^{1/3}; Pr = 1/L_N[1/3, (8/9)^{1/3} + o(1)] = B^{−1+o(1)}; sieve = linear algebra =
+    L_N[1/3, (64/9)^{1/3} + o(1)]. (8/9)^{1/3} is the constant of B, not an alternative cost
+    constant. The two sides are not the same size.
+11. Why the exponent is 1/3: two balances force it. Degree balance λ/d ≍ d·log M gives
+    d ≍ (λ/log B)^{1/2}; smoothness balance u·log u ≍ log B with u ≍ (λ/d)/log B then gives
+    log B ≍ λ^{1/3}μ^{2/3}. With d fixed the values are N^{Θ(1)} and the exponent is 1/2. A
+    quadratic-sieve contrast, if kept, says QS values are N^{1/2+o(1)} giving L_N[1/2, 1]
+    (recalled, [CP05]); the "values of size N give L_N[1/2, √2]" case is labelled hypothetical
+    (derived here: max(β + 1/(2β), 2β) is least at β = 1/√2).
+
+**Heuristic status (carried in §7 and consistent with the main theorem at the GNFS chapter
+head).** The result is a heuristic expected running time, not a theorem. CEP is a theorem about
+all integers ≤ x. Unproved: (H1) the values G(a, b), F(a, b) over the box are B-smooth as often as
+random integers of the same size; (H2) the two sides are independent; (H3) B^{1+o(1)} relations
+give dependencies whose square roots yield a nontrivial congruence with probability bounded below
+(the quadratic characters handle the unit and class-group obstructions).
+
+**Removed, not kept as a labelled simplification:** "Wait — let us be more careful", "Hmm…",
+the 3c / 24^{1/3} computation, the √(2/3) / 2√6/3 result (it rests on the wrong L-form and on
+equal-size sides, so it is not a valid simplification), "absorbing the 3^{1/3} into o(1)", the
+claim that degree optimisation and the two-sided sieve explain a gap from 2√6/3, "the sieve cost
+dominates", "(8/9)^{1/3} (full)" as an optimal-c alternative, "both norms ≈ N^{1/d}" and
+"N^{1/d} ≈ N^{1/3}", and "N^{1/d} = L_N[1/3, ·]".
+
+**Reconciled statements (one estimate, step 5, everywhere):** Prerequisites smooth-number density
+(~:509–541): the Dickman fixed-u statement and the CEP large-u statement with its range, then the
+step 5 lemma replacing the Corollary. α-substrate B-smooth density (~:1189–1212): same estimate,
+u for x = N, two-norm sentence under H1–H2. §4 (~:1650–1669 size sentences, ~:1688–1706 CEP
+estimate): sizes per steps 2 and 10, joint probability per step 6. Size sentences only:
+C-NonMonicNorm's c·N wording there is kept. §7: steps 1–11, the heuristic status, and a summary
+table of step 10's values. L-notation synthesis table (~:262–305): GNFS row unchanged in value.
+`docs/PEDAGOGY.md` GNFS row note: the exponent comes from the degree/smoothness balance (§7), the
+constant is derived in §7. `gnfs/docs/PEDAGOGY.md` §60 (~:4995–5190): summary consistent with
+steps 1–11, dropping 2/(dc), c = 1/√d, 4/√d, L_N[−α, ·] and the "u′ = O(1) ⇒ α = 1/2" argument.
+§4 degree passages (~:174–221) are re-read and kept where consistent.
+
+**§9.7 (restatement only).** Update ~:2791–2810. Every other §9.7 statement of a §7 quantity
+(sieve/linear-algebra/smoothness bullets ~:2934–2943 and ~:2957–2961, and the comparison table's
+norm-size, smoothness, sieve, linear-algebra and optimal-B rows in both columns, the p-column
+being the same formula in p) counts as a restatement and gets the step 10 values. Descent
+(Delta 2, c_descent ~:2880–2920), Delta 1, Schirokauer and every NFS-DL capability claim stay
+untouched and are reported.
 
 ### C-BadPrime
 
@@ -232,14 +330,28 @@ Bindings: PLAN = `docs/PLAN.md`; VERIFY_TYPES = `cargo check --workspace`; VERIF
 `cargo test --workspace`; boundary check = `cargo coverage`; freshness checks = `cargo
 dep-policy`, `cargo audit` (separate commands). Cadence per "Verify gate".
 
-Gate evidence: *(none yet)*
+Stash snapshot at run start: `6c65ca58890b36e241ed0d7923f4ae9a9af4641a` (single pre-existing entry).
 
-Pending checks: `cargo dep-policy` and `cargo audit` due on the first active run (new calendar day
-since the 2026-11-10 records).
+Gate evidence:
+
+- Freshness, 2026-11-11, tree `3002c52` clean (dependency inputs unchanged by the chain; toolchain
+  rustc/cargo 1.95.0; cargo-deny 0.20.2; cargo-audit 0.22.2; advisory db `fd6f398`):
+  - `cargo dep-policy` (workspace root): passed, exit 0, completed 18:29:49 −05:00, log
+    `/tmp/opencode/dep-policy.log`, advisories/bans/licenses/sources ok.
+  - `cargo audit` (workspace root): passed, exit 0, completed 18:29:50 −05:00, log
+    `/tmp/opencode/audit.log`, db refreshed, 1458 advisories; one allowed warning
+    (RUSTSEC-2026-0486, rustix 1.1.4 unsound, informational).
+- Row 1: `cargo check`/`cargo test`: not run, `non-executable diff` (three Markdown files; grep of
+  `*.rs`/`*.toml` finds no `include_str!`/doc-include of Markdown). `cargo coverage`: deferred to the
+  ◆ boundary (row 8).
+
+Pending checks: `cargo coverage` (row 8 boundary, then final delivery). `cargo dep-policy` and
+`cargo audit` fresh for 2026-11-11 only; rerun if the chain crosses a day or touches dependency
+inputs.
 
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
-| 1 | Re-derive the GNFS L[1/3, (64/9)^{1/3}] complexity from one smoothness estimate | pending | | |
+| 1 | Re-derive the GNFS L[1/3, (64/9)^{1/3}] complexity from one smoothness estimate | done | a0b12ad | C-GnfsComplexity (frozen by the inflection fork, `design-confident`). §9.7 restatements widened per the contract; allowed extras: none. Out-of-scope stale text reported to row 8 (see digest). |
 | 2 | State the non-monic homogeneous value as c·N(a − bα) and localise the index | pending | | |
 | 3 | Separate bad primes from index divisors and name `number_field()`'s consumers | pending | | |
 | 4 | Pin the trivial-congruence policy and say linear algebra yields candidates | pending | | |
@@ -251,7 +363,25 @@ since the 2026-11-10 records).
 
 ## Action-frame digest
 
-*(none yet)*
+### 1 — 2026-11-11
+Discovery/flex: the inflection fork (`design-confident`, reading [Bai11] §2.3) found the old one-norm
+L-form L_N[−1/3, −1/(3c)] wrong and replaced it by the two-sided form; (8/9)^{1/3} is the constant
+of B, not an alternative cost constant; the √(2/3) / 2√6/3 result was removed, not kept as a
+simplification. The contract reads every §9.7 statement of a §7 quantity as a restatement (wider
+than ~:2791–2810); row 1 followed it. Row 1's worker named hypotheses (H1)–(H3) locally inside §7.
+Affected: C-GnfsComplexity (frozen); C-NonMonicNorm (size sentences now correct; row 2 must keep
+them and change only the c·N wording).
+Deferred: yes — row 8 should re-examine: (a) the descent bound c_descent ≤ (8/9)^{1/3} +
+1/(3(8/9)^{1/3}) (~MATHEMATICS :2895–2919) and NFS-DL text still on the old `ρ(u′)^{-1} = …(1+o(1))`
+form (report-only, NFS-DL design); (b) MATHEMATICS §2 Dixon (~:1546–1558: c = 1/√2 against L_N[1/2,
+1]; "L_N[1, 2c]" should be L_N[1/2, 2c]) and the ECM synthesis row (L_p[1/2, 1] vs ECM theorem
+L_p[1/2, √2]); (c) `gnfs/src/polyselect/base_m.rs:22–24, 44–46` rustdoc ("balances the smoothness
+bounds on both sides"; :188 `m = floor(n^{1/(d+1)})` vs the code's least m with m^{d+1} > n; row 3
+touches this file's rustdoc); (d) leaked labels in `gnfs/docs/PEDAGOGY.md` ~:5133–5136, 5148, 5164,
+5219, 5942–5943 ("T.G", "T.D", "C-PolyPair", "C-Score", "G.A–G.F", "G.W"); (e) the Prerequisites CEP
+statement is now the large-u form with its range; confirm no consumer relied on the old Corollary;
+(f) [Bai11] page numbers carried from the contract, not re-fetched.
+Texture: references 18, 19, 22, 23 now carry recalled/not-read notes; [Bai11] added as "23a".
 
 ## Discoveries & risks
 
