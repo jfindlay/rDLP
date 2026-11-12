@@ -71,7 +71,7 @@ a repeated run.
 | `cargo check --workspace` and `cargo test --workspace` | Once on the final inputs of each completed code change |
 | `cargo coverage` | The end of each planned group of related changes, and final delivery; earlier after substantial test removal or a coverage-related change |
 | `cargo dep-policy` and `cargo audit` | When dependency inputs change; the first active run of each day; before a release |
-| Documentation and plan-ledger edits | Only the documentation or contract checks that apply; no automatic Cargo suite |
+| Edits to documentation and to planning or ledger documents | Only the documentation or contract checks that apply; no automatic Cargo suite |
 
 Rules that go with the table:
 
@@ -99,8 +99,8 @@ Rules that go with the table:
   staged and unstaged changes, deletions, and the contents of untracked additions — neither `HEAD`
   alone nor `git status` filenames suffice), and the relevant environment (toolchain, flags,
   features, target, config). Without a verifiable log or identity, rerun the check.
-- **Oracle tests and named ignored tests are unaffected.** Opt-in oracles stay opt-in, and a plan's
-  explicitly named ignored tests run where that plan requires them.
+- **Oracle tests and named ignored tests are unaffected.** Opt-in oracles stay opt-in, and ignored
+  tests that a change explicitly names run where that change requires them.
 - **Release.** Dependency policy and audit must be fresh, and coverage current, before a release.
 
 No scheduler or CI enforces this: whoever runs the checks (a contributor or an agent following

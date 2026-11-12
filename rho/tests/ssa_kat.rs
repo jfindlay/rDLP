@@ -14,7 +14,8 @@
 //!   point `(5, 2)` also lifts onto the curve.
 //! - The lifted point satisfies the curve equation mod `7^4` (lift-correctness check).
 //! - A 2-torsion point (`y = 0`) on a test curve errors via `HenselError::NonSimpleRoot`; the
-//!   identity errors as `LiftError::PointAtInfinity`; `LiftError` carries its cause as the `source`.
+//!   identity errors as `LiftError::PointAtInfinity`; `LiftError` carries its cause as the
+//!   `source`.
 //! - Lifts at precision k=1 and k=2 agree with the hand-computed values.
 //! - A test (`#[ignore]`) asserting the lift value recorded from PARI/GP; it does not call `gp`.
 //!

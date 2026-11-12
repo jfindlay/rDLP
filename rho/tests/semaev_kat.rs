@@ -72,7 +72,7 @@
 //! 21. **PARI/GP-derived values** (`#[ignore]`): `S_4` vanishes at points derived with PARI/GP;
 //!     does not call `gp`.
 //!
-//! # Principle-4 boundary
+//! # Toy-scale boundary
 //!
 //! The fixture is toy-scale (`p = 47`, group order `n = 60`). The algorithms are
 //! crypto-scale-correct; only the parameters are small for auditability.

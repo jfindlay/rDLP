@@ -28,8 +28,9 @@ the congruence is trivial.
 The algebraic side of the sieve requires computing Norm_{K/ℚ}(a + bα) for each sieve pair (a, b).
 For monic f this norm is an integer. For a leading coefficient c ≠ 1 the integer is instead
 c · Norm_{K/ℚ}(a + bα) = (−b)^d f(−a/b), because the norm itself can have a denominator. Its prime
-factorisation determines which algebraic prime ideals divide the ideal (a + bα) in ℤ[α]. The factor base on the algebraic side consists of prime ideals above
-rational primes p ≤ B — specifically, the prime ideals (p, α − r) where r is a root of f mod p.
+factorisation determines which algebraic prime ideals divide the ideal (a + bα) in ℤ[α]. The factor
+base on the algebraic side consists of prime ideals above rational primes p ≤ B — specifically, the
+prime ideals (p, α − r) where r is a root of f mod p.
 
 This is why the `shared/numfield` crate exists: it provides the arithmetic of K = ℚ(α), the norm
 map, and the ideal-theoretic machinery that the sieve consumes.
@@ -611,9 +612,9 @@ Two points are easy to get wrong.
   unit test shifts the lifts by multiples of p to confirm T is unchanged.
 
 The factorisation in step 1 is only needed up to the radical, so the code uses the square-free
-decomposition of f̄ (`FpPoly::radical`) rather than a full irreducible factorisation. This
-handles multiplicities that are multiples of p, where the characteristic-0 shortcut f̄ / gcd(f̄, f̄')
-fails: a factor tᵉ with p | e has zero derivative, so it is divided out entirely and is missed.
+decomposition of f̄ (`FpPoly::radical`) rather than a full irreducible factorisation. This handles
+multiplicities that are multiples of p, where the characteristic-0 shortcut f̄ / gcd(f̄, f̄') fails:
+a factor tᵉ with p | e has zero derivative, so it is divided out entirely and is missed.
 
 ### The ℤ[√2] example
 
@@ -840,11 +841,11 @@ wrong answers unrepresentable rather than about speed.
 ### Canonical values and checked operations
 
 `PrimeModulus` can only be built from a prime: `PrimeModulus::new` runs `is_prime_u64` and returns
-`NotPrime` otherwise, so downstream code never re-validates. `FpPoly` stores `(modulus, coeffs)` with
-private fields. Coefficients are least-significant first, each in `[0, p)`, trailing zeros trimmed,
-and the zero polynomial is the empty slice. Every constructor reduces its input (negative integers
-take their least nonnegative residue), so structural equality is mathematical equality, and
-equality includes the modulus. Reducing a non-monic integer polynomial can lower its degree
+`NotPrime` otherwise, so downstream code never re-validates. `FpPoly` stores `(modulus, coeffs)`
+with private fields. Coefficients are least-significant first, each in `[0, p)`, trailing zeros
+trimmed, and the zero polynomial is the empty slice. Every constructor reduces its input (negative
+integers take their least nonnegative residue), so structural equality is mathematical equality,
+and equality includes the modulus. Reducing a non-monic integer polynomial can lower its degree
 (2x²+x+1 is x+1 over F₂), so a caller that needs a degree preserved checks `degree()`.
 
 Operations return `Result`: mixed moduli give `ModulusMismatch`, a zero divisor or modulus gives
@@ -862,9 +863,9 @@ prime below 2⁶⁴), where (p−1)·(p−1) and (p−1)+(p−1) both overflow `
 
 `is_prime_u64` is a proof, not probable primality. After trial division by 2, 3, …, 37 it applies
 the strong-probable-prime test to the first twelve primes as bases. The smallest composite that
-passes all twelve bases is ψ₁₂ = 318665857834031151167461 (Sorenson and Webster, 2017), which exceeds
-2⁶⁴, so no `u64` composite passes. Eleven bases are not enough: 3825123056546413051 < 2⁶⁴ is a
-strong pseudoprime to the first nine, ten and eleven prime bases (Jiang and Deng, 2014). The
+passes all twelve bases is ψ₁₂ = 318665857834031151167461 (Sorenson and Webster, 2017), which
+exceeds 2⁶⁴, so no `u64` composite passes. Eleven bases are not enough: 3825123056546413051 < 2⁶⁴
+is a strong pseudoprime to the first nine, ten and eleven prime bases (Jiang and Deng, 2014). The
 pseudoprime tests pin that boundary from the composite side by factoring each listed number
 explicitly. `numth::prime` carries the same table for `Uint<4>`; calling it from here would add a
 dependency to this crate, so the small `u64` version is duplicated deliberately.
@@ -935,8 +936,8 @@ extended Euclidean algorithm against `f` and returns `DivisionByZero` for zero.
 ### Squareness and Tonelli–Shanks
 
 In odd characteristic the Euler criterion is exact: a nonzero a is a square iff a^((q−1)/2) = 1, and
-otherwise the power is −1. `is_square` counts zero as a square. Equivalently a is a square in F_q iff
-its norm to F_p is a square in F_p, which the tests use as an independent oracle.
+otherwise the power is −1. `is_square` counts zero as a square. Equivalently a is a square in F_q
+iff its norm to F_p is a square in F_p, which the tests use as an independent oracle.
 
 Write q−1 = 2ˢ·t with t odd. Tonelli–Shanks starts from r = a^((t+1)/2) and tt = aᵗ, and repeatedly
 multiplies r by a power of c = zᵗ, for a nonresidue z, until tt = 1. Each pass lowers m (initially

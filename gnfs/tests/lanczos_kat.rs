@@ -84,7 +84,8 @@ fn verify_all(results: &[gnfs::linalg::KernelVector], matrix: &SparseMatrix) -> 
 /// - `{4, 5}`: rows 4 and 5 are identical → XOR = 0.
 /// - `{0, 1, 2}`: {0,1} XOR {1,2} XOR {0,2} = {} → XOR = 0.
 /// - `{0, 1, 2, 3}`: XOR of rows 0,1,2,3 = XOR of rows 0,1,2 XOR row 3 = 0 XOR {0,1} = {0,1} ≠ 0.
-///   Actually: {0,1} XOR {1,2} XOR {0,2} XOR {0,1} = {0,1} ≠ 0. So {0,1,2,3} is NOT a kernel vector.
+///   Actually: {0,1} XOR {1,2} XOR {0,2} XOR {0,1} = {0,1} ≠ 0. So {0,1,2,3} is NOT a kernel
+///   vector.
 ///
 /// # Self-orthogonality path
 ///

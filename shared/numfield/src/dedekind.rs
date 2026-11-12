@@ -75,10 +75,10 @@ use crate::resultant::resultant;
 /// Invariant: the sum of the multiplicities of `degree_one` plus `nonlinear_degree` equals
 /// deg f.
 ///
-/// If p does not divide the index (`!index.divides_index()`), each listed ideal is a prime of ℤ_K of residue degree 1
-/// whose ramification index is its multiplicity, and `nonlinear_degree` is Σ eᵢfᵢ over the
-/// remaining primes (those with fᵢ > 1). If it does divide the index, each listed ideal is a prime
-/// of ℤ[α] of norm p and nothing is claimed about the factorisation of (p) in ℤ_K.
+/// If p does not divide the index (`!index.divides_index()`), each listed ideal is a prime of ℤ_K
+/// of residue degree 1 whose ramification index is its multiplicity, and `nonlinear_degree` is
+/// Σ eᵢfᵢ over the remaining primes (those with fᵢ > 1). If it does divide the index, each listed
+/// ideal is a prime of ℤ[α] of norm p and nothing is claimed about the factorisation of (p) in ℤ_K.
 pub struct DedekindReport<'a> {
     /// Degree-one primes (p, α − r), in ascending r.
     pub degree_one: Vec<DegreeOnePrime<'a>>,

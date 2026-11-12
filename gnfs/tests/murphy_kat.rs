@@ -212,7 +212,8 @@ fn kat5_score_is_deterministic() {
 ///
 /// We construct two pairs for `N = 1022117`, `m = 101` (a valid base):
 ///
-/// - `f_good(x) = x^3 + x^2 - x + 1` — small coefficients, `f_good(101) = 1030503 + 10201 - 101 + 1 = 1040604`.
+/// - `f_good(x) = x^3 + x^2 - x + 1` — small coefficients,
+///   `f_good(101) = 1030503 + 10201 - 101 + 1 = 1040604`.
 ///   This does not equal N, so we use a pair where `f(m) = N` exactly.
 ///
 /// Instead, we compare the base-m pair (which is the "natural" good polynomial)

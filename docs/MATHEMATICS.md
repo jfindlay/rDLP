@@ -71,10 +71,9 @@ subsequent chapter.
 
 ### Markup
 
-**Markdown + MathJax.** Inline mathematics uses `$…$`; display mathematics uses `$$…$$`. This
-replaces the earlier undecided "rST or Markdown" choice. Rationale:
-zero migration (every artifact stays `.md`), renders on GitHub and in standard Markdown viewers,
-and lets trivial inline glyphs stay as Unicode while non-trivial expressions use TeX delimiters.
+**Markdown + MathJax.** Inline mathematics uses `$…$`; display mathematics uses `$$…$$`.
+Rationale: every artifact stays `.md`, the files render on GitHub and in standard Markdown viewers,
+and trivial inline glyphs can stay as Unicode while non-trivial expressions use TeX delimiters.
 The TeX source is the same notation the textbook would use under any tooling. Reopen only on a
 hard MathJax limitation (a renderer the project must target that lacks MathJax).
 
@@ -84,9 +83,9 @@ matrices, sub/superscript stacks — use MathJax delimiters.
 
 ### Artifact location
 
-**`docs/MATHEMATICS.md`** (single file). Chapters are appended to this file as they are written.
+**`docs/MATHEMATICS.md`** (single file). Every chapter is a section of this file.
 
-**Single-file decision.** The single-file format is retained. At approximately 4500 lines across
+**Single-file decision.** The single-file format is retained. At several thousand lines across
 12 chapters, the file is large but navigable: every chapter is
 clearly delimited by a top-level heading, the ToC provides a complete map, and the cross-references
 are all intra-file or to named sections in the PEDAGOGY.md files. The principal argument for
@@ -180,7 +179,7 @@ scope statement.
     correspondence as a structural phenomenon in the escape-from-search family; the connection to
     point counting, isogenies, and the Castryck–Decru precedent; and an explicit speculation about
     whether the modularity structure suggests further escapes from the ECDLP search bound. The
-    project's one chartered speculation; no code-tour sibling.
+    project's one deliberate speculation; no code-tour sibling.
 
 ---
 
@@ -389,14 +388,14 @@ $\mathcal{O}_K$ to connect smoothness of norms in $\mathbb{Z}$ to smoothness of 
 $\mathcal{O}_K$. For a monic $f$ with root $\alpha$, the primes dividing the index
 $[\mathcal{O}_K : \mathbb{Z}[\alpha]]$ are exactly the primes $p$ at which $\mathbb{Z}[\alpha]$
 fails to be integrally closed, and they require special handling (the Dedekind index criterion).
-They are distinct from the *bad primes*, those dividing $\mathrm{disc}(f)$: since $\mathrm{disc}(f) =
-[\mathcal{O}_K : \mathbb{Z}[\alpha]]^2 \cdot \mathrm{disc}(K)$, every prime dividing the index is
-bad, but a bad prime need not divide the index (for $f = x^2 - 2$ the prime $2$ is bad, yet
-$\mathbb{Z}[\sqrt{2}]$ is maximal). The index is defined only when $\alpha$ is an algebraic integer.
-For a leading coefficient $c \ne 1$ the root $\alpha$ is not integral, and the index is replaced by
-$[\mathcal{O}_K : \mathbb{Z}[c\alpha]]$ ($c\alpha$ is a root of the monic form $F(t) = c^{d-1}
-f(t/c)$), or one localises away from the primes dividing $c$, where $\mathbb{Z}[\alpha]$ and
-$\mathbb{Z}[c\alpha]$ agree.
+They are distinct from the *bad primes*, those dividing $\mathrm{disc}(f)$: since
+$\mathrm{disc}(f) = [\mathcal{O}_K : \mathbb{Z}[\alpha]]^2 \cdot \mathrm{disc}(K)$, every prime
+dividing the index is bad, but a bad prime need not divide the index (for $f = x^2 - 2$ the prime
+$2$ is bad, yet $\mathbb{Z}[\sqrt{2}]$ is maximal). The index is defined only when $\alpha$ is an
+algebraic integer. For a leading coefficient $c \ne 1$ the root $\alpha$ is not integral, and the
+index is replaced by $[\mathcal{O}_K : \mathbb{Z}[c\alpha]]$ ($c\alpha$ is a root of the monic form
+$F(t) = c^{d-1} f(t/c)$), or one localises away from the primes dividing $c$, where
+$\mathbb{Z}[\alpha]$ and $\mathbb{Z}[c\alpha]$ agree.
 
 #### Elliptic curves
 
@@ -848,7 +847,7 @@ behave at the scales they were designed for is acknowledging what toy scale can 
 
 ## Pollard Rho for ECDLP
 
-*Maths-first sibling to `docs/PEDAGOGY.md`. For the code-tour — phase-by-phase implementation
+*Maths-first sibling to `docs/PEDAGOGY.md`. For the code-tour — section-by-section implementation
 narrative, optimisation sequence, benchmarks, and CLI — see `docs/PEDAGOGY.md`. For the
 prerequisites used in this chapter, see §Prerequisites above.*
 
@@ -1081,7 +1080,7 @@ These are the subjects of the algebraic ECDLP attacks chapter (§10).
 
 ### Cross-reference
 
-For the phase-by-phase implementation of Pollard rho — the code, the optimisation sequence, the
+For the section-by-section implementation of Pollard rho — the code, the optimisation sequence, the
 benchmarks, and the CLI — see `docs/PEDAGOGY.md`. That chapter is the code-tour sibling to this
 one: it assumes the reader knows the mathematics (this chapter) and focuses on the realisation in
 Rust.
@@ -1409,7 +1408,7 @@ subgroup until the error vanishes.
 
 ### Cross-reference
 
-For the phase-by-phase implementation of the α-substrate — the code, the KAT summary, the
+For the section-by-section implementation of the α-substrate — the code, the KAT summary, the
 downstream consumption table, and the scale-disconnect annotations — see
 `shared/numth/docs/PEDAGOGY.md`. That chapter is the code-tour sibling to this one: it assumes
 the reader knows the mathematics (this chapter) and focuses on the realisation in Rust.
@@ -1570,9 +1569,10 @@ assumption is a modelling choice of this exposition, not Dixon's original analys
 verified): ECM dates from 1987, after the 1981 paper.
 
 *Proof sketch (derived here, not attributed to a source; the model of testing at cost
-$L_N[1/2, o(1)]$ is likewise derived here).* Set $B = L_N[1/2, c]$. The smoothness probability for a random integer near $N$
-is $\rho(\log N / \log B) = 1/L_N[1/2, 1/(2c) + o(1)]$. To collect $B$ smooth values (enough for
-a linear dependency), one needs $B \cdot L_N[1/2, 1/(2c)] = L_N[1/2, c + 1/(2c)]$ trials.
+$L_N[1/2, o(1)]$ is likewise derived here).* Set $B = L_N[1/2, c]$. The smoothness probability for a
+random integer near $N$ is $\rho(\log N / \log B) = 1/L_N[1/2, 1/(2c) + o(1)]$. To collect $B$
+smooth values (enough for a linear dependency), one needs
+$B \cdot L_N[1/2, 1/(2c)] = L_N[1/2, c + 1/(2c)]$ trials.
 Minimising over $c$ gives $c = 1/\sqrt{2}$ and $L_N[1/2, \sqrt{2}]$ trials. The linear algebra
 costs $O(B^2) = L_N[1/2, 2c] = L_N[1/2, \sqrt{2}]$ at this $c$, the same order as the trials, so
 the total is $L_N[1/2, \sqrt{2}]$. Testing each candidate by trial division instead multiplies the
@@ -3235,7 +3235,7 @@ dimension axis, not resource/operational axis).
 ## Algebraic ECDLP Attacks
 
 *Maths-first sibling to `docs/PEDAGOGY.md` §8–§18 (the algebraic-attack code-tour). For the
-phase-by-phase implementation — module surfaces, toy fixtures, KAT summary, and design-statement
+section-by-section implementation — module surfaces, toy fixtures, KAT summary, and design-statement
 verification — see `docs/PEDAGOGY.md`. This chapter is the mathematical development: proof
 sketches, the full MOV payoff proof, and the per-attack L-notation comparison.*
 
@@ -4049,7 +4049,7 @@ for the five attacks. The chapter-pairing is:
 
 ## Shor's Algorithm and Post-Quantum Context
 
-*Maths-first sibling to `shor/docs/PEDAGOGY.md` (the Shor code-tour). For the phase-by-phase
+*Maths-first sibling to `shor/docs/PEDAGOGY.md` (the Shor code-tour). For the section-by-section
 implementation — module surfaces, toy fixtures, KAT summary, and design-statement verification —
 see `shor/docs/PEDAGOGY.md`. This chapter is the mathematical development: the full payoff proof
 (QFT phase estimation, order-finding → factoring, two-register hidden-subgroup → ECDLP), and the
@@ -4188,7 +4188,7 @@ this. See Nielsen–Chuang [NC00, §5.1] for the full circuit derivation.
 **Code realisation.** The `qft` module in the `shor` crate implements this circuit exactly, with the
 bit-reversal convention described in `shor/docs/PEDAGOGY.md` §2.2. The little-endian qubit
 ordering requires an input bit-reversal step before the Hadamard + controlled-phase ladder; see
-§2.2 for the load-bearing convention note.
+§2.2 for the convention note.
 
 #### Phase estimation: the key lemma
 
@@ -5436,7 +5436,7 @@ elliptic curves (TSW), an account of how it connects to the
 algorithms in this textbook (point counting, isogenies, the Castryck–Decru precedent), and an
 explicit speculation about whether it points at further escapes.
 
-The speculation is chartered because it is the intellectually honest terminus of the through-line.
+The speculation is included because it is the intellectually honest terminus of the through-line.
 Having surveyed every known escape, the project should gesture at the unknown ones — not by
 claiming them, but by naming the mathematical structures that might generate them and being
 explicit about what is known and what is not.

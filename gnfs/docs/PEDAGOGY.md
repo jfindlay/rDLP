@@ -6,7 +6,7 @@ each section introduces the mathematics, then shows how it is realised in code. 
 read the `shared/numfield` PEDAGOGY chapter can read this one without consulting the source.
 
 The chapter covers the base-m construction, degree selection, Murphy-E scoring, the root sieve,
-Coppersmith multi-poly, and the public contracts that downstream stages consume.
+Coppersmith multi-poly, and the public interfaces that downstream stages consume.
 
 ---
 
@@ -34,7 +34,7 @@ f(m) ≡ 0 (mod N)
 g(m) = 0,  g(x) = x − m
 ```
 
-This shared-root invariant is the load-bearing contract that the sieve consumes. The sieve does not
+This shared-root invariant is the only property of f that the sieve depends on. The sieve does not
 care how f was found — only that f(m) ≡ 0 (mod N) and that F(a, b) is small over the sieve region.
 
 ---
@@ -1302,9 +1302,9 @@ algebra fills them in when it constructs the full matrix.
 
 ### Why integer exponents, not GF(2) parities
 
-The design decision to store full integer exponents (not pre-reduced GF(2) parities) is the
-load-bearing choice in the `Relation` interface, because both factoring and discrete-logarithm code
-read it. Three consumers need different views:
+The design decision to store full integer exponents (not pre-reduced GF(2) parities) is the choice
+in the `Relation` interface that the other stages depend on, because both factoring and
+discrete-logarithm code read it. Three consumers need different views:
 
 - **Filtering:** reads the exponent vectors to detect duplicate or linearly dependent
   relations. Integer exponents are needed to identify exact duplicates.
@@ -1483,7 +1483,9 @@ The conversion is straightforward:
 For the legacy `build_matrix`, the column layout is fixed by `FactorBase::matrix_width()`:
 
 $$
-\text{columns} = \underbrace{\text{rational\_size}}_{\text{rational primes}} + \underbrace{\text{algebraic\_size}}_{\text{algebraic ideals}} + \underbrace{\text{obstruction\_count}}_{\text{sign + quad. chars.}}
+\text{columns} = \underbrace{\text{rational\_size}}_{\text{rational primes}}
+  + \underbrace{\text{algebraic\_size}}_{\text{algebraic ideals}}
+  + \underbrace{\text{obstruction\_count}}_{\text{sign + quad. chars.}}
 $$
 
 That formula describes only the legacy builder. A matrix from `build_checked_matrix` has
@@ -1779,9 +1781,9 @@ because column c must sum to zero.
 
 Replacing the three rows by their *total* XOR R₀⊕R₁⊕R₂ is not elimination. The shared column
 stays set (three odd contributions), and dependencies vanish: three copies of the row [1] have a
-two-dimensional kernel, but the single row [1] has none. `kat_three_identical_rows_keep_their_kernel`
-pins this: the correct result is two empty rows with provenance [0,1] and [0,2], whose four
-dependencies lift to exactly the original four.
+two-dimensional kernel, but the single row [1] has none.
+`kat_three_identical_rows_keep_their_kernel` pins this: the correct result is two empty rows with
+provenance [0,1] and [0,2], whose four dependencies lift to exactly the original four.
 
 In both cases the map from reduced dependencies to old dependencies is a linear bijection, so the
 whole pipeline's reduced kernel lifts, through provenance, onto the kernel of the starting
@@ -2680,7 +2682,9 @@ Once the minimal polynomial f(z) is known, the kernel vector is extracted by eva
 f(B)·y via Horner's method:
 
 $$
-f(B) \cdot y = f_d \cdot y + B \cdot (f_{d-1} \cdot y + B \cdot (\ldots + B \cdot (f_1 \cdot y + B \cdot (f_0 \cdot y)) \ldots))
+f(B) \cdot y = f_d \cdot y
+  + B \cdot (f_{d-1} \cdot y
+  + B \cdot (\ldots + B \cdot (f_1 \cdot y + B \cdot (f_0 \cdot y)) \ldots))
 $$
 
 ```rust
@@ -2859,7 +2863,8 @@ with ℓ elements, where ℓ is a prime). The generalisation touches three point
 
 **`BlockVec` generalisation.** The GF(2)-specific packing (64 scalars per `u64`) is the scale
 knob. For F_ℓ, the natural generalisation is `data: Vec<[Scalar; BLOCK_WIDTH]>` where `Scalar`
-is the field element type. The `BlockVec` docstring says, in substance (a paraphrase, not a verbatim quotation):
+is the field element type. The `BlockVec` docstring says, in substance (a paraphrase, not a
+verbatim quotation):
 
 > For F_ℓ (ℓ > 2), the natural generalisation is `data: Vec<[Scalar; BLOCK_WIDTH]>` where
 > `Scalar` is the field element type. The GF(2) specialisation packs 64 scalars into one
@@ -2868,7 +2873,8 @@ is the field element type. The `BlockVec` docstring says, in substance (a paraph
 
 **`MatrixOperator` generalisation.** The operator interface is already abstract: `apply` and
 `apply_transpose` take and return `BlockVec`. For F_ℓ, the same interface shape applies with
-scalar multiplication replacing the GF(2) XOR. The `MatrixOperator` docstring says, in substance (a paraphrase, not a verbatim quotation):
+scalar multiplication replacing the GF(2) XOR. The `MatrixOperator` docstring says, in substance (a
+paraphrase, not a verbatim quotation):
 
 > For F_ℓ, the operator needs the same shape but with scalar multiplication. The natural
 > generalisation is a trait `LinearOperator<V>` with `apply(&self, v: &V) -> V` and
@@ -3060,8 +3066,8 @@ pub fn expand_provenance(&self, matrix: &SparseMatrix) -> Vec<usize> {
 This seam was over-specified in the linear-algebra substrate for the square-root stage. The
 checked path does not take the method's word for it: `DependencyContext::validate` re-derives the
 lift itself, because `expand_provenance` indexes the matrix directly and is only safe for a vector
-that is known to be in range. The validated index set S is the input to both square roots (see "Checked Dependencies:
-Lifting and Exact Products" below).
+that is known to be in range. The validated index set S is the input to both square roots (see
+"Checked Dependencies: Lifting and Exact Products" below).
 
 ---
 
@@ -3180,7 +3186,8 @@ rational coefficients of $\beta$ are evaluated with their denominators inverted 
 So the image of a verified root is
 
 $$
-y = \beta(c \cdot m) \bmod N, \qquad y^2 \equiv \gamma(m) = \prod_{i \in S}(a_i - b_i m) = P \pmod N.
+y = \beta(c \cdot m) \bmod N, \qquad
+y^2 \equiv \gamma(m) = \prod_{i \in S}(a_i - b_i m) = P \pmod N.
 $$
 
 It is **not** $\mathrm{Norm}(\beta)$. Take $f = x^2 - 2$, $m = 23$, $N = 527 = 17 \cdot 31$ and the
@@ -3475,8 +3482,8 @@ With `gp` absent they fail with a message saying so; they never pass silently. E
 The two sides are independent. The crate's side comes from its own API: a verified root, a
 `NotSquare` certificate, a modular image, a discriminant. PARI's side comes from the fixture inputs
 alone, the polynomial `f`, the relation pairs `(a, b)`, `m` and `N`, from which it computes
-`γ = Π(a − bα)`, `P = Π(a − bm)`, the discriminant, and irreducibility for itself. The one thing PARI
-is handed is the crate's `β`, as an input to be checked, never as an answer it is asked to
+`γ = Π(a − bα)`, `P = Π(a − bm)`, the discriminant, and irreducibility for itself. The one thing
+PARI is handed is the crate's `β`, as an input to be checked, never as an answer it is asked to
 confirm: it tests `β² = γ` in `ℚ[y]/(f)` and through `nfeltmul`, recomputes `y = β(m) mod N`, and
 compares `β` with the two roots of `t² − γ` that `nfroots` finds. For a certified nonsquare PARI
 decides `nfroots(t² − γ) = ∅` without seeing the certificate. For a non-monic `f`, PARI works in the
@@ -3594,8 +3601,8 @@ With `A = Q[t]/(F)`, `θ = c·α`, `k` relations and `h = ⌈k/2⌉`, the algebr
     H = F'(θ)² · η                                (in Z[θ])
 
 are. If `β² = γ` then `w = c^h β` satisfies `w² = η` and is integral at every conjugate, and
-`z = F'(θ)·w` satisfies `z² = H` exactly modulo `F`. Multiplying by `F'` is what puts `z` in the power
-basis `Z[θ]` even when `Z[θ]` is not the maximal order: `z_i = Tr(w·h_i(θ))` with
+`z = F'(θ)·w` satisfies `z² = H` exactly modulo `F`. Multiplying by `F'` is what puts `z` in the
+power basis `Z[θ]` even when `Z[θ]` is not the maximal order: `z_i = Tr(w·h_i(θ))` with
 `h_i(t) = Σ_{ℓ>i} F_ℓ t^(ℓ−1−i)`, and each `w·h_i(θ)` is an algebraic integer, so its trace is an
 integer. The unscaled root is recovered over `Q` as `β = z / (c^h F'(θ))`.
 
@@ -3637,11 +3644,11 @@ The checks run in a fixed order:
    `N` yields an `Incidental` factor (source: map denominator), preferred over an unsupported one
    found earlier. A denominator divisible by `N` yields `Unsupported(MapDenominatorNotUnit)`. A root
    exists in both cases, only the coefficientwise map fails, and neither is a nonsquare
-   certificate. For `F = t² − 8` and `β = θ/2` the only denominator is 2: modulo `N = 4` that gives the
-   factor `2·2`, modulo `N = 2` it is unsupported, and modulo `N = 7` it is a unit.
-6. `y = β(c·m) mod N`. Writing `β = Σ b_i θ^i`, each `b_i` is reduced modulo `N` and the polynomial is
-   evaluated at `c·m`; this is a ring homomorphism on the localization because `F(c·m) = c^(d−1) f(m)
-   ≡ 0 (mod N)`.
+   certificate. For `F = t² − 8` and `β = θ/2` the only denominator is 2: modulo `N = 4` that gives
+   the factor `2·2`, modulo `N = 2` it is unsupported, and modulo `N = 7` it is a unit.
+6. `y = β(c·m) mod N`. Writing `β = Σ b_i θ^i`, each `b_i` is reduced modulo `N` and the polynomial
+   is evaluated at `c·m`; this is a ring homomorphism on the localization because
+   `F(c·m) = c^(d−1) f(m) ≡ 0 (mod N)`.
 7. `y² ≡ P = Π(a − b·m) (mod N)`, again an invariant for the same reason.
 
 ### The map is not the norm
@@ -3699,8 +3706,8 @@ is skipped when it is even, divides `c` or `N`, leaves `F` reducible (the Rabin 
 repeated factor), or makes `H ≡ 0`. Every prime examined counts against `max_primes_examined`,
 including skipped ones. `H ≡ 0` is rejected before any square root is taken, because zero has no
 inverse square root. Running out of budget, or of machine primes below `2^64`, is a resource
-outcome: it does not prove that an inert prime is absent. For `F = t⁴ − 10t² + 1`, whose Galois group
-is `V4`, no inert prime exists at all, and the search ends only by budget.
+outcome: it does not prove that an inert prime is absent. For `F = t⁴ − 10t² + 1`, whose Galois
+group is `V4`, no inert prime exists at all, and the search ends only by budget.
 
 For `d ≥ 2` a prime dividing `N` or `c` already leaves `F` with a root, so the divisibility guard
 changes the outcome only for `d = 1`, where `F = t − c·m` is irreducible at every prime.
@@ -3715,8 +3722,8 @@ In the residue field a Tonelli–Shanks square root `s` of `H` gives the seed `u
 and if `H·u² = 1 + ε` the new value satisfies `H·u'² = 1 − (3/4)ε² + ε³/4`. The error is squared, so
 each step doubles the precision. Division by 2 multiplies by `(M + 1)/2`, which is valid because
 `M = p^e` is odd. The precision runs through the ceiling-halving chain of the final exponent
-(`5 → 3 → 2 → 1`), so a step never more than doubles. Each step checks `H·u² ≡ 1` at the precision it
-starts from, and the last result is checked at the final precision. A failed check is an
+(`5 → 3 → 2 → 1`), so a step never more than doubles. Each step checks `H·u² ≡ 1` at the precision
+it starts from, and the last result is checked at the final precision. A failed check is an
 `Err(Invariant)`, never a nonsquare.
 
 The ring arithmetic is private to this module. An element is `d` coefficients in `[0, p^e)`;
@@ -3730,10 +3737,11 @@ existing scalar `Zp` type is not this ring: it is not a quotient by `F`.
 `B` is the certified coefficient bound of the target. Every true root has `|z_i| ≤ B ≤ (M − 1)/2`,
 so its centered residues are its coefficients exactly. Since `p^(e−1) ≤ 2B`, we have
 `p^e < p·(2B + 1)`, so the modulus has at most `bits(2B + 1) + bits(p)` bits. The precision budget
-is enforced on `2B + 1` when the target is built, so `direct_root` takes no precision argument. The boundary is sharp in both directions. For `F = t − 5` and `H = 169 = 13²`
-(`B = 13`) the least modulus `3³ = 27 = 2B + 1` works, with the root `13` exactly on the bound. For
-`H = 196 = 14²` (`B = 14`) `3³ = 27 < 2B + 1`: `14 ≡ −13 (mod 27)` would reconstruct `−13`, whose
-square is `169`, so `3⁴ = 81` is required.
+is enforced on `2B + 1` when the target is built, so `direct_root` takes no precision argument. The
+boundary is sharp in both directions. For `F = t − 5` and `H = 169 = 13²` (`B = 13`) the least
+modulus `3³ = 27 = 2B + 1` works, with the root `13` exactly on the bound. For `H = 196 = 14²`
+(`B = 14`) `3³ = 27 < 2B + 1`: `14 ≡ −13 (mod 27)` would reconstruct `−13`, whose square is
+`169`, so `3⁴ = 81` is required.
 
 ### What is certified
 
@@ -4107,7 +4115,8 @@ a necessary condition and never a proof.
   of a square root.
 - Quadratic characters, like the other columns, are necessary filters, not certificates of a square
   root: one cannot know that a given finite set of characters separates a dependency's group from
-  the squares without computing that group (MATHEMATICS §5). Duplicate detection is exact-pair, not ideal-level.
+  the squares without computing that group (MATHEMATICS §5). Duplicate detection is exact-pair, not
+  ideal-level.
 
 ### KAT summary
 
@@ -4464,7 +4473,7 @@ N (integer to factor)
 │  Square Root and Assembly                                           │
 │  Input:  DependencyContext, candidate KernelVectors                 │
 │  Output: FactorReport (verified factor / incidental / exhausted)    │
-│  Contract: verified roots and typed reports                         │
+│  Interface: verified roots and typed reports                        │
 └─────────────────────────────────────────────────────────────────────┘
     │
     ▼
@@ -4491,8 +4500,8 @@ Polynomial selection (§1–§11) finds a polynomial pair (f, g) such that:
 - g(x) = x − m is the rational-side polynomial.
 - The **shared-root invariant** holds: f(m) ≡ 0 (mod N).
 
-The shared-root invariant is the load-bearing mathematical fact that makes the whole pipeline
-work. It means that for any sieve pair (a, b), the rational norm a − bm and the algebraic value
+The shared-root invariant is the mathematical fact that the whole pipeline rests on. It means that
+for any sieve pair (a, b), the rational norm a − bm and the algebraic value
 F(a, b) = b^d · f(a/b) = c · N(a − bα) are connected: a − bm and a − bα are the images of the
 same element a − bx, and both factor into prime ideals of their fields (the field norm of
 a − bα is F(a, b)/c). This connection is what lets the candidate dependencies from linear algebra
@@ -4624,11 +4633,10 @@ pub struct Relation {
 ```
 
 The `ExponentVector` stores sparse (factor-base index, exponent) pairs with `u32` exponents —
-not pre-reduced GF(2) parities. This is the load-bearing choice shared by factoring and discrete
-logarithms: filtering needs
-integer exponents to detect exact duplicates; linear algebra reduces them mod 2 on demand; NFS-DL
-reads them mod ℓ for GF(ℓ) linear algebra. Pre-reducing to GF(2) would destroy the information
-NFS-DL needs.
+not pre-reduced GF(2) parities. This is the choice that factoring and discrete logarithms share:
+filtering needs integer exponents to detect exact duplicates; linear algebra reduces them mod 2 on
+demand; NFS-DL reads them mod ℓ for GF(ℓ) linear algebra. Pre-reducing to GF(2) would destroy the
+information NFS-DL needs.
 
 The `rational_sign` field is the "−1 column" for the linear algebra step: the rational product
 ∏(a − b·m) over the selected relations must be positive (an even number of negative factors).
@@ -4731,13 +4739,13 @@ sufficient, for the algebraic product γ = ∏(a − b·α) to be a square in K.
 
 Before running the nullspace solver, linear algebra fills in the root-character columns. For each
 pair (q, s) of an odd prime q ∤ c·disc(f) and a root s of f modulo q, the column records the
-Legendre-symbol parity of a − b·s. If γ is a square in K, the character values over S multiply to +1, so each
-column is a necessary condition. Characters are filters: units, the class group, and ideals the
-matrix leaves unconstrained can still obstruct, and no finite number of characters certifies a
-square, so the exact square-root stage decides. The precise account is in MATHEMATICS §5 ("The
-square-class obstruction"); the character mechanics are in the "Individual Root Characters and
-Provenance" section. The linear-algebra cost is O(k·W) for iterative solvers, with W the number of
-nonzeros, and O(k³) for dense elimination; block Lanczos divides its matrix-product cost by the
+Legendre-symbol parity of a − b·s. If γ is a square in K, the character values over S multiply to
++1, so each column is a necessary condition. Characters are filters: units, the class group, and
+ideals the matrix leaves unconstrained can still obstruct, and no finite number of characters
+certifies a square, so the exact square-root stage decides. The precise account is in MATHEMATICS §5
+("The square-class obstruction"); the character mechanics are in the "Individual Root Characters
+and Provenance" section. The linear-algebra cost is O(k·W) for iterative solvers, with W the number
+of nonzeros, and O(k³) for dense elimination; block Lanczos divides its matrix-product cost by the
 word width (MATHEMATICS §5, the linear-algebra paragraph).
 
 ### The linear-algebra interface
@@ -4917,10 +4925,10 @@ to a stable interface.
 
 ## 59. Design-Commitment Verification
 
-The project's design statement makes three scoping commitments: the algorithmic content is
-complete, no new engineering optimisations are added, and the implementation is correct but
-confined to demonstration scale with scale-dependent phenomena annotated. This section walks each
-commitment against what the number-field substrate and the five pipeline stages actually ship.
+The project's scope (README, "Design statement and honest scope") has three parts: the algorithmic
+content is complete, no new engineering optimisations are added, and the implementation is correct
+but confined to demonstration scale with scale-dependent phenomena annotated. This section walks
+each commitment against what the number-field substrate and the five pipeline stages actually ship.
 
 ### Commitment: algorithmic content complete
 
@@ -4965,9 +4973,10 @@ correct.
 
 **Verdict: algorithmic content complete — pass, for the tested scope.** Every stage of the GNFS
 algorithm is implemented. The stages compose on the tested fixtures, including one run from
-generated relations to a verified factor (§47); that is a tested scope, not a claim for arbitrary inputs. The algebraic
-facts of the square-root stage (irreducibility, discriminants, `β² = γ`, nonsquares, and
-`y² ≡ P`) are cross-checked against PARI/GP by ignored `kat_pari_*` tests that run by hand (§50).
+generated relations to a verified factor (§47); that is a tested scope, not a claim for arbitrary
+inputs. The algebraic facts of the square-root stage (irreducibility, discriminants, `β² = γ`,
+nonsquares, and `y² ≡ P`) are cross-checked against PARI/GP by ignored `kat_pari_*` tests that run
+by hand (§50).
 The CADO-NFS / msieve cross-checks are still ignored placeholders that do not invoke an external
 tool (for example `kat_c_cado_oracle_n35`, §40, and `kat_c_oracle_80_100_bit_challenge`), so
 they are not part of this verdict.
@@ -5047,8 +5056,8 @@ phenomenon is silently omitted or misrepresented.
   phenomena annotated explicitly; one over-exposed phenomenon (bad primes) noted.
 
 Every stage is implemented and KAT-green on the default test path; whole-chain evidence is limited
-to the tested fixtures of §62. The algebraic facts of the square-root stage have PARI/GP cross-checks
-that run by hand (§50); the CADO-NFS / msieve cross-checks are ignored placeholders.
+to the tested fixtures of §62. The algebraic facts of the square-root stage have PARI/GP
+cross-checks that run by hand (§50); the CADO-NFS / msieve cross-checks are ignored placeholders.
 
 ---
 
@@ -5238,10 +5247,10 @@ genuine checked matrix through the verified roots to a recovered factor. The pip
 (`kat_pipeline_factors_from_generated_relations`) is the only test that carries
 sieve-generated relations all the way to a factor: its relations, matrix, root characters, kernel
 vectors, and candidate are all produced at run time, and its factor is re-derived independently in
-the second pipeline test. Its scope is one deterministic fixture (N = 45113 with an irreducible cubic) under the pinned
-limits at the top of the file, on the checked path, at toy scale; it is not evidence that arbitrary
-inputs factor or about performance at scale. The provenance KATs verify the cross-stage thread that
-connects filtering, linear algebra, and the square-root stage.
+the second pipeline test. Its scope is one deterministic fixture (N = 45113 with an irreducible
+cubic) under the pinned limits at the top of the file, on the checked path, at toy scale; it is not
+evidence that arbitrary inputs factor or about performance at scale. The provenance KATs verify the
+cross-stage thread that connects filtering, linear algebra, and the square-root stage.
 
 ---
 
@@ -5273,8 +5282,8 @@ connects filtering, linear algebra, and the square-root stage.
 
 7. **`docs/MATHEMATICS.md`, the GNFS chapter (chapter 8).** The maths-first sibling to
    this chapter: the full L-notation subexponentiality derivation as a payoff proof, the
-   algebraic-square-root correctness sketch, and the GNFS algorithm developed mathematically from first
-   principles.
+   algebraic-square-root correctness sketch, and the GNFS algorithm developed mathematically from
+   first principles.
 
 ---
 

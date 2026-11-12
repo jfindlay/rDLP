@@ -207,7 +207,8 @@ impl PolyPair {
         Ok(())
     }
 
-    /// Return the monic form of `f` via homogenisation, without constructing the full `NumberField`.
+    /// Return the monic form of `f` via homogenisation, without constructing the full
+    /// `NumberField`.
     ///
     /// For non-monic `f` with leading coefficient `a_d`, the standard NFS homogenisation is:
     ///

@@ -54,10 +54,10 @@ only the cost per detection step drops.
 
 ## Curve arithmetic
 
-The curve-arithmetic component delivers the elliptic-curve group law and two concrete curves.  There
+The curve-arithmetic component provides the elliptic-curve group law and two concrete curves.  There
 are no performance benchmarks for it (curve operations are not the bottleneck until the parallel
-distinguished-point solver); the deliverable is correctness, covered by the unit and integration tests listed under "Test
-coverage" below.
+distinguished-point solver); what matters is correctness, covered by the unit and integration tests
+listed under "Test coverage" below.
 
 ### Group-law implementation
 
@@ -120,8 +120,8 @@ both p and n are prime, both ≡ 1 (mod 3).
 
 ## ECDLP rho baseline (single-threaded)
 
-The single-threaded baseline delivers the working DLP solver.  There are no throughput benchmarks
-of it on the KAT curves; the deliverable is correctness. The `ecdlp` bench (see the cross-attack
+The single-threaded baseline is the working DLP solver.  There are no throughput benchmarks
+of it on the KAT curves; what matters is correctness. The `ecdlp` bench (see the cross-attack
 section) runs it on the 25-bit prime-order `prime_order_25` group.
 
 ### Solver design

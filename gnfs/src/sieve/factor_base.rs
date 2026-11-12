@@ -139,7 +139,8 @@ impl FactorBase {
     /// for each ``r ∈ 0..p``). Bad primes (p | c·disc(f), ``c`` the leading coefficient) are
     /// included with the ``is_bad_prime`` flag set.
     ///
-    /// The ``obstruction_count`` is initialised to 1 (the sign/−1 column for the linear algebra step).
+    /// The ``obstruction_count`` is initialised to 1 (the sign/−1 column for the linear algebra
+    /// step).
     ///
     /// :param f: The algebraic polynomial (from PolyPair).
     /// :param b_rat: Rational smoothness bound.

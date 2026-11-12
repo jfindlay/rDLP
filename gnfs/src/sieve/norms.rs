@@ -147,7 +147,8 @@ impl std::error::Error for NormBridgeError {}
 /// Convert a signed BigInt norm to ``Uint<4>`` for ``trial_smooth``.
 ///
 /// Returns the absolute value as ``Uint<4>``, or an error if ``|norm| ≥ 2^256``.
-/// The sign is tracked separately in the ``Relation`` (for the −1 column in the linear algebra step).
+/// The sign is tracked separately in the ``Relation`` (for the −1 column in the linear algebra
+/// step).
 ///
 /// # Design note
 ///
