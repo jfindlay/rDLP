@@ -411,9 +411,60 @@ Gate evidence:
     to contain only comment/doc lines.
   - `cargo coverage`: the ◆ boundary check, run at the boundary (see boundary note).
 
-Pending checks: `cargo coverage` (row 8 boundary, then final delivery). `cargo dep-policy` and
-`cargo audit` fresh for 2026-11-11 only; rerun if the chain crosses a day or touches dependency
-inputs.
+- ◆ boundary (rows 1–8), 2026-11-12:
+  - `cargo coverage` (workspace root, `cargo llvm-cov --workspace --fail-under-lines 80`): first run
+    on tree `937425c` passed (exit 0, 94.46% lines, log `/tmp/opencode/coverage-8.log`) but was
+    invalidated by the boundary correction (it edited `.rs` comments and `#[ignore]` reason
+    strings; classified as potentially executable). Rerun on tree `154755c` (clean): `passed`, exit
+    0, completed 18:25:28 −05:00, 94.46% lines (95.17% regions, 95.62% functions; floor 80%), log
+    `/tmp/opencode/coverage-8b.log`; rustc/cargo 1.95.0.
+  - Boundary correction (one `@build` dispatch, commit `154755c`): `cargo check --workspace` exit 0
+    (completed 18:09:03), `cargo test --workspace` exit 0 (completed 18:13:09), logs
+    `/tmp/opencode/s8fix-check.log`, `s8fix-test.log`; `reused`; identity base `937425c` + diff
+    sha256 `5385a456…e4d99` (recomputed by the driver before commit: identical). `.rs` diff verified
+    to be comments, doc comments and `#[ignore = "…"]` reason strings only.
+  - `cargo dep-policy`, `cargo audit`: valid for 2026-11-12 (advisory db `af7b3ec`; dependency inputs
+    unchanged); `reused`.
+
+Boundary note (rows 1–8):
+  - Anneal gate: denylist grep over the 33 changed durable files (then 45 paths with the
+    correction). Zero hits for sub-track / frozen contract / action-frame / ◆ / Cat patterns.
+    Legitimate matches: bibliography keys `[S09]`, `[S93]`, `[S99]`, `[S85]` (pattern 1),
+    "Appendix A.2/A.3/A.5/A.6" paper-appendix names (pattern 4). All other hits (~150 lines) are in
+    `gnfs/docs/PEDAGOGY.md` §§63–71 and "Further Reading", NFS-DL text, report-only by the plan,
+    unedited by this arc (genuine leaks there: "C-DLRelation (frozen D.A.1)", "D.B", "G.E", "Track-D",
+    "principle-4", "the ROADMAP's named requirement"). No uncertain referent passed to the fork
+    beyond those below.
+  - Fork (`boundary-transform`): `still-on-intent`. §7 follows C-GnfsComplexity step by step (algebra
+    re-checked: δ³ = 3, β = η = (8/9)^{1/3}, |F| = L_N[2/3, 3^{2/3}]); Dixon trial-division line
+    correct (2c + 1/(2c) least at c = 1/2); ECM L_p[1/2, √2] and Pohlig–Hellman L_p[1, 1/2] clean;
+    chapter-12 renumbering: every citation resolves (52–55 unique); `--help` change harmless.
+  - Contradictions (C-TestingDocs: placeholder/self-checking ignored tests described as external
+    oracles) and planning-vocabulary leaks ("reshard", "cross-track", two "(G.E)", numfield §10
+    heading) were corrected in one bounded dispatch, `154755c`; also: Dixon cost-model labelled
+    "derived here" plus a modelling-choice sentence; translated source quotations in gnfs PEDAGOGY
+    now introduced as paraphrases. Driver re-grep after the correction: no `reshard`/`cross-track`
+    hits in the non-NFS-DL changed files except MATHEMATICS "track" vocabulary (below).
+  - Still standing (reported, not fixed): third "(G.E)" ~gnfs PEDAGOGY :5818 and "cross-track
+    interface/entry point" ~:5335, 5652, 5679 (NFS-DL chapter); MATHEMATICS "track"/"cross-track"
+    vocabulary (~:229, 263–275, 3258, 4832, 4987, 5460; track vocabulary is out of scope by the
+    plan); `docs/development.md:74` "plan-ledger edits"; BENCHMARKS "Test coverage added" headings
+    and "deliverable" (~:59, 124); `shared/numfield/docs/PEDAGOGY.md:190, 219` "contract" (probably
+    API-invariant use); literal test identifiers containing "principle4"
+    (`kat5_principle4_improvement_small_at_toy_scale`, `kat_b_yield_comparison_principle4_annotated`,
+    `kat_c_yield_comparison_principle4_annotated`; renaming needs human sign-off); labels
+    `principle-4`/"scoping principle 3" in `gnfs/src/linalg/{blockvec,operator,wiedemann}.rs`,
+    `gnfs/src/filter/matrix.rs:39`, `gnfs/tests/{lattice_kat,coppersmith_kat,root_sieve_kat}.rs`
+    (not enrolled); `unlabelled non-contract figures` (`line.rs` "~99%", Montgomery 2–4×, Brent 24%,
+    batched GCD 2–5×, Cavallar 30–50%).
+  - Scope limit (review incomplete, never clean): the fork read the diffs of all changed files over
+    `3002c52..937425c` in full but not every surviving line of MATHEMATICS (~5500 lines) or gnfs
+    PEDAGOGY §§1–62; unchanged prose there was checked by targeted claim and vocabulary greps only.
+    [Bai11], [PZ03] and the 2026 sources were not re-fetched by the fork.
+
+Pending checks: `cargo coverage` current for tree `154755c` (reusable at final delivery if no
+executable input changes afterwards). `cargo dep-policy` and `cargo audit` fresh for 2026-11-12
+only; rerun if the chain crosses a day or touches dependency inputs.
 
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
@@ -424,7 +475,7 @@ inputs.
 | 5 | Make the testing documentation describe the tests that exist | done | 24b0b88 | C-TestingDocs (strengthened ECM test `stage2_finds_factor_stage1_misses`: N = 1009·3541, B1 = 20, B2 = 200, sigma 7 found by a bounded 200-curve scan). Extras: none. |
 | 6 | Label the GLV, negation-map and Koblitz ratios as expected, not measured | done | ac3e451 | C-HeuristicRatio. Extras: none. |
 | 7 | Rework the quantum-resource exposition from primary sources | done | b329f83 | C-QuantumEvidence (versions read: Babbush arXiv:2603.28846v2 full; Cain 2603.28627v1 main text, appendices unread; Schrottenloher 2606.02235v1 partial; Proos–Zalka arXiv quant-ph/0301141v2 full; Roetteler arXiv:1706.06752v3 full). Extras: none. |
-| 8 | Correct surviving claims the exposition rows contradicted ◆ | done | de204f8 | Allowed extras (stale-claim sweep targets, comments/rustdoc/docs only): `docs/PEDAGOGY.md`, `shared/numfield/docs/PEDAGOGY.md`, `gnfs/src/{lib.rs,linalg/kernel.rs,sieve/{special_q,lattice}.rs,polyselect/{roots,root_sieve,coppersmith}.rs,sqrt/context.rs}`, `gnfs/tests/{special_q_kat,murphy_kat,lanczos_kat}.rs`, `rho/src/ecdlp/cli.rs`. Boundary procedure pending (see boundary note). |
+| 8 | Correct surviving claims the exposition rows contradicted ◆ | done | de204f8 (+ boundary correction 154755c) | Allowed extras (stale-claim sweep targets, comments/rustdoc/docs only): `docs/PEDAGOGY.md`, `shared/numfield/docs/PEDAGOGY.md`, `gnfs/src/{lib.rs,linalg/kernel.rs,sieve/{special_q,lattice}.rs,polyselect/{roots,root_sieve,coppersmith}.rs,sqrt/context.rs}`, `gnfs/tests/{special_q_kat,murphy_kat,lanczos_kat}.rs`, `rho/src/ecdlp/cli.rs`. Boundary complete: `still-on-intent` (see boundary note). |
 | 9 | Anneal cleanup (skippable) | pending | | |
 
 ## Action-frame digest
@@ -604,6 +655,23 @@ chapter numbers with GNFS-internal §7 (not changed). Over-width prose left (pre
 `.{101,}`): gnfs PEDAGOGY 19 outside tables, numfield PEDAGOGY 5, shor PEDAGOGY 5, BENCHMARKS 1,
 MATHEMATICS 1; tables unwrappable.
 Texture: committer noted its own model is Haiku 5.5 (mechanical, not credited); trailers unchanged.
+
+### ◆ boundary (rows 1–8) — 2026-11-12
+Discovery/flex: fork verdict `still-on-intent`; §7 faithful to C-GnfsComplexity. The review found
+incomplete propagation of C-TestingDocs (ignored placeholders and recorded-value tests described
+as external oracles, with misleading `#[ignore]` reasons) and residual planning vocabulary
+("reshard", "cross-track"); both corrected in `154755c` (a medium deviation: `#[ignore]` reason
+strings, not only comments, were edited). Two NFS-DL sentences were edited for terminology in row 8
+(gnfs PEDAGOGY ~:5459–5460, ~:5779–5782), no capability claim changed. gnfs PEDAGOGY quotes of
+source comments are now paraphrases because the sources still carry `principle-4` labels.
+Affected: none.
+Deferred: yes — the review is incomplete (scope limit above); row 9 (anneal) should take the
+unenrolled `principle-4` source comments (`linalg/{blockvec,operator,wiedemann}.rs`,
+`filter/matrix.rs`, `lattice_kat`, `coppersmith_kat`, `root_sieve_kat`) only if they are in the arc's
+files (they are not; report) and the line-length pass over the arc's files; GNFS/oracle assurance
+(no test invokes `gp` outside three files, none invokes CADO-NFS; several ignored tests are
+placeholders) and the DP step-count anomaly remain ROADMAP findings.
+Texture: coverage 94.46% lines at the boundary on tree `154755c`.
 
 ## Discoveries & risks
 
