@@ -4477,8 +4477,9 @@ The shared-root invariant is the load-bearing mathematical fact that makes the w
 work. It means that for any sieve pair (a, b), the rational norm a − bm and the algebraic value
 F(a, b) = b^d · f(a/b) = c · N(a − bα) are connected: a − bm and a − bα are the images of the
 same element a − bx, and both factor into prime ideals of their fields (the field norm of
-a − bα is F(a, b)/c). This connection is what allows the linear algebra step to produce a
-congruence of squares mod N.
+a − bα is F(a, b)/c). This connection is what lets the candidate dependencies from linear algebra
+become a congruence of squares mod N: the congruence exists only once both square roots of a
+dependency's product have been reconstructed and verified.
 
 ### The C-PolyPair contract (frozen G.B.1, commit 2f43f99)
 

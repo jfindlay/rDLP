@@ -18,7 +18,8 @@
 //! as a by-product of the setup (a leading coefficient or a root denominator sharing a factor with
 //! `N`) is an [`IncidentalFactor`] and is reported separately. A dependency whose congruence is
 //! `x ≡ ±y (mod N)` is a [`AttemptOutcome::TrivialCongruence`], which is an expected outcome and
-//! not an error.
+//! not an error. A divisor of `N` that appears only in that case, such as `gcd(x + y, N) = 5` for
+//! `N = 35` and `x = y = 5`, is deliberately not reported (see [`factor_from_congruence`]).
 //!
 //! The algebraic target is certified a nonsquare only by the certificate that
 //! [`algebraic_sqrt`] returns. An invalid candidate, a violated invariant, or an exhausted resource
@@ -168,7 +169,11 @@ impl VerifiedFactor {
 pub enum AttemptOutcome {
     /// A verified proper factor.
     Factor(VerifiedFactor),
-    /// The congruence holds but both gcds are trivial: `x ≡ ±y (mod N)`.
+    /// The congruence holds but is trivial: `x ≡ ±y (mod N)`.
+    ///
+    /// A divisor that arises only in this case (for example `gcd(x + y, N)` when `x ≡ y` and `x`
+    /// shares a factor with `N`) is deliberately not reported, because it says nothing about the
+    /// congruence; see [`factor_from_congruence`].
     TrivialCongruence {
         /// The rational image `x`.
         x: BigInt,
@@ -633,6 +638,16 @@ mod tests {
                 "({x}, {y})"
             );
         }
+    }
+
+    #[test]
+    fn trivial_congruence_with_a_shared_factor_reports_no_divisor() {
+        // x = y = 5 modulo 35: gcd(x + y, 35) = gcd(10, 35) = 5 is a proper divisor of 35, but it
+        // arises only because x ≡ y and x shares a factor with 35, so it is deliberately not
+        // reported and the congruence is classified as trivial.
+        let (x, y, n) = (big(5), big(5), big(35));
+        assert_eq!(gcd(&(&x + &y), &n), big(5));
+        assert_eq!(factor_from_congruence(&x, &y, &n), Ok(CongruenceOutcome::Trivial));
     }
 
     #[test]
