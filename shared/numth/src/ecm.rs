@@ -835,25 +835,42 @@ mod tests {
 
     // ── KAT: stage 1 + stage 2 ───────────────────────────────────────────────
 
-    /// Stage 1 alone fails but stage 1 + stage 2 succeeds.
+    /// On one recorded curve, stage 1 alone fails and stage 1 + stage 2 finds a factor.
     ///
-    /// We engineer an instance where |E(F_p)| has a prime factor just above B1
-    /// but ≤ B2.
+    /// The seam is [`ecm_one_curve`], which skips stage 2 when `b2 == b1`: the same curve
+    /// (same `sigma`) and the same `b1` are run once with stage 2 skipped and once with it on.
+    /// For `N = 1009 * 3541 = 3,572,869`, `B1 = 20` and `B2 = 200`, a stage-2 hit means a
+    /// group order with its largest prime factor in `(20, 200]`.
     ///
-    /// Construction: N = 1009 * 3541 = 3,572,869.  With B1 = 20 and B2 = 200,
-    /// stage 2 catches curves whose group order has a prime factor in (20, 200].
-    /// Since the group order of E(F_1009) is roughly 1009 ± O(sqrt(1009)) ≈ 1009,
-    /// many curves will have a prime factor in (20, 200] in their group order.
-    ///
-    /// The test verifies that stage 1+2 succeeds (the key property).  Stage 1
-    /// alone may or may not succeed depending on which curves are tried.
+    /// `RECORDED_SIGMA` was found by scanning `sigma = 6, 7, 8, ...` in order and taking the
+    /// first curve with stage 1 alone `Inconclusive` and stage 1 + 2 returning a `Factor`.  The
+    /// scan is bounded by `SIGMA_SCAN_BOUND` curves and deterministic; the test reruns it and
+    /// requires it to land on the recorded value, so a change to the curve parameterization
+    /// shows up here rather than silently moving the instance.
     #[test]
     fn stage2_finds_factor_stage1_misses() {
-        // N = 1009 * 3541 = 3,572,869.
+        const B1: u64 = 20;
+        const B2: u64 = 200;
+        const RECORDED_SIGMA: u64 = 7;
+        const SIGMA_SCAN_BOUND: u64 = 200;
+
         let n = u(1009u64 * 3541u64);
-        // B1 = 20: stage 1 only catches curves where |E(F_p)| is 20-smooth.
-        // B2 = 200: stage 2 catches primes up to 200.  Stage 1+2 must succeed.
-        prime_divisor_of(&n, 20, 200, 50);
+        let stage1_only = |sigma: u64| ecm_one_curve(&n, sigma, B1, B1);
+        let both_stages = |sigma: u64| ecm_one_curve(&n, sigma, B1, B2);
+
+        let found = (6..6 + SIGMA_SCAN_BOUND).find(|&sigma| {
+            stage1_only(sigma) == EcmResult::Inconclusive
+                && matches!(both_stages(sigma), EcmResult::Factor(_))
+        });
+        assert_eq!(found, Some(RECORDED_SIGMA), "first matching sigma in the bounded scan");
+
+        assert_eq!(stage1_only(RECORDED_SIGMA), EcmResult::Inconclusive, "stage 1 alone fails");
+        let EcmResult::Factor(d) = both_stages(RECORDED_SIGMA) else {
+            panic!("stage 1 + 2 must find a factor on the recorded curve");
+        };
+        assert!(d > u(1) && d < n, "factor must be proper");
+        assert_eq!(n.rem(&NonZero::new(d).unwrap()), u(0), "factor must divide N");
+        assert!(is_prime(&d), "factor must be prime");
     }
 
     /// Verify that stage 2 with a tight B1 and wider B2 finds factors.

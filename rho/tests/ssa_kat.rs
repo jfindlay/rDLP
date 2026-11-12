@@ -8,33 +8,36 @@
 //!
 //! # KAT coverage — Hensel lift
 //!
-//! 1. `verify_anomalous` returns `true` on the fixture curve.
-//! 2. `verify_anomalous` returns `false` on a non-anomalous control curve.
-//! 3. The lift of `G = (3, 2)` matches hand-computed Z_7 coordinates to precision k=4.
-//! 4. The lifted point satisfies the curve equation mod `7^4` (lift-correctness check).
-//! 5. A 2-torsion point (`y = 0`) on a test curve errors via `HenselError::NonSimpleRoot`.
+//! - `verify_anomalous` returns `true` on the fixture curve.
+//! - `verify_anomalous` returns `false` on a non-anomalous control curve.
+//! - The lift of `G = (3, 2)` matches hand-computed Z_7 coordinates to precision k=4, and a second
+//!   point `(5, 2)` also lifts onto the curve.
+//! - The lifted point satisfies the curve equation mod `7^4` (lift-correctness check).
+//! - A 2-torsion point (`y = 0`) on a test curve errors via `HenselError::NonSimpleRoot`; the
+//!   identity errors as `LiftError::PointAtInfinity`; `LiftError` carries its cause as the `source`.
+//! - Lifts at precision k=1 and k=2 agree with the hand-computed values.
+//! - A PARI/GP cross-check of the lift (`#[ignore]`).
 //!
 //! # KAT coverage — SSA reduction
 //!
-//! 9.  `ssa_solve` recovers k=3 from Q = 3·G on the anomalous fixture.
-//! 10. `solve_brent` (independent rho solver) also recovers k=3 — cross-check.
-//! 11. `ssa_solve` returns `SsaError::NotAnomalous` on a non-anomalous curve.
-//! 12. PARI/GP cross-check (`#[ignore]`).
-//! 13. `ssa_solve` recovers every `k` in `1..p` on the fixture.
-//! 14. `Q = ∞` returns `Ok(0)`, on the fixture and on a non-anomalous curve.
-//! 15. A prime that does not fit 64 bits is `Unsupported` for both `verify_anomalous` and
-//!     `ssa_solve`, never `NotAnomalous`.
-//! 16. `verify_anomalous` counts exactly where `x³` overflows `u64` (an anomalous curve over a
-//!     prime above `2^21.4`, and the same curve with a tampered coefficient).
-//! 17. Every `SsaInputDefect` is reachable through `ssa_solve`, in the order the checks run:
-//!     composite modulus, singular curve, `G = ∞`, `G` and `Q` off the curve, `n ≠ p`.
-//!     `verify_anomalous` shares the first two. No `SsaError` variant has a `source`.
-//!
-//! 18. On the lift of `anomalous_toy` with its stored `a = 0`, `p·G̃` lies in `E₂` (the formal
-//!     parameter has valuation 2), so the quotient of logarithms carries no information.
-//! 19. On each anomalous fixture (`anomalous_toy` and a curve with `a ≠ 0` found by a recorded,
-//!     bounded search) and for every point, at most one class of shifts `s` mod `p` (`a ↦ a +
-//!     p·s`) puts `p·G̃` in `E₂`; `ssa_solve` recovers every `k` on each.
+//! - `ssa_solve` recovers k=3 (and k=1, k=6) from Q = k·G on the anomalous fixture.
+//! - `solve_brent` (independent rho solver) also recovers k=3 — cross-check.
+//! - `ssa_solve` returns `SsaError::NotAnomalous` on a non-anomalous curve.
+//! - A PARI/GP cross-check of the reduction (`#[ignore]`).
+//! - `ssa_solve` recovers every `k` in `1..p` on the fixture.
+//! - `Q = ∞` returns `Ok(0)`, on the fixture and on a non-anomalous curve.
+//! - A prime that does not fit 64 bits is `Unsupported` for both `verify_anomalous` and
+//!   `ssa_solve`, never `NotAnomalous`.
+//! - `verify_anomalous` counts exactly where `x³` overflows `u64` (an anomalous curve over a
+//!   prime above `2^21.4`, and the same curve with a tampered coefficient).
+//! - Every `SsaInputDefect` is reachable through `ssa_solve`, in the order the checks run:
+//!   composite modulus, singular curve, `G = ∞`, `G` and `Q` off the curve, `n ≠ p`.
+//!   `verify_anomalous` shares the first two. No `SsaError` variant has a `source`.
+//! - On the lift of `anomalous_toy` with its stored `a = 0`, `p·G̃` lies in `E₂` (the formal
+//!   parameter has valuation 2), so the quotient of logarithms carries no information.
+//! - On each anomalous fixture (`anomalous_toy` and a curve with `a ≠ 0` found by a recorded,
+//!   bounded search) and for every point, at most one class of shifts `s` mod `p` (`a ↦ a +
+//!   p·s`) puts `p·G̃` in `E₂`; `ssa_solve` recovers every `k` on each.
 //!
 //! The invariant-failure and inconsistent-quotient outcomes are reached through unit seams in
 //! `rho::ssa::formal_log` and `rho::ssa::reduce`, which hold the private helpers they exercise.

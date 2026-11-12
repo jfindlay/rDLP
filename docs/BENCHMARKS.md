@@ -56,7 +56,8 @@ only the cost per detection step drops.
 
 The curve-arithmetic component delivers the elliptic-curve group law and two concrete curves.  There
 are no performance benchmarks for it (curve operations are not the bottleneck until the parallel
-distinguished-point solver); the deliverable is correctness: 50 tests, 0 failures.
+distinguished-point solver); the deliverable is correctness, covered by the unit and integration tests listed under "Test
+coverage" below.
 
 ### Group-law implementation
 
@@ -110,12 +111,12 @@ both p and n are prime, both ≡ 1 (mod 3).
 
 ### Test coverage
 
-| Test file | Tests | Scope |
-|-----------|-------|-------|
-| `src/curve/mod.rs` (unit) | 8 | Group-law axioms on a tiny 5-point curve over GF(7) |
-| `src/curve/generic.rs` (unit) | 4 | Reference scalar multiples, consistency, negation |
-| `src/curve/secp_k1_toy.rs` (unit) | 6 | Reference multiples, n·G=∞, endomorphism, β and λ constants |
-| `tests/ecdlp_kat.rs` (integration) | 8 | Both curves, linearity, endomorphism KAT, k256 cross-check |
+| Test file | Scope |
+|-----------|-------|
+| `src/curve/mod.rs` (unit) | Group-law axioms on a tiny 5-point curve over GF(7) |
+| `src/curve/generic.rs` (unit) | Reference scalar multiples, consistency, negation |
+| `src/curve/secp_k1_toy.rs` (unit) | Reference multiples, n·G=∞, endomorphism, β and λ constants |
+| `tests/ecdlp_kat.rs` (integration) | Both curves, linearity, endomorphism KAT, k256 cross-check |
 
 ## ECDLP rho baseline (single-threaded)
 
@@ -171,12 +172,12 @@ the same solves complete in milliseconds.
 
 ### Test coverage added
 
-| Test file | Tests added | Scope |
-|-----------|-------------|-------|
-| `src/curve/test_curves.rs` (unit) | 6 | Generator on curve, n·G=∞, reference scalar multiples on tiny_a and tiny_b |
-| `src/ecdlp/walk.rs` (unit) | 2 | Walk invariant `W = a·G + b·Q`, partition in-range |
-| `src/ecdlp/mod.rs` (unit) | 3 | Solver correctness: k=7, 42, 100 on tiny_a |
-| `tests/ecdlp_kat.rs` (integration) | 6 | DLP KATs on tiny_a (k=7, 100, 33333) and tiny_b (k=7, 42, 99991) |
+| Test file | Scope |
+|-----------|-------|
+| `src/curve/test_curves.rs` (unit) | Generator on curve, n·G=∞, reference scalar multiples on tiny_a and tiny_b |
+| `src/ecdlp/walk.rs` (unit) | Walk invariant `W = a·G + b·Q`, partition in-range |
+| `src/ecdlp/mod.rs` (unit) | Solver correctness: k=7, 42, 100 on tiny_a |
+| `tests/ecdlp_kat.rs` (integration) | DLP KATs on tiny_a (k=7, 100, 33333) and tiny_b (k=7, 42, 99991) |
 
 ## Polynomial selection: Murphy-E scoring and root sieve
 
@@ -207,12 +208,12 @@ for this reason. The Coppersmith multi-poly improvement is < 2× at toy scale (K
 
 ### Test coverage added (polynomial selection)
 
-| Test file | Tests | Scope |
-|-----------|-------|-------|
-| `tests/base_m_kat.rs` | 4 | Base-m round-trip (toy N), RSA-100 determinism, optimal_degree, monic_f |
-| `tests/murphy_kat.rs` | 10 | Murphy-E ordering, monotonicity, positivity; Dickman-ρ spot-checks |
-| `tests/root_sieve_kat.rs` | 8 | Rotation root-preservation, determinism, generator count, score agreement |
-| `tests/coppersmith_kat.rs` | 12 | Verify, count, best-score, generator, scale annotation |
+| Test file | Scope |
+|-----------|-------|
+| `tests/base_m_kat.rs` | Base-m round-trip (toy N), RSA-100 determinism, optimal_degree, monic_f |
+| `tests/murphy_kat.rs` | Murphy-E ordering, monotonicity, positivity; Dickman-ρ spot-checks |
+| `tests/root_sieve_kat.rs` | Rotation root-preservation, determinism, generator count, score agreement |
+| `tests/coppersmith_kat.rs` | Verify, count, best-score, generator, scale annotation |
 
 ## Sieving: line sieve, special-q, lattice sieve
 
@@ -263,12 +264,12 @@ The KATs annotate all three disconnects explicitly (scale annotations in `line_s
 
 ### Test coverage added (sieving)
 
-| Test file | Tests | Scope |
-|-----------|-------|-------|
-| `tests/factor_base_kat.rs` | 9 | Factor-base construction, index lookups, norm bridge, `Relation::verify()` |
-| `tests/line_sieve_kat.rs` | 8 (+1 ignored) | Relation count, verify, determinism, threshold monotonicity; CADO oracle (ignored) |
-| `tests/special_q_kat.rs` | 13 | q-restriction enforcement, q in algebraic EV, yield annotation, subset check |
-| `tests/lattice_kat.rs` | 15 | Lattice membership, verify, q in algebraic EV, basis reduction, subset check |
+| Test file | Scope |
+|-----------|-------|
+| `tests/factor_base_kat.rs` | Factor-base construction, index lookups, norm bridge, `Relation::verify()` |
+| `tests/line_sieve_kat.rs` | Relation count, verify, determinism, threshold monotonicity; CADO oracle (ignored) |
+| `tests/special_q_kat.rs` | q-restriction enforcement, q in algebraic EV, yield annotation, subset check |
+| `tests/lattice_kat.rs` | Lattice membership, verify, q in algebraic EV, basis reduction, subset check |
 
 ## Filtering: singleton removal, clique pruning, column merging
 
@@ -324,9 +325,9 @@ at toy scale:
 
 ### Test coverage added (filtering)
 
-| Test file | Tests | Scope |
-|-----------|-------|-------|
-| `tests/merge_kat.rs` | 4 (+1 ignored) | 2-way merge correctness, determinism, CADO oracle (ignored), end-to-end provenance, excess-floor enforcement |
+| Test file | Scope |
+|-----------|-------|
+| `tests/merge_kat.rs` | 2-way merge correctness, determinism, CADO oracle (ignored), end-to-end provenance, excess-floor enforcement |
 
 ## Linear algebra: block Lanczos and block Wiedemann
 
@@ -374,11 +375,11 @@ identifies them as kernel candidates. This phenomenon is fully exposed at toy sc
 
 ### Test coverage added (linear algebra)
 
-| Test file | Tests | Scope |
-|-----------|-------|-------|
-| `tests/linalg_substrate_kat.rs` | 13 | Operator correctness (A·V, Aᵀ·V), root-character columns on a checked matrix, provenance round-trip, determinism, and the individual root-character tests |
-| `tests/lanczos_kat.rs` | 6 (+1 ignored) | Self-orthogonality path, single dependency, full-rank, determinism, multiple dependencies; CADO oracle (ignored) |
-| `tests/wiedemann_kat.rs` | 9 | Cross-validation with Lanczos, full-rank, empty matrix, single dependency, determinism, BM Fibonacci, BM period-4, BM all-ones, all-zero rows, multiple dependencies |
+| Test file | Scope |
+|-----------|-------|
+| `tests/linalg_substrate_kat.rs` | Operator correctness (A·V, Aᵀ·V), root-character columns on a checked matrix, provenance round-trip, determinism, and the individual root-character tests |
+| `tests/lanczos_kat.rs` | Self-orthogonality path, single dependency, full-rank, determinism, multiple dependencies; CADO oracle (ignored) |
+| `tests/wiedemann_kat.rs` | Cross-validation with Lanczos, full-rank, empty matrix, single dependency, determinism, BM Fibonacci, BM period-4, BM all-ones, all-zero rows, multiple dependencies |
 
 ## Square root and assembly: exact rational root, verified algebraic root, checked assembly
 
@@ -422,7 +423,7 @@ scale:
 |-----------|-------|
 | `tests/sqrt_rational_kat.rs` | Exact rational root on non-monic, seam, and multi-relation dependencies; binding to the dependency's P |
 | `tests/sqrt_algebraic_kat.rs` | Verified algebraic root; image is the normalized map, not the norm; totally imaginary field; nonsquare certificate; precision exhaustion; non-monic direct and split-prime roots; cubic cross-method agreement |
-| `tests/factor_end_to_end_kat.rs` | Checked congruence; seam (N = 527) and non-monic (N = 35) factors; nonsquare-to-success retry; factor only in a combination; trivial congruence; incidental provenance; complete vs resource-limited exhaustion; invalid candidates (+1 ignored oracle KAT) |
+| `tests/factor_end_to_end_kat.rs` | Checked congruence; seam (N = 527) and non-monic (N = 35) factors; nonsquare-to-success retry; factor only in a combination; trivial congruence; incidental provenance; complete vs resource-limited exhaustion; invalid candidates; an `#[ignore]`-gated oracle KAT |
 
 ## End-to-end pipeline: polynomial selection → sieving → filtering → linear algebra → square root
 
@@ -467,9 +468,9 @@ why the algorithm is subexponential at cryptographic scale.
 This section defines no tests of its own (the end-to-end writeup is a code-tour chapter, not an
 implementation). The pipeline-level verification is provided by the end-to-end KAT:
 
-| Test file | Tests | Scope |
-|-----------|-------|-------|
-| `tests/factor_end_to_end_kat.rs` | 16 (+1 ignored) | Square-root stage from checked relations: N=527→17·31, non-monic N=35, checked congruence, trivial/incidental/nonsquare attempts, bounded retry; oracle KAT (ignored) |
+| Test file | Scope |
+|-----------|-------|
+| `tests/factor_end_to_end_kat.rs` | Square-root stage from checked relations: N=527→17·31, non-monic N=35, checked congruence, trivial/incidental/nonsquare attempts, bounded retry; oracle KAT (ignored) |
 
 ## Cross-attack ECDLP benchmark harness
 
@@ -657,10 +658,10 @@ Presenting sparse as an unconditional speedup would be a documentation defect.
 
 ### Test coverage (Shor simulator)
 
-| Test file | Tests | Scope |
-|-----------|-------|-------|
-| `shor/tests/statevec_kat.rs` | 32 | Dense register: unitarity (X, Y, Z, H, S, T, CNOT, controlled-phase, SWAP, Toffoli), Bell state, GHZ (3, 4, 5 qubits), normalization, gate identities (HH=I, XX=I, S²=Z, T²=S) |
-| `shor/tests/qft_kat.rs` | 36 | QFT on \|0…0⟩ (n=1,2,3,4): uniform superposition; QFT on basis states (n=3,4): published Fourier amplitudes; QFT∘iQFT = identity; measurement distribution (Born-rule frequencies, seeded sampler); sparse-dense agreement (all gate types + round-trip conversion + the dense-state scale annotation) |
+| Test file | Scope |
+|-----------|-------|
+| `shor/tests/statevec_kat.rs` | Dense register: unitarity (X, Y, Z, H, S, T, CNOT, controlled-phase, SWAP, Toffoli), Bell state, GHZ (3, 4, 5 qubits), normalization, gate identities (HH=I, XX=I, S²=Z, T²=S) |
+| `shor/tests/qft_kat.rs` | QFT on \|0…0⟩ (n=1,2,3,4): uniform superposition; QFT on basis states (n=3,4): published Fourier amplitudes; QFT∘iQFT = identity; measurement distribution (Born-rule frequencies, seeded sampler); sparse-dense agreement (all gate types + round-trip conversion + the dense-state scale annotation) |
 
 ## Shor factoring — order-finding on the classical simulator
 
@@ -738,10 +739,10 @@ engineering annotation, not a mathematical omission.
 
 ### Test coverage (Shor factoring)
 
-| Test file | Tests | Scope |
-|-----------|-------|-------|
-| `shor/tests/modexp_kat.rs` | 41 | Permutation correctness (controlled-add-mod, controlled-mult-mod), modular exponentiation correctness, reversibility (forward + inverse = identity), ancilla-clean (full state restored), control-off no-op |
-| `shor/tests/factor_kat.rs` | ~30 | Order KATs (ord₂(15)=4, ord₇(15)=4, ord₂(21)=6, ord₂(35)=12, ord₂(91)=12); continued-fraction KATs (known phase → known order, the least order for every phase and coprime base, deterministic classical); end-to-end factoring (15→3×5 and 21→3×7 at seed 0, 35→5×7 at seed 7, 91→7×13 at seed 1, 14 qubits) with the evidence rechecked; the `Even`, `PrimePower`, `NotComposite` and `Unsupported` outcomes |
+| Test file | Scope |
+|-----------|-------|
+| `shor/tests/modexp_kat.rs` | Permutation correctness (controlled-add-mod, controlled-mult-mod), modular exponentiation correctness, reversibility (forward + inverse = identity), ancilla-clean (full state restored), control-off no-op |
+| `shor/tests/factor_kat.rs` | Order KATs (ord₂(15)=4, ord₇(15)=4, ord₂(21)=6, ord₂(35)=12, ord₂(91)=12); continued-fraction KATs (known phase → known order, the least order for every phase and coprime base, deterministic classical); end-to-end factoring (15→3×5 and 21→3×7 at seed 0, 35→5×7 at seed 7, 91→7×13 at seed 1, 14 qubits) with the evidence rechecked; the `Even`, `PrimePower`, `NotComposite` and `Unsupported` outcomes |
 
 ## Shor ECDLP — two-register period-finding on the classical simulator
 
@@ -837,6 +838,6 @@ success reported by the solver comes from a path other than a measured pair.
 
 ### Test coverage (Shor ECDLP)
 
-| Test file | Tests | Scope |
-|-----------|-------|-------|
-| `shor/tests/ecdlp_kat.rs` | 34 (7 ignored) | Order/group-law KATs (r·G=∞, scalar-multiple table); dual-lattice extraction KATs (exact peak pairs → k for every k and j≠0, `None` iff j≡0, out-of-range inputs rejected); exact outcome distribution equals the Fourier-sum formula (k=3, 7; all k ignored for cost); positive one-candidate success probability (k=3, 7; all k ignored); end-to-end ECDLP (k=3,5,7,9,12 with seed=0 and `Measurement` evidence; trivial cases; invalid generator; exhausted and zero budgets; retry at a fresh seed); qubit budget (17 qubits, within ceiling); in-workspace `rho` cross-checks (three, `#[ignore]`-gated: two cheap, one running a full Shor solve) |
+| Test file | Scope |
+|-----------|-------|
+| `shor/tests/ecdlp_kat.rs` | Order/group-law KATs (r·G=∞, scalar-multiple table); dual-lattice extraction KATs (exact peak pairs → k for every k and j≠0, `None` iff j≡0, out-of-range inputs rejected); exact outcome distribution equals the Fourier-sum formula (k=3, 7; all k ignored for cost); positive one-candidate success probability (k=3, 7; all k ignored); end-to-end ECDLP (k=3,5,7,9,12 with seed=0 and `Measurement` evidence; trivial cases; invalid generator; exhausted and zero budgets; retry at a fresh seed); qubit budget (17 qubits, within ceiling); in-workspace `rho` cross-checks (`#[ignore]`-gated: the cheap ones and one running a full Shor solve) |

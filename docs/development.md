@@ -145,10 +145,31 @@ bench, and CLI sections for exact invocations.
 
 The test suite is built around known-answer tests (KATs): field axioms, group laws, and
 algorithm-level correctness checks against hand-verified or independently-computable results. This
-is the primary correctness signal for the whole workspace — there is no proptest/quickcheck layer.
-Two tiers exist by convention: inline `#[test]` functions for substrate-level verification
-(arithmetic, group laws), and external `tests/*_kat.rs` files for algorithm-level KATs (one file per
-algorithm family).
+is the primary correctness signal for the whole workspace. The tests fall into these kinds:
+
+- **KATs**, in two tiers by convention: inline `#[test]` functions in `#[cfg(test)]` modules next to
+  the code for substrate-level verification (arithmetic, group laws, individual routines), and
+  external `tests/*_kat.rs` files for algorithm-level KATs, which link only the public crate API.
+  The external files are usually one per algorithm or component (for example
+  `gnfs/tests/lanczos_kat.rs`, `rho/tests/semaev_kat.rs`, `shor/tests/qft_kat.rs`), but a family
+  may span several files (`gnfs/tests/sqrt_*_kat.rs`, `gnfs/tests/dl_*_kat.rs`) and a file may group
+  several related routines (`shared/bigint/tests/isqrt_gcd_kat.rs`). `shared/numth` keeps its
+  tests inline.
+- **Property tests**, using `proptest`. These are a small supplement, not a layer of their own:
+  `shared/field/tests/sqrt_legendre_kat.rs` holds the only ones
+  (`proptest_legendre_range_random`, `proptest_sqrt_roundtrip`, `proptest_sqrt_none_for_qnr`),
+  over a prime-field modulus of 1009. `proptest` is declared as a dev-dependency of `field`, `gf2m`,
+  `gnfs`, `rho` and `shor`, but only `field`'s tests use it.
+- **Opt-in oracle tests**, which need an external tool that the default run does not assume: PARI/GP
+  (`gp` on `PATH`) for algebraic cross-checks, and CADO-NFS for sieving and merge cross-checks. They
+  are `#[ignore]`-gated and run with `cargo test -- --ignored` once the tool is installed (see the
+  oracle policy in `../AGENTS.md`). Examples: `gnfs/tests/sqrt_pari_oracle_kat.rs`,
+  `shared/numfield/tests/dedekind_pari_oracle_kat.rs`, the PARI cross-check in
+  `rho/tests/ghs_kat.rs`, and the CADO-NFS cross-check in `gnfs/tests/line_sieve_kat.rs`.
+
+A second class of `#[ignore]` test exists that is not an oracle: tests gated for cost, such as the
+full-circuit Shor simulations in `shor/tests/ecdlp_kat.rs`. They need no external tool and run with
+the same `--ignored` invocation.
 
 The 80% line-coverage floor enforced by `cargo coverage` is a secondary, complementary signal: it
 catches dead or unexercised code paths. It is not a correctness ceiling, and clearing it (the
