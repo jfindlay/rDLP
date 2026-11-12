@@ -371,6 +371,24 @@ Gate evidence:
     driver before commit: identical); no untracked files; rustc/cargo 1.95.0. Non-test `.rs` diff
     verified comment-only.
   - `cargo coverage`: deferred to the ◆ boundary (row 8).
+- Freshness, 2026-11-12 (first active run of the new day), tree `f75fe2f` clean (dependency inputs
+  unchanged since `3002c52`: no manifest, lockfile, `deny.toml` or toolchain diff; cargo-deny 0.20.2;
+  cargo-audit 0.22.2; advisory db `af7b3ec`, 1490 advisories):
+  - `cargo dep-policy` (workspace root): passed, exit 0, completed 10:28:47 −05:00, log
+    `/tmp/opencode/dep-policy-1112.log`.
+  - `cargo audit` (workspace root): passed, exit 0, completed 10:28:48 −05:00, log
+    `/tmp/opencode/audit-1112.log`, db refreshed; same single allowed warning as 2026-11-11.
+- Row 5 (one ECM test and a test-header comment in `.rs`, Markdown docs), worker-run,
+  driver-validated:
+  - `cargo check --workspace` (workspace root): `reused`, exit 0, completed 2026-11-12 10:44:49
+    −05:00, log `/tmp/opencode/s5-check.log`.
+  - `cargo test --workspace` (workspace root): `reused`, exit 0, completed 10:49:35 −05:00, log
+    `/tmp/opencode/s5-test.log`, 2035 passed, 0 failed, 36 ignored;
+    `stage2_finds_factor_stage1_misses ... ok`.
+  - Input identity: base `f75fe2f` + unstaged diff sha256 `138b6976…c33c0f` (recomputed by the
+    driver before commit: identical); no untracked files; rustc/cargo 1.95.0. Non-test `.rs` diff
+    verified to be test and comment lines only.
+  - `cargo coverage`: deferred to the ◆ boundary (row 8).
 
 Pending checks: `cargo coverage` (row 8 boundary, then final delivery). `cargo dep-policy` and
 `cargo audit` fresh for 2026-11-11 only; rerun if the chain crosses a day or touches dependency
@@ -382,7 +400,7 @@ inputs.
 | 2 | State the non-monic homogeneous value as c·N(a − bα) and localise the index | done | 6e67f92 | Propagated C-NonMonicNorm (no new freeze). Extras: none. |
 | 3 | Separate bad primes from index divisors and name `number_field()`'s consumers | done | 9bfbd4e | C-BadPrime (tests `kat_is_bad_prime_non_monic_flags_a_prime_dividing_only_the_leading_coefficient`, `kat_bad_prime_that_is_maximal_has_ramified_factorisation` in `shared/numfield/tests/dedekind_kat.rs`). Extras: none. |
 | 4 | Pin the trivial-congruence policy and say linear algebra yields candidates | done | 161c7b3 | C-TrivialCongruence (test `trivial_congruence_with_a_shared_factor_reports_no_divisor`, unit test in `gnfs/src/sqrt/assembly.rs`; no new public API). Extras: none. |
-| 5 | Make the testing documentation describe the tests that exist | pending | | |
+| 5 | Make the testing documentation describe the tests that exist | done | 24b0b88 | C-TestingDocs (strengthened ECM test `stage2_finds_factor_stage1_misses`: N = 1009·3541, B1 = 20, B2 = 200, sigma 7 found by a bounded 200-curve scan). Extras: none. |
 | 6 | Label the GLV, negation-map and Koblitz ratios as expected, not measured | pending | | |
 | 7 | Rework the quantum-resource exposition from primary sources | pending | | |
 | 8 | Correct surviving claims the exposition rows contradicted ◆ | pending | | |
@@ -459,6 +477,25 @@ still describes the old README/`assembly.rs` wording; `gnfs/docs/PEDAGOGY.md` ~:
 congruence of squares") and ~:2028 ("candidate congruence of squares") unchecked in context; other
 README lines over 100 characters (~:118, 120–122, 333) untouched (may be byte-count false positives).
 Texture: calendar day rolled to 2026-11-12 during row 4; freshness checks rerun before row 5.
+
+### 5 — 2026-11-12
+Discovery/flex: the ECM test was strengthened, not renamed: the existing public `ecm_one_curve`
+skips stage 2 when `b2 == b1`, so the same curve runs with stage 2 off and on (no new API). Two
+`#[ignore]` placeholders are not real oracle checks: `gnfs/tests/lanczos_kat.rs:308` (CADO
+placeholder that never invokes CADO-NFS) and `gnfs/tests/factor_end_to_end_kat.rs:858` (`todo!()`
+body); development.md's "opt-in oracles are `#[ignore]`-gated" is true of them only formally, and
+BENCHMARKS still lists a CADO oracle for lanczos and an ignored oracle for `factor_end_to_end_kat`
+as coverage. BENCHMARKS' "21 qubits" discrepancy no longer exists (14 qubits, matching its table).
+Affected: C-TestingDocs (frozen).
+Deferred: yes — row 8 should sweep: the BENCHMARKS coverage lines for the two placeholder ignored
+tests (claims vs reality; likely a ROADMAP/GNFS-assurance finding, not a prose fix here);
+`stage2_extends_reach` doc ("stage 1 alone rarely succeeds") is not checked by its body (outside the
+row's one-test scope; C-TestingDocs says every test's doc states what its body checks); outside
+permitted files: `docs/NOTES.md:134` ("no proptest/quickcheck", rolling doc), `docs/SURVEY.md`
+(:792 "no proptest, no quickcheck"; test counts :646–660, 730, 740, 750, 762–764, 854, 886, 905;
+SURVEY is retirement-scope, report-only), `docs/ROADMAP.md:272` (stale "about 40 tests … (45
+exist)"); `docs/development.md:70–74` over 100 columns (pre-existing).
+Texture: Tests/Tests-added columns removed from ten BENCHMARKS tables; no measurements touched.
 
 ## Discoveries & risks
 
