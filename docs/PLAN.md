@@ -353,6 +353,15 @@ Gate evidence:
     sha256sum` = `f0e0ade8…472ffe2` (recomputed by the driver before commit: identical); no
     untracked files; rustc/cargo 1.95.0. Diff in `.rs` files verified comment-only.
   - `cargo coverage`: deferred to the ◆ boundary (row 8).
+- Row 3 (rustdoc/comment edits in `.rs` plus two new tests), worker-run, driver-validated:
+  - `cargo check --workspace` (workspace root): `reused`, exit 0, completed 2026-11-11 20:37:22
+    −05:00, log `/tmp/opencode/s3-check.log`.
+  - `cargo test --workspace` (workspace root): `reused`, exit 0, completed 20:50:11 −05:00, log
+    `/tmp/opencode/s3-test.log`, 2034 passed, 0 failed (both new tests listed `ok`).
+  - Input identity: base `dc84b74` + unstaged diff sha256 `4e32cd9a…6ea709` (recomputed by the
+    driver before commit: identical); no untracked files; rustc/cargo 1.95.0. Non-test `.rs` diff
+    verified comment-only.
+  - `cargo coverage`: deferred to the ◆ boundary (row 8).
 
 Pending checks: `cargo coverage` (row 8 boundary, then final delivery). `cargo dep-policy` and
 `cargo audit` fresh for 2026-11-11 only; rerun if the chain crosses a day or touches dependency
@@ -362,7 +371,7 @@ inputs.
 |---|---------|--------|--------|-------|
 | 1 | Re-derive the GNFS L[1/3, (64/9)^{1/3}] complexity from one smoothness estimate | done | a0b12ad | C-GnfsComplexity (frozen by the inflection fork, `design-confident`). §9.7 restatements widened per the contract; allowed extras: none. Out-of-scope stale text reported to row 8 (see digest). |
 | 2 | State the non-monic homogeneous value as c·N(a − bα) and localise the index | done | 6e67f92 | Propagated C-NonMonicNorm (no new freeze). Extras: none. |
-| 3 | Separate bad primes from index divisors and name `number_field()`'s consumers | pending | | |
+| 3 | Separate bad primes from index divisors and name `number_field()`'s consumers | done | 9bfbd4e | C-BadPrime (tests `kat_is_bad_prime_non_monic_flags_a_prime_dividing_only_the_leading_coefficient`, `kat_bad_prime_that_is_maximal_has_ramified_factorisation` in `shared/numfield/tests/dedekind_kat.rs`). Extras: none. |
 | 4 | Pin the trivial-congruence policy and say linear algebra yields candidates | pending | | |
 | 5 | Make the testing documentation describe the tests that exist | pending | | |
 | 6 | Label the GLV, negation-map and Koblitz ratios as expected, not measured | pending | | |
@@ -411,6 +420,23 @@ Leaked plan labels in files row 2 edited, pre-existing: `norms.rs` module commen
 in ROADMAP", "principle 4"), `line.rs` ("Principle-4 note"), gnfs PEDAGOGY ("G.B.x", "C-PolyPair",
 "principle-4").
 Texture: gnfs PEDAGOGY bad-prime passage (~:892–896) left for row 3.
+
+### 3 — 2026-11-11
+Discovery/flex: the entry's claims held. `discriminant` returns lc(f)·disc(f) up to sign (no division
+by lc); the checked path's c·disc(F) test flags the same primes; `dedekind_factor` exposes a
+maximality result (`report.index.divides_index()`), so the KAT uses it. `number_field()` callers are
+tests only (`gnfs/tests/dl_relation_kat.rs`, `base_m_kat.rs`); NFS-DL relation code takes `nf` as a
+parameter; `FactorBase::new` does its own root search; `sqrt/context.rs` builds its own monic form.
+The old PEDAGOGY claim that the flag "cannot see p | c" for d = 2 was false and is corrected. Also
+fixed in `base_m.rs` rustdoc: degree heuristic comes from minimising total cost (sides differ in
+size), and m is the least integer with m^{d+1} > n (this closes item (c) from row 1's digest).
+Affected: C-BadPrime (frozen).
+Deferred: yes — row 8 should sweep: "principle-4" labels throughout gnfs PEDAGOGY (~:307, 504, 519,
+678, 2869, 4991, …; plan vocabulary in durable text); `polyselect/mod.rs` module header "Non-monic
+seam" (~:19–25) and `PolyPair` doc (~:118–120) do not name `number_field()`'s consumers;
+`sieve/mod.rs` ~:243 bad-prime comment unread; `dedekind.rs` module header and
+`DedekindReport::is_bad_prime` "p | disc(f)" is correct there (monic-only) — keep.
+Texture: worker reflowed one over-width PEDAGOGY line and did not re-measure.
 
 ## Discoveries & risks
 
