@@ -401,6 +401,15 @@ Gate evidence:
 - Row 7: `cargo check`/`cargo test`: not run, `non-executable diff` (three Markdown files; no source
   includes Markdown, confirmed at row 1 and unchanged: no `.rs`/`.toml` in this diff).
   `cargo coverage`: deferred to the ◆ boundary (row 8).
+- Row 8 (comment/rustdoc/test-doc edits in 14 `.rs` files plus Markdown), worker-run,
+  driver-validated:
+  - `cargo check --workspace` (workspace root): `reused`, exit 0, log `/tmp/opencode/s8-check.log`.
+  - `cargo test --workspace` (workspace root): `reused`, exit 0, log `/tmp/opencode/s8-test.log`,
+    2035 passed, 0 failed, 36 ignored (doc-tests included).
+  - Input identity: base `267ced1` + unstaged diff sha256 `3f8e4514…b6972` (recomputed by the
+    driver before commit: identical); no untracked files; rustc/cargo 1.95.0. `.rs` diff verified
+    to contain only comment/doc lines.
+  - `cargo coverage`: the ◆ boundary check, run at the boundary (see boundary note).
 
 Pending checks: `cargo coverage` (row 8 boundary, then final delivery). `cargo dep-policy` and
 `cargo audit` fresh for 2026-11-11 only; rerun if the chain crosses a day or touches dependency
@@ -415,7 +424,7 @@ inputs.
 | 5 | Make the testing documentation describe the tests that exist | done | 24b0b88 | C-TestingDocs (strengthened ECM test `stage2_finds_factor_stage1_misses`: N = 1009·3541, B1 = 20, B2 = 200, sigma 7 found by a bounded 200-curve scan). Extras: none. |
 | 6 | Label the GLV, negation-map and Koblitz ratios as expected, not measured | done | ac3e451 | C-HeuristicRatio. Extras: none. |
 | 7 | Rework the quantum-resource exposition from primary sources | done | b329f83 | C-QuantumEvidence (versions read: Babbush arXiv:2603.28846v2 full; Cain 2603.28627v1 main text, appendices unread; Schrottenloher 2606.02235v1 partial; Proos–Zalka arXiv quant-ph/0301141v2 full; Roetteler arXiv:1706.06752v3 full). Extras: none. |
-| 8 | Correct surviving claims the exposition rows contradicted ◆ | pending | | |
+| 8 | Correct surviving claims the exposition rows contradicted ◆ | done | de204f8 | Allowed extras (stale-claim sweep targets, comments/rustdoc/docs only): `docs/PEDAGOGY.md`, `shared/numfield/docs/PEDAGOGY.md`, `gnfs/src/{lib.rs,linalg/kernel.rs,sieve/{special_q,lattice}.rs,polyselect/{roots,root_sieve,coppersmith}.rs,sqrt/context.rs}`, `gnfs/tests/{special_q_kat,murphy_kat,lanczos_kat}.rs`, `rho/src/ecdlp/cli.rs`. Boundary procedure pending (see boundary note). |
 | 9 | Anneal cleanup (skippable) | pending | | |
 
 ## Action-frame digest
@@ -549,6 +558,52 @@ the permitted sections of row 7); `docs/MATHEMATICS.md` ~:4003 second PZ03 entry
 the arXiv-version note; Chevignard/Litinski figures are labelled secondhand from Babbush §II.B.
 Texture: bibliographic details of Shor SIAM (26(5), 1484–1509) and Roetteler (pp. 241–270) checked
 against Crossref; §11.7.1 added (tables + evidence-boundary + sources-read note).
+
+### 8 — 2026-11-12
+Discovery/flex: row 8 ran as a sweep with allowed extras (list in the ledger row). Items for the
+boundary fork to weigh:
+- MATHEMATICS §2 Dixon: the proof gives L_N[1/2, √2] (not 1); theorem, §1 intro, ECM synthesis row
+  (L_p[1/2, √2], smallest prime) and `docs/PEDAGOGY.md:75` corrected; Pohlig–Hellman
+  L_p[1/2, 1] → L_p[1, 1/2] = √p. The worker added a trial-division variant (L_N[1/2, 2] at
+  c = 1/2) from its own short derivation, **not sourced**.
+- `PolyPair::skew` and `factor_base_bounds` are never set by any code (`score` reads `skew`); docs
+  claiming "set by Murphy-E scoring / sieving" were false and a described "factor-base balancing"
+  step does not exist; docs now say "not implemented". A code-state finding, no behaviour change.
+- numfield PEDAGOGY §10 falsely said sieving evaluates `NumberFieldElement::norm()` (never called in
+  `gnfs/src`); corrected. "x ≡ ±y mod p and mod q independent events" (gnfs PEDAGOGY §46, §57)
+  rewritten as independent sign choices, labelled a modelling assumption.
+- Ignored tests: `todo!()`/`unimplemented!()` placeholders (`factor_end_to_end_kat`
+  `kat_c_oracle_80_100_bit_challenge`, `dl_individual_log_kat`, `dl_end_to_end_kat`, `merge_kat`,
+  `ghs_kat`); `line_sieve_kat::kat_c_cado_nfs_oracle` compares the sieve with itself;
+  `lanczos_kat::kat_c_cado_oracle_n35` never invokes CADO-NFS; `semaev_kat`, `ssa_kat` (2) and padic
+  `log_kat` assert hard-coded PARI values without calling `gp`. Only three files start `gp`; no
+  test starts CADO-NFS. BENCHMARKS (five rows) and `development.md` now say so; no test changed. This
+  is a GNFS/oracle-assurance finding for the ROADMAP.
+- `rho/src/ecdlp/cli.rs:96` doc comment is clap `--help` text: the help output changed (expected-
+  not-measured label); no solver behaviour. MATHEMATICS reference lists: §11.9 holds 52–55 and the
+  chapter-12 list was renumbered 52–62 → 56–66 so the shor PEDAGOGY cite resolves uniquely.
+- gnfs PEDAGOGY: ~430 denylist hits (G.x/D.x/E.x labels, `C-*`, `principle-4`, `T.G`) translated in
+  §§1–62, §58/§59 rewritten (contract table, principle verdicts); §63+ (NFS-DL) untouched.
+Affected: none (all seven contracts upheld; no wrong `Ok`; no new dependency edge).
+Deferred: yes — boundary fork should weigh the unsourced Dixon trial-division line and the
+chapter-12 renumbering. Report-only (NFS-DL, rolling and retirement-scope files, not edited):
+MATHEMATICS §9: "algebraic norm" for F ~:2529, 2549, 2805; old `ρ(u′)^{-1}` / `L_p[1/3,
+1/(3c′)]·(1+o(1))` form ~:2787–2789, 3010–3026, 3057–3076, 3101 and the `c_descent` bound ~:3047,
+`(1+o(1))` ~:2796; `gnfs/src/dl/**`: `ext/relation.rs:18,113,172` "algebraic norm", labels
+`schirokauer.rs:35`, `mod.rs:116,118` (cites a "C-Relation contract" no longer in `sieve/mod.rs`),
+`linalg/blockvec_fl.rs:33`, `linalg/wiedemann_fl.rs:24,61`, `ext/descent.rs:35,252`; tests
+`dl_descent_kat.rs:35,416,490,549` ("the PLAN"), `schirokauer_kat.rs:11,162,164,231`; gnfs PEDAGOGY
+§§63–71 and "Further Reading (D.W)" (~100 lines of leaked labels, ~:5270); ROADMAP :253–255, 270,
+272; NOTES :134; SURVEY :792, test counts ~:646–905, "768 qubits" ~:2139–2153, 2189, 2465,
+"millions of physical qubits" ~:2174–2181. Needs-human: `special_q_kat.rs`
+`kat_b_yield_comparison_principle4_annotated` (identifier); `coppersmith_kat.rs`, `root_sieve_kat.rs`
+carry `principle-4` strings (some in assertion messages; not enrolled, unedited); `line.rs` "~99%"
+and the PEDAGOGY "Montgomery 2–4×, Brent 24%, batched GCD 2–5×", Cavallar 30–50% figures are
+unlabelled but outside the heuristic-ratio contract; `docs/PEDAGOGY.md:68`, MATHEMATICS:268 mix
+chapter numbers with GNFS-internal §7 (not changed). Over-width prose left (pre-existing, regex
+`.{101,}`): gnfs PEDAGOGY 19 outside tables, numfield PEDAGOGY 5, shor PEDAGOGY 5, BENCHMARKS 1,
+MATHEMATICS 1; tables unwrappable.
+Texture: committer noted its own model is Haiku 5.5 (mechanical, not credited); trailers unchanged.
 
 ## Discoveries & risks
 
