@@ -2,8 +2,10 @@
 //!
 //! The special-q strategy is an optimization layer over the line sieve. For each
 //! **special prime** ``q`` in a chosen range ``[q_min, q_max]``, the sieve is restricted to
-//! pairs ``(a, b)`` for which ``q | N_alg(a, b)``. This restriction is enforced by the sieve
-//! condition: ``q | N_alg(a, b)`` iff ``a ≡ r_q·b (mod q)`` for some root ``r_q`` of ``f mod q``.
+//! pairs ``(a, b)`` for which ``q | F(a, b)``, where ``F(a, b) = b^d·f(a/b) = c·N_{K/ℚ}(a − b·α)``
+//! is the algebraic value (``N_alg`` in code). This restriction is enforced by the sieve
+//! condition: ``q | F(a, b)`` iff ``a ≡ r_q·b (mod q)`` for some root ``r_q`` of ``f mod q``
+//! (for ``q ∤ b``).
 //!
 //! # Algorithm
 //!
@@ -17,24 +19,24 @@
 //!    - For each such ``a``, accumulate log contributions from the rational and algebraic
 //!      factor bases (as in the line sieve), then trial-divide survivors.
 //! 3. Every confirmed relation carries ``q`` in its algebraic exponent vector (since the
-//!    sieve condition guarantees ``q | N_alg(a, b)``).
+//!    sieve condition guarantees ``q | F(a, b)``).
 //!
 //! # Yield multiplier
 //!
 //! The key insight: by restricting to ``a ≡ r_q·b (mod q)``, every candidate already has
-//! ``q`` as a known algebraic factor. The remaining cofactor ``N_alg(a, b) / q`` is smaller
+//! ``q`` as a known algebraic factor. The remaining cofactor ``F(a, b) / q`` is smaller
 //! and therefore more likely to be smooth over the algebraic factor base. This increases the
 //! probability that the remaining cofactor is smooth, yielding more relations per sieve area.
 //!
-//! # Principle-4 annotation (science↔engineering disconnect)
+//! # Toy scale versus cryptographic scale
 //!
 //! At toy scale (small ``A``, ``B``, ``q``), the yield advantage of the special-q strategy
 //! over the plain line sieve is under-exposed. The yield multiplier is a scale phenomenon:
 //! at cryptographic scale, the special-q strategy is the dominant sieving technique because
-//! the algebraic norm ``N_alg(a, b)`` is large and the probability of smoothness is low
-//! without the pre-guaranteed factor ``q``. At toy scale, the norms are already small and
-//! smooth, so the advantage is marginal. This is annotated in the KATs and in
-//! ``gnfs/docs/PEDAGOGY.md`` per ROADMAP principle 4.
+//! the algebraic value ``F(a, b)`` is large and the probability of smoothness is low
+//! without the pre-guaranteed factor ``q``. At toy scale, the values are already small and
+//! smooth, so the advantage is marginal. The KATs and ``gnfs/docs/PEDAGOGY.md`` state the
+//! same caveat.
 //!
 //! # Relation to the line sieve
 //!
@@ -43,8 +45,8 @@
 //! ``Relation`` type. The ``q``-restriction is implemented by stepping ``a`` in increments of
 //! ``q`` rather than 1, and by pre-guaranteeing ``q`` in the algebraic exponent vector.
 //!
-//! The plain line sieve remains available for benchmarking (Category-C rule: the baseline is
-//! not altered by the optimization layer).
+//! The plain line sieve remains available for benchmarking: the baseline is not altered by the
+//! optimization layer.
 //!
 //! # Entry surface
 //!
@@ -82,7 +84,7 @@ use crate::polyselect::PolyPair;
 /// Same as ``LineSieveConfig``: the threshold is ``threshold_scale × log2(B_alg)``.
 /// A value of ``0.8`` (default) is conservative.
 ///
-/// # Principle-4 annotation
+/// # Toy scale versus cryptographic scale
 ///
 /// At toy scale, the threshold barely filters anything — the asymptotic win of the sieve
 /// is under-exposed. See the module-level documentation.
@@ -183,7 +185,7 @@ pub struct SpecialQResult {
 /// The output is deterministic for fixed ``(poly, fb, config)``: the sieve is a pure function
 /// of its inputs, with no randomness.
 ///
-/// # Principle-4 annotation
+/// # Toy scale versus cryptographic scale
 ///
 /// At toy scale, the yield advantage of the special-q strategy over the plain line sieve is
 /// under-exposed. See the module-level documentation for details.

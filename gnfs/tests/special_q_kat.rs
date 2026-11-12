@@ -6,7 +6,7 @@
 //!     algebraic exponent vector.
 //!
 //! (b) The per-``q`` yield (relations per sieve area) is at least as good as a naive sieve
-//!     of the same area — or annotated as under-exposed at toy scale per ROADMAP principle 4.
+//!     of the same area — or annotated as under-exposed at toy scale.
 //!
 //! (c) The output is deterministic for a fixed ``q``-range + parameters.
 //!
@@ -24,14 +24,15 @@
 //! - ``q = 7``: root ``r = 5`` (``f(5) = 119 = 7×17 ≡ 0 mod 7``).
 //! - ``q = 17``: root ``r = 5`` (``f(5) = 119 = 7×17 ≡ 0 mod 17``).
 //!
-//! # Principle-4 annotation (yield comparison)
+//! # Toy scale versus cryptographic scale (yield comparison)
 //!
 //! At toy scale (small ``A``, ``B``, ``q``), the yield advantage of the special-q strategy
 //! over the plain line sieve is under-exposed. The yield multiplier is a scale phenomenon:
 //! at cryptographic scale, the special-q strategy is the dominant sieving technique because
-//! the algebraic norm ``N_alg(a, b)`` is large and the probability of smoothness is low
-//! without the pre-guaranteed factor ``q``. At toy scale, the norms are already small and
-//! smooth, so the advantage is marginal. KAT (b) annotates this explicitly and checks the
+//! the algebraic value ``F(a, b) = c·N(a − b·α)`` (``N_alg`` in code; ``f`` is monic here, so
+//! ``c = 1``) is large and the probability of smoothness is low without the pre-guaranteed
+//! factor ``q``. At toy scale, the values are already small and smooth, so the advantage is
+//! marginal. KAT (b) annotates this explicitly and checks the
 //! structural property (``q`` in the algebraic exponent vector) rather than asserting a
 //! yield improvement that is not observable at toy scale.
 
@@ -205,22 +206,23 @@ fn kat_a3_spot_check_known_relation_q7() {
     );
 }
 
-// ─── KAT (b): Yield comparison (principle-4 annotated) ───────────────────────
+// ─── KAT (b): Yield comparison (under-exposed at toy scale) ──────────────────
 
 /// KAT (b): Per-``q`` yield comparison with the naive line sieve.
 ///
-/// # Principle-4 annotation (science↔engineering disconnect)
+/// # Toy scale versus cryptographic scale
 ///
 /// At toy scale (small ``A``, ``B``, ``q``), the yield advantage of the special-q strategy
 /// over the plain line sieve is **under-exposed**. The yield multiplier is a scale phenomenon:
 ///
-/// - At cryptographic scale (``B_alg ≈ 10^6``, ``A ≈ 10^7``), the algebraic norm
-///   ``N_alg(a, b)`` is large (hundreds of bits) and the probability of smoothness is low.
+/// - At cryptographic scale (``B_alg ≈ 10^6``, ``A ≈ 10^7``), the algebraic value
+///   ``F(a, b)`` is large (hundreds of bits) and the probability of smoothness is low.
 ///   The pre-guaranteed factor ``q`` significantly reduces the cofactor, making smoothness
-///   much more likely. The special-q strategy yields 5–10× more relations per sieve area
-///   than the plain line sieve.
+///   much more likely. The special-q strategy is commonly reported to yield several times
+///   more relations per sieve area than the plain line sieve (a rule of thumb recalled from
+///   the literature, not measured here).
 ///
-/// - At toy scale (``B_alg = 30``, ``A = 10``, ``B = 3``), the norms are already small
+/// - At toy scale (``B_alg = 30``, ``A = 10``, ``B = 3``), the values are already small
 ///   (tens of bits) and smooth with high probability. The pre-guaranteed factor ``q`` does
 ///   not significantly improve the smoothness probability. The yield advantage is not
 ///   observable.
@@ -263,7 +265,7 @@ fn kat_b_yield_comparison_principle4_annotated() {
         }
     }
 
-    // Principle-4 annotation: at toy scale, the yield advantage is under-exposed.
+    // Scale caveat: at toy scale, the yield advantage is under-exposed.
     // We annotate this explicitly rather than asserting a yield improvement.
     //
     // The total restricted area is the sum of (2A+1)/q × B pairs per (q, r_q) run.
@@ -277,11 +279,11 @@ fn kat_b_yield_comparison_principle4_annotated() {
     if total_restricted_area > 0 {
         // The yield per restricted area is total_special_q_relations / total_restricted_area.
         // At toy scale, this may be 0 (no relations found in the restricted area), which is
-        // acceptable — the principle-4 annotation explains why.
+        // acceptable — the scale caveat above explains why.
         let _yield_per_area = total_special_q_relations as f64 / total_restricted_area as f64;
 
         // We do NOT assert yield_per_area > line_sieve_yield because:
-        // 1. At toy scale, the advantage is under-exposed (principle 4).
+        // 1. At toy scale, the advantage is under-exposed (see the scale caveat above).
         // 2. The restricted area is small (≈ 1/q of the full area), so the absolute count
         //    may be 0 even when the yield rate is comparable to the line sieve.
         //

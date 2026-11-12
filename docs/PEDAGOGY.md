@@ -72,7 +72,7 @@ sections.**
 | Algorithm | Problem | L-notation complexity | Structure exploited | Notes |
 |-----------|---------|----------------------|---------------------|-------|
 | Pollard rho | ECDLP (generic curve) | $L_n[1,\, 1/2] = \Theta(\sqrt{n})$ | None — generic $\sqrt{n}$ walk | Fully exponential in $\log n$; the baseline all other families escape |
-| ECM (Lenstra) | Integer factoring (sub-step) | $L_p[1/2,\, 1]$ (largest prime factor $p$) | Group-order smoothness | Substrate primitive; no other solver in the workspace calls it |
+| ECM (Lenstra) | Integer factoring (sub-step) | $L_p[1/2,\, \sqrt{2}]$ ($p$ the smallest prime factor) | Group-order smoothness | Substrate primitive; no other solver in the workspace calls it |
 | GNFS | Integer factoring | $L_N[1/3,\, (64/9)^{1/3}]$ | Number-field bridge + smoothness | Exponent $1/3$ from the degree/smoothness balance (§7); constant derived in §7, heuristic (smoothness of the polynomial values is assumed, not proved) |
 | NFS-DL | DLP in $\mathbb{F}_p^*$ | $L_p[1/3,\, (64/9)^{1/3}]$ | Same number-field bridge | Same exponent and constant as GNFS; descent is asymptotically subdominant (§9.7 delta) |
 | MOV/Frey–Rück | ECDLP (small embedding degree) | $L_{p^k}[1/3,\, (64/9)^{1/3}]$ (via NFS-DL) | Pairing → $\mathbb{F}_{p^k}^*$ DLP | Cross-family bridge: ECDLP → NFS-DL; precondition $\ell \mid p^k - 1$, $k$ small |
@@ -130,9 +130,9 @@ synthesis chapter; the per-crate tour is the depth.
 Both algorithms live in the `gnfs` crate and exploit the same structure: the number-field bridge.
 The integers $\mathbb{Z}$ embed into a number field $K = \mathbb{Q}(\alpha)$, and the norm map
 $N_{K/\mathbb{Q}}$ connects factorisation in $K$ to factorisation in $\mathbb{Z}$. By sieving for
-pairs $(a, b)$ whose norms on both sides are $B$-smooth, collecting enough such *relations*, and
-solving a linear system, both algorithms extract the answer — a factor (GNFS) or a discrete
-logarithm (NFS-DL).
+pairs $(a, b)$ whose values on both sides are $B$-smooth (the algebraic value is $c$ times the norm
+for leading coefficient $c$), collecting enough such *relations*, and solving a linear system,
+both algorithms extract the answer — a factor (GNFS) or a discrete logarithm (NFS-DL).
 
 **GNFS** (`gnfs/docs/PEDAGOGY.md` §§1–62). The General Number Field Sieve factors a
 large integer $N$ in five stages: polynomial selection (§§1–11), sieving (§§12–21), filtering

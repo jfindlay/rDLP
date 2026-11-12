@@ -490,7 +490,8 @@ mod tests {
     /// x² − 2 at m = 23 modulo 527 with the single relation (3, −2): `a − 23b = 49 = 7²`,
     /// `γ = 3 + 2α = (1 + α)²`, `β = ±(1 + α)`, `y = ±24` and `24² = 576 = 527 + 49`. Its
     /// factor base `FB(7, 7)` gives the rational primes [2, 3, 5, 7], so the entry for 7 is
-    /// index 3 with exponent 2, and the algebraic norm `9 − 8 = 1` has no entry.
+    /// index 3 with exponent 2, and the algebraic value `F(3, −2) = 9 − 8 = 1` (`f` is monic, so
+    /// this is also the norm) has no entry.
     fn seam_dependency() -> CheckedDependency {
         let f = IntPoly::from_coeffs(vec![big(-2), big(0), big(1)]);
         let ctx = SqrtContext::new(&f, &big(23), &big(527)).unwrap();

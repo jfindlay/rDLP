@@ -14,7 +14,8 @@
 //!
 //! # Bad primes and primes dividing the index
 //!
-//! Two distinct notions are in play. A prime p is **bad** for f when p | disc(f). A prime p
+//! Two distinct notions are in play. A prime p is **bad** for f when p | disc(f) (for monic f;
+//! for non-monic f, [`is_bad_prime`] tests p | lc(f)·disc(f)). A prime p
 //! **divides the index** when p | [ℤ_K : ℤ[α]]. Since disc(f) = [ℤ_K : ℤ[α]]² · disc(K), every
 //! prime dividing the index is bad, but not conversely: p = 2 is bad for x² − 2 (disc 8), yet
 //! ℤ[√2] is maximal, so 2 does not divide the index.
@@ -220,7 +221,7 @@ pub fn discriminant(f: &IntPoly) -> BigInt {
 /// prime for which the result is false is good, and for monic f Dedekind's theorem applies
 /// directly there. A bad prime may or may not divide the index [ℤ_K : ℤ[α]] (for monic f; the
 /// index is defined only for integral α); use [`dedekind_index_test`] (or the `index` of a
-/// /// [`DedekindReport`]) to decide that. A polynomial of degree < 1 or with a repeated factor has
+/// [`DedekindReport`]) to decide that. A polynomial of degree < 1 or with a repeated factor has
 /// [`discriminant`] 0, and every prime is then bad.
 pub fn is_bad_prime(f: &IntPoly, p: &BigInt) -> bool {
     let disc = discriminant(f);

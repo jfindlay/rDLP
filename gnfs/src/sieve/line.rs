@@ -2,7 +2,7 @@
 //!
 //! For each ``b`` in ``1..=B``, sieves the range ``|a| ≤ A`` on both the rational and algebraic
 //! sides, accumulates approximate ``log p`` contributions, and trial-divides survivors to confirm
-//! full smoothness. Each confirmed coprime pair ``(a, b)`` with both norms smooth becomes a
+//! full smoothness. Each confirmed coprime pair ``(a, b)`` with both values smooth becomes a
 //! ``Relation``.
 //!
 //! # Algorithm
@@ -17,19 +17,20 @@
 //! 4. **Threshold**: collect candidates where the sieve value exceeds a smoothness threshold.
 //! 5. For each candidate ``(a, b)``:
 //!    a. Skip if ``gcd(a, b) ≠ 1``.
-//!    b. Compute both norms; skip if either is zero or overflows ``Uint<4>``.
-//!    c. Call ``trial_smooth`` on both norms; skip if either has ``cofactor > 1``.
+//!    b. Compute the rational norm and the algebraic value ``F(a, b)``; skip if either is zero
+//!       or overflows ``Uint<4>``.
+//!    c. Call ``trial_smooth`` on both; skip if either has ``cofactor > 1``.
 //!    d. Construct a ``Relation`` from the witnesses.
 //!
-//! # Principle-4 annotation (science↔engineering disconnect)
+//! # Toy scale versus cryptographic scale
 //!
 //! At toy scale (small ``A``, ``B``, ``B_rat``, ``B_alg``), the log-sieve barely beats direct
 //! trial division of every ``(a, b)`` pair: the sieve array is tiny, the factor bases are small,
 //! and the asymptotic win of the sieve (avoiding trial division for most pairs) is under-exposed.
 //! The engineering heart of NFS — the ``log p`` mark-then-confirm pattern — is present in code,
 //! but its yield advantage over brute-force trial division only becomes visible at cryptographic
-//! scale (``B ≈ 10^7``, ``A ≈ 10^7``, ``B_rat/B_alg ≈ 10^6``). This is annotated here and in
-//! ``gnfs/docs/PEDAGOGY.md`` per ROADMAP principle 4.
+//! scale (``B ≈ 10^7``, ``A ≈ 10^7``, ``B_rat/B_alg ≈ 10^6``). ``gnfs/docs/PEDAGOGY.md`` states
+//! the same caveat.
 //!
 //! # Entry surface
 //!
@@ -66,7 +67,7 @@ use super::{
 /// step is the correctness gate; the threshold is only a pre-filter.
 ///
 /// At toy scale, the threshold barely filters anything — the asymptotic win of the sieve is
-/// under-exposed (see module-level principle-4 annotation).
+/// under-exposed (see the module-level toy-scale caveat).
 #[derive(Debug, Clone)]
 pub struct LineSieveConfig {
     /// Half-width of the sieve region: ``a`` ranges over ``−A..=A``.
@@ -123,7 +124,7 @@ impl LineSieveConfig {
 /// The output is deterministic for fixed ``(poly, fb, config)``: the sieve is a pure function
 /// of its inputs, with no randomness.
 ///
-/// # Principle-4 annotation
+/// # Toy scale versus cryptographic scale
 ///
 /// At toy scale, the log-sieve barely beats direct trial division — the asymptotic win is
 /// under-exposed. See the module-level documentation for details.
@@ -165,7 +166,7 @@ pub fn line_sieve(
     // one norm is small (e.g., N_rat = 1 contributes nothing to the sieve). The exact
     // trial-division step is the correctness gate; the threshold is only a pre-filter.
     //
-    // Principle-4 note: at toy scale, the threshold barely filters anything — the asymptotic
+    // Scale note: at toy scale, the threshold barely filters anything — the asymptotic
     // win of the sieve (avoiding trial division for most pairs) is under-exposed. At
     // cryptographic scale (B_alg ≈ 10^7), the threshold filters ~99% of candidates, making
     // the sieve dramatically faster than brute-force trial division.

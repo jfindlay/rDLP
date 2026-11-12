@@ -35,7 +35,7 @@
 //! For degree `d ≥ 3` (always the case for toy N via base-m), adding a degree-2 term
 //! does not change the degree of `f`.
 //!
-//! # Science↔engineering note (principle-4 annotation)
+//! # Toy scale versus cryptographic scale
 //!
 //! At toy scale (N < 2^60), the Murphy-E improvement from rotation is small and may not
 //! manifest as a strict improvement for every seed. The search is correct in expectation

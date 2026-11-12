@@ -15,11 +15,10 @@
 //!
 //! Both are signed ``BigInt`` values. The smoothness predicate ``trial_smooth`` operates
 //! on ``Uint<4>`` (unsigned 256-bit integers). The **norm bridge** converts a signed value to
-//! its absolute value as ``Uint<4>``, with a range check: toy-scale norms fit 256 bits per the
-//! C1 resolution in ROADMAP, but the bridge rejects out-of-range norms rather than silently
-//! truncating.
+//! its absolute value as ``Uint<4>``, with a range check: toy-scale values fit 256 bits, and the
+//! bridge rejects out-of-range values rather than silently truncating.
 //!
-//! # Science↔engineering note (principle 4)
+//! # Toy scale versus cryptographic scale
 //!
 //! At toy scale, these values are small (tens of bits). At cryptographic scale (RSA-768+), the
 //! algebraic value ``F(a, b) = b^d · f(a/b)`` can be hundreds of bits. The ``Uint<4>`` (256-bit)
@@ -150,9 +149,9 @@ impl std::error::Error for NormBridgeError {}
 /// Returns the absolute value as ``Uint<4>``, or an error if ``|norm| ≥ 2^256``.
 /// The sign is tracked separately in the ``Relation`` (for the −1 column in the linear algebra step).
 ///
-/// # Design note (C1 resolution)
+/// # Design note
 ///
-/// Toy-scale norms fit 256 bits per ROADMAP. If a chosen toy N/region overflows, shrink
+/// Toy-scale values fit 256 bits. If a chosen toy N/region overflows, shrink
 /// the region or widen via the documented ``Uint<L>`` path. The bridge rejects out-of-range
 /// norms rather than silently truncating (silent truncation would produce incorrect smoothness
 /// witnesses).

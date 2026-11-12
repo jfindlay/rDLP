@@ -1,7 +1,8 @@
 //! Lattice sieving for GNFS (demonstration fidelity).
 //!
 //! The lattice sieve is an optimization layer over the special-q strategy. For a
-//! special prime ``q`` with root ``r_q`` (so ``q | N_alg(a, b)`` iff ``a ≡ r_q·b (mod q)``),
+//! special prime ``q`` with root ``r_q`` (so ``q | F(a, b)`` iff ``a ≡ r_q·b (mod q)``, with
+//! ``F`` the algebraic value, ``N_alg`` in code),
 //! the sieve is restricted to the **lattice**
 //!
 //! ```text
@@ -44,11 +45,11 @@
 //!
 //!    - Check ``gcd(a, b) = 1``.
 //!    - Check ``b ≥ 1`` (b must be positive).
-//!    - Compute rational and algebraic norms.
-//!    - Trial-divide both norms.
+//!    - Compute the rational norm and the algebraic value ``F(a, b) = c·N_{K/ℚ}(a − b·α)``.
+//!    - Trial-divide both.
 //!    - If both are fully smooth, construct a ``Relation``.
 //!
-//! # Principle-4 annotation (science↔engineering disconnect)
+//! # Toy scale versus cryptographic scale
 //!
 //! The lattice sieve's yield advantage over the line sieve comes from covering ``L_q`` more
 //! efficiently: the reduced basis vectors are shorter than the original basis ``(v1, v2)``,
@@ -61,16 +62,16 @@
 //! ``(a, b)`` pairs as the special-q line sieve restricted to ``a ≡ r_q·b (mod q)`` — the
 //! two algorithms are mathematically equivalent for the same ``(q, r_q)``. The efficiency
 //! difference (reduced basis vs. stepping by ``q``) is a constant factor that is swamped by
-//! the overhead of the reduction and enumeration at small ``q``. This is annotated in the
-//! KATs per ROADMAP principle 4.
+//! the overhead of the reduction and enumeration at small ``q``. The KATs state the same
+//! caveat.
 //!
 //! # Relation to special-q sieve
 //!
 //! The lattice sieve is a variant of the special-q sieve with a different enumeration
 //! strategy. Both restrict to ``L_q``; the special-q sieve steps through ``a`` in increments
 //! of ``q`` for each ``b``, while the lattice sieve enumerates via the reduced basis. The
-//! ``Relation`` type, ``FactorBase``, and smoothness predicates are unchanged (Category-C
-//! rule: the baseline stays available for benchmarking).
+//! ``Relation`` type, ``FactorBase``, and smoothness predicates are unchanged (the baseline
+//! stays available for benchmarking).
 //!
 //! # Entry surface
 //!
@@ -108,7 +109,7 @@ use crate::polyselect::PolyPair;
 /// Same as ``SpecialQConfig``: the threshold is ``threshold_scale × log2(B_alg)``.
 /// A value of ``0.8`` (default) is conservative.
 ///
-/// # Principle-4 annotation
+/// # Toy scale versus cryptographic scale
 ///
 /// At toy scale, the threshold barely filters anything — the asymptotic win of the sieve
 /// is under-exposed. See the module-level documentation.
@@ -334,7 +335,7 @@ pub struct LatticeSieveResult {
 /// The output is deterministic for fixed ``(poly, fb, config)``: the sieve is a pure function
 /// of its inputs, with no randomness.
 ///
-/// # Principle-4 annotation
+/// # Toy scale versus cryptographic scale
 ///
 /// At toy scale, the lattice sieve produces the same ``(a, b)`` pairs as the special-q line
 /// sieve for the same ``(q, r_q)``. The efficiency advantage of the reduced basis (fewer

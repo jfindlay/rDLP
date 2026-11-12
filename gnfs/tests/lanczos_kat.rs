@@ -12,10 +12,10 @@
 //! - **KAT (b) — Determinism**: for a fixed matrix and seed, `block_lanczos` returns the
 //!   same kernel vectors across two calls.
 //!
-//! - **KAT (c) — CADO oracle** (ignored): for a small N, a Lanczos kernel vector expands
-//!   through provenance to a congruence of squares that yields the same nontrivial factor
-//!   CADO-NFS finds. Ignored because CADO-NFS is not installed; the test structure is
-//!   present for manual verification.
+//! - **KAT (c) — placeholder for a CADO-NFS cross-check** (ignored): on a hand-built matrix
+//!   with duplicate rows, every returned kernel vector satisfies the kernel condition and
+//!   provenance expansion of the first is nonempty. It does not extract a factor or invoke
+//!   CADO-NFS; it is reserved for a future external check.
 //!
 //! # Self-orthogonality path
 //!

@@ -7,8 +7,9 @@
 //!
 //! - **Algebraic factor base**: the set of degree-1 prime ideals ``(p, α − r)`` in ℤ[α], where
 //!   ``p ≤ B_alg`` and ``f(r) ≡ 0 (mod p)``. Each prime ``p`` contributes one entry per root of
-//!   ``f mod p``. An algebraic norm ``N_alg(a, b)`` is divisible by the ideal ``(p, α − r)`` iff
-//!   ``a ≡ r·b (mod p)``.
+//!   ``f mod p``. The ideal ``(p, α − r)`` divides ``(a − b·α)`` iff ``a ≡ r·b (mod p)``; the
+//!   algebraic value ``F(a, b) = c·N_{K/ℚ}(a − b·α)`` (``N_alg`` in code) is then divisible by
+//!   ``p`` (for ``p ∤ c``, the ideal's exponent is part of ``F``'s ``p``-adic valuation).
 //!
 //! # Column indexing (for filtering and linear algebra)
 //!
@@ -68,8 +69,9 @@ use shared_numth::factor_base_up_to;
 /// ideals from linear factors of ``f mod p``; higher-degree factors may contribute additional
 /// ideals not captured here (see ``is_bad_prime`` flag).
 ///
-/// The algebraic norm ``N_alg(a, b)`` is divisible by the ideal ``(p, α − r)`` iff
-/// ``a ≡ r·b (mod p)``. This is the sieve condition for the algebraic side.
+/// The ideal ``(p, α − r)`` divides ``(a − b·α)`` iff ``a ≡ r·b (mod p)``, in which case ``p``
+/// divides the algebraic value ``F(a, b) = c·N_{K/ℚ}(a − b·α)`` (``N_alg`` in code). This is the
+/// sieve condition for the algebraic side.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlgebraicPrime {
     /// The rational prime p.

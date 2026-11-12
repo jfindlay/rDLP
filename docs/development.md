@@ -163,13 +163,27 @@ is the primary correctness signal for the whole workspace. The tests fall into t
 - **Opt-in oracle tests**, which need an external tool that the default run does not assume: PARI/GP
   (`gp` on `PATH`) for algebraic cross-checks, and CADO-NFS for sieving and merge cross-checks. They
   are `#[ignore]`-gated and run with `cargo test -- --ignored` once the tool is installed (see the
-  oracle policy in `../AGENTS.md`). Examples: `gnfs/tests/sqrt_pari_oracle_kat.rs`,
-  `shared/numfield/tests/dedekind_pari_oracle_kat.rs`, the PARI cross-check in
-  `rho/tests/ghs_kat.rs`, and the CADO-NFS cross-check in `gnfs/tests/line_sieve_kat.rs`.
+  oracle policy in `../AGENTS.md`). The tests that actually start `gp` are
+  `gnfs/tests/sqrt_pari_oracle_kat.rs`, `shared/numfield/tests/dedekind_pari_oracle_kat.rs` and the
+  `kat_pari_*` tests in `gnfs/tests/factor_end_to_end_kat.rs`. No test starts CADO-NFS.
 
 A second class of `#[ignore]` test exists that is not an oracle: tests gated for cost, such as the
 full-circuit Shor simulations in `shor/tests/ecdlp_kat.rs`. They need no external tool and run with
 the same `--ignored` invocation.
+
+A third class is `#[ignore]`d tests whose names mention PARI or CADO-NFS but which do not invoke the
+tool, so they are not oracle coverage. Placeholders whose bodies end in `todo!()` or
+`unimplemented!()` fail if run: `kat_c_oracle_80_100_bit_challenge`
+(`gnfs/tests/factor_end_to_end_kat.rs`), `kat_c_cado_nfs_oracle` (`gnfs/tests/merge_kat.rs`),
+`kat_pari_individual_log_oracle` (`gnfs/tests/dl_individual_log_kat.rs`), `kat_pari_dl_oracle`
+(`gnfs/tests/dl_end_to_end_kat.rs`) and `pari_hyperellcharpoly_cross_check`
+(`rho/tests/ghs_kat.rs`). `kat_c_cado_nfs_oracle` in `gnfs/tests/line_sieve_kat.rs` compares the
+sieve's relation count with itself, so its assertion cannot fail, and `kat_c_cado_oracle_n35` in
+`gnfs/tests/lanczos_kat.rs` checks kernel vectors and provenance on a hand-built matrix without
+CADO-NFS. A few others run a real assertion against a value recorded from PARI/GP without calling
+it (`s4_pari_cross_check` in `rho/tests/semaev_kat.rs`, `kat_lift_pari_cross_check` and
+`kat_ssa_pari_cross_check` in `rho/tests/ssa_kat.rs`, `kat_log_pari_cross_check` in
+`shared/padic/tests/log_kat.rs`); they need no external tool and are ignored by convention.
 
 The 80% line-coverage floor enforced by `cargo coverage` is a secondary, complementary signal: it
 catches dead or unexercised code paths. It is not a correctness ceiling, and clearing it (the
@@ -215,7 +229,8 @@ A solver's return value is evidence. These rules keep it honest.
 Some tests need an external number-theory tool that is not part of this workspace's own dependency
 graph: PARI/GP for algebraic cross-checks, CADO-NFS for full sieving cross-checks. These are
 `#[ignore]`-gated by design, and their names say so (`kat_pari_*`, `kat_c_cado_*`, and similar
-prefixes). They are excluded from `cargo test --workspace` on purpose.
+prefixes). They are excluded from `cargo test --workspace` on purpose. A name with such a prefix
+does not by itself mean the test calls the tool; "KAT-first coverage" above lists the ones that do.
 
 To run them:
 
@@ -231,7 +246,7 @@ example, the Dedekind index criterion and degree-one prime report are cross-chec
 cargo test -p shared-numfield --test dedekind_pari_oracle_kat -- --ignored
 ```
 
-These tests fail, rather than skip, when `gp` is missing or reports an error.
+The tests that call `gp` fail, rather than skip, when `gp` is missing or reports an error.
 
 Never promote an oracle test onto the default test path, and never substitute a benchmark run for a
 test run — a benchmark measures wall-clock performance, not correctness.

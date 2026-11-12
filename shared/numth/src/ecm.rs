@@ -873,10 +873,12 @@ mod tests {
         assert!(is_prime(&d), "factor must be prime");
     }
 
-    /// Verify that stage 2 with a tight B1 and wider B2 finds factors.
+    /// Check that ``ecm_factor`` with a tight B1 and a wider B2 finds a proper prime divisor.
     ///
-    /// N = 101 * 103 = 10403.  With B1 = 10 (very tight), stage 1 alone rarely
-    /// succeeds.  With B2 = 200, stage 2 should find a factor.
+    /// N = 101 * 103 = 10403, B1 = 10, B2 = 200, at most 50 curves.  The body asserts only that
+    /// the returned divisor is proper, divides N and is prime; it does not run stage 1 alone, so
+    /// it does not show that stage 2 contributed.  The comparison of stage 1 alone with stages
+    /// 1 + 2 on one curve is `stage2_finds_factor_stage1_misses`.
     #[test]
     fn stage2_extends_reach() {
         // 101 and 103 are both prime.

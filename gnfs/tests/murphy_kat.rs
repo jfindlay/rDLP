@@ -69,8 +69,8 @@ fn kat1_ordering_better_scores_higher() {
 
 /// KAT 2: Scaling all coefficients of `f` by a large constant decreases the score.
 ///
-/// For the same `N` and `m`, multiplying `f` by `k` multiplies all algebraic norms
-/// by `k`, increasing `u_alg = log|F| / log B_f` and thus decreasing `ρ(u_alg)`.
+/// For the same `N` and `m`, multiplying `f` by `k` multiplies the algebraic value `F(a, b)`
+/// by `k` at every `(a, b)`, increasing `u_alg = log|F| / log B_f` and thus decreasing `ρ(u_alg)`.
 /// The rational norm is unaffected. Therefore `score` must decrease as `k` grows.
 #[test]
 fn kat2_monotonicity_scaling_decreases_score() {
@@ -221,7 +221,7 @@ fn kat5_score_is_deterministic() {
 ///
 /// Perturbation: `f_perturbed = f_base + N * x^0` (add N to the constant term).
 /// Then `f_perturbed(m) = f_base(m) + N = N + N = 2N ≡ 0 (mod N)`. ✓
-/// The constant term is now `N` times larger, inflating the algebraic norms.
+/// The constant term is now `N` times larger, inflating the algebraic values `F(a, b)`.
 #[test]
 fn kat6_perturbed_polynomial_scores_lower() {
     let n = bi(1009 * 1013); // = 1022117

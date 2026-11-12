@@ -20,7 +20,7 @@
 //! - `ρ` is the Dickman rho function (probability that a random integer near `x`
 //!   is `x^{1/u}`-smooth).
 //!
-//! # Science↔engineering disconnect (principle-4 annotation)
+//! # Toy scale versus cryptographic scale
 //!
 //! Murphy-E's *predictive* value — that higher E implies more relations — only
 //! manifests at sieve scale (N ≳ 2^100, sieve region ≳ 10^6 pairs). At toy

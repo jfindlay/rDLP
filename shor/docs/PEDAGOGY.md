@@ -533,7 +533,8 @@ for all 13 group elements; the resulting permutation is synthesised as a product
 via Gray-code paths of multi-controlled-X gates. This is a demonstration-fidelity circuit: it is
 correct, reversible, and ancilla-free, but it is not gate-count-optimised. A production
 implementation (e.g., Roetteler et al. 2017) would use an explicit reversible affine formula with
-a dedicated λ register and Brent–Kung adder trees. The λ register is allocated in `PointAddLayout`
+a dedicated λ register (Roetteler et al. build their adders on the Takahashi–Tani–Kunihiro
+addition circuit, as read in the arXiv version). The λ register is allocated in `PointAddLayout`
 for documentation and future-compatibility, but is not consumed at runtime by the permutation
 synthesis.
 

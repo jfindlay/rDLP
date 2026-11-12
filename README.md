@@ -36,9 +36,10 @@ and establishes the $L[1, 1/2]$ baseline for both integer factorisation and ECDL
 **Crate:** `gnfs` (shared with NFS-DL)  
 **What structure it exploits:** *smoothness in two rings simultaneously*. The General Number Field
 Sieve maps the factoring problem into a number field $K = \mathbb{Q}(\alpha)$ and collects pairs
-$(a, b)$ whose norms are $B$-smooth on both the rational and algebraic sides. Linear algebra over
-$\mathbb{F}_2$ then produces candidate dependencies among those pairs; a congruence of squares mod
-$N$ exists only once both square roots of a dependency's product are reconstructed and verified. The
+$(a, b)$ whose rational norm and algebraic value ($c\,N_{K/\mathbb{Q}}(a - b\alpha)$ for leading
+coefficient $c$) are both $B$-smooth. Linear algebra over $\mathbb{F}_2$ then produces candidate
+dependencies among those pairs; a congruence of squares mod $N$ exists only once both square roots
+of a dependency's product are reconstructed and verified. The
 smoothness density in the number field — controlled by the choice of polynomial $f$ — is the
 structural lever that drives the complexity from $L[1/2]$ (quadratic sieve) down to
 $L[1/3, (64/9)^{1/3}]$.

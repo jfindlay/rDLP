@@ -46,7 +46,8 @@ pub enum FailureClass {
     IncidentalFactor,
     /// A resource limit was reached; this is never evidence about squareness.
     ResourceExhausted,
-    /// The congruence of squares produced only a trivial gcd.
+    /// The congruence of squares has `x ≡ ±y (mod N)` and so reveals no factor; an incidental
+    /// divisor in that case is deliberately not reported.
     TrivialCongruence,
 }
 

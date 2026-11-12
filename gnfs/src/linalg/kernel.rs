@@ -94,7 +94,7 @@ impl KernelVector {
     ///
     /// Returns the symmetric difference (XOR union) of `matrix.rows[i].provenance` for
     /// each `i` in `row_indices`. This is the set of original relations whose product
-    /// yields a congruence of squares.
+    /// is a candidate for a congruence of squares (a verified square root is still required).
     ///
     /// The result is sorted and deduplicated.
     #[must_use]

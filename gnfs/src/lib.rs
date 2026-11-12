@@ -9,8 +9,9 @@
 //!
 //! - [`polyselect`] — polynomial selection: base-m expansion, Murphy-E scoring, root sieve,
 //!   Coppersmith multi-poly. Entry point: [`polyselect::select_base_m`].
-//! - [`sieve`] — sieving substrate: two-sided factor bases, rational/algebraic norms, the
-//!   norm bridge to `Uint<4>`, and the `Relation` type (C-Relation contract).
+//! - [`sieve`] — sieving substrate: two-sided factor bases, the rational norm and the algebraic
+//!   value `F(a, b) = c·N(a − b·α)`, the bridge to `Uint<4>`, and the `Relation` type (whose
+//!   integer exponents serve both the GF(2) factoring path and the NFS-DL relation code).
 //! - [`filter`] — filtering substrate: sparse GF(2) matrix construction, relation-provenance
 //!   map, and singleton removal. Entry points: [`filter::build_matrix`],
 //!   [`filter::remove_singletons`].

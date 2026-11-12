@@ -232,7 +232,8 @@ Vanstone, Frey–Rück) is the canonical instance; it is the cross-track bridge 
 $K = \mathbb{Q}(\alpha)$, where the norm map $N_{K/\mathbb{Q}}$ connects factorisation in $K$ to
 factorisation in $\mathbb{Z}$. The GNFS exploits this by sieving for *smooth norms* — elements of
 $\mathbb{Z}[\alpha]$ whose norms factor completely over a small factor base — and then using linear
-algebra to find a congruence of squares $x^2 \equiv y^2 \pmod{N}$. The subexponential complexity
+algebra to find dependencies whose verified square roots give a congruence of squares
+$x^2 \equiv y^2 \pmod{N}$. The subexponential complexity
 $L_N[1/3, (64/9)^{1/3}]$ arises from choosing the polynomial degree, the smoothness bound and
 the sieve region together, balancing the sieving cost against the linear-algebra cost (§7).
 
@@ -271,7 +272,7 @@ version of this table is in `docs/PEDAGOGY.md` §0.2.
 | Family | Algorithm | Problem | $L$-notation complexity | Structure exploited |
 |--------|-----------|---------|------------------------|---------------------|
 | ρ | Pollard rho | ECDLP (generic curve) | $L_n[1,\, 1/2] = \Theta(\sqrt{n})$ | None — generic $\sqrt{n}$ walk; the baseline |
-| α | ECM (Lenstra) | Integer factoring (sub-step) | $L_p[1/2,\, 1]$ (largest prime factor $p$) | Group-order smoothness |
+| α | ECM (Lenstra) | Integer factoring (sub-step) | $L_p[1/2,\, \sqrt{2}]$ ($p$ the smallest prime factor) | Group-order smoothness |
 | G | GNFS | Integer factoring | $L_N[1/3,\, (64/9)^{1/3}]$ | Number-field bridge + smoothness (§7) |
 | D | NFS-DL | DLP in $\mathbb{F}_p^*$ | $L_p[1/3,\, (64/9)^{1/3}]$ | Same number-field bridge; descent subdominant (§9.7) |
 | E | Pohlig–Hellman | ECDLP (composite order) | $L_{p_{\max}}[1,\, 1/2]$ (largest prime factor) | CRT group-order homomorphism (§10.1) |
@@ -279,8 +280,8 @@ version of this table is in `docs/PEDAGOGY.md` §0.2.
 | E | GHS/Weil descent | ECDLP ($E/\mathbb{F}_{2^m}$) | Conditional: $L_{p^{m/l}}[1/2,\, c]$ (downstream) | Binary field tower; transfer to Jacobian (§10.3) |
 | E | Index calculus | ECDLP ($E/\mathbb{F}_{p^n}$, $n > 1$) | $L_{p^n}[1/2,\, c]$ (subexponential) | Factor-base decomposability (§10.4) |
 | E | MOV/Frey–Rück | ECDLP (small embedding degree) | $L_{p^k}[1/3,\, (64/9)^{1/3}]$ (via NFS-DL) | Pairing → $\mathbb{F}_{p^k}^*$ DLP (§10.5) |
-| S | Shor (factoring) | Integer factoring | $O((\log N)^3) = L_N[0,\, 3]$ | Quantum period-finding (§11.3) |
-| S | Shor (ECDLP) | ECDLP | $O((\log r)^3) = L_r[0,\, 3]$ | Quantum period-finding, 2-register HSP (§11.4) |
+| S | Shor (factoring) | Integer factoring | $O((\log N)^3) = L_N[0,\, 3]$ (asymptotic logical gate count) | Quantum period-finding (§11.3) |
+| S | Shor (ECDLP) | ECDLP | $O((\log r)^3) = L_r[0,\, 3]$ (asymptotic logical gate count, whole algorithm; resource estimates with their scopes are in §11.7.1) | Quantum period-finding, 2-register HSP (§11.4) |
 
 **Reading the table.** The $\alpha$ exponent in $L[\alpha, c]$ is the key invariant. Pollard rho
 sits at $\alpha = 1$ (fully exponential — the generic bound). GNFS and NFS-DL sit at
@@ -476,9 +477,9 @@ a factor $(1 + o(1))$ outside the $L$, which would claim more precision than the
 
 **Why this matters.** The $L$-notation is the natural language for stating the complexity of
 subexponential algorithms. The GNFS achieves $L_N[1/3, (64/9)^{1/3}]$; the Pohlig–Hellman
-reduction achieves $L_p[1/2, 1]$ for the largest prime factor $p$ of the group order; Shor's
-algorithm achieves $O((\log N)^3)$. The exponent $\alpha$ is the key invariant: it determines
-whether the algorithm is polynomial, subexponential, or exponential in the input size.
+reduction costs $L_{p}[1, 1/2] = \sqrt{p}$ for the largest prime factor $p$ of the group order;
+Shor's algorithm uses $O((\log N)^3)$ logical gates. The exponent $\alpha$ is the key invariant: it
+determines whether the algorithm is polynomial, subexponential, or exponential in the input size.
 
 #### The prime number theorem
 
@@ -836,9 +837,9 @@ but the payoff is unreachable here. The annotation says: the mathematics is corr
 engineering scale to exhibit the payoff is out of scope.
 
 **Over-exposed at toy scale.** Some phenomena are more prominent at toy scale than at real scale.
-Bad primes (primes dividing $\mathrm{disc}(f)$) are marginal at cryptographic scale but unavoidable
-at toy scale with a hand-picked polynomial. The annotation says: this prominence is a toy-scale
-artifact; at real scale it washes out.
+Bad primes (primes dividing $c \cdot \mathrm{disc}(f)$, $c$ the leading coefficient) are marginal
+at cryptographic scale but unavoidable at toy scale with a hand-picked polynomial. The annotation
+says: this prominence is a toy-scale artifact; at real scale it washes out.
 
 The disconnect itself is pedagogical content. Part of honestly surveying how these algorithms
 behave at the scales they were designed for is acknowledging what toy scale can and cannot exhibit.
@@ -1507,9 +1508,10 @@ dependency gives a congruence of squares $x^2 \equiv y^2 \pmod{N}$, from which a
 follows by a GCD computation unless the congruence is trivial.
 
 The generic approach to finding a congruence of squares — collecting random squares and hoping
-for a dependency — costs $L_N[1/2, 1]$. The number-field bridge reduces this to $L_N[1/3,
-(64/9)^{1/3}]$. The improvement from exponent $1/2$ to exponent $1/3$ is the payoff of the
-structure, and the derivation of this improvement is the payoff proof of this chapter (§7).
+for a dependency — costs $L_N[1/2, \sqrt{2}]$ (§2; the quadratic sieve lowers the constant to
+$1$). The number-field bridge reduces this to $L_N[1/3, (64/9)^{1/3}]$. The improvement from
+exponent $1/2$ to exponent $1/3$ is the payoff of the structure, and the derivation of this
+improvement is the payoff proof of this chapter (§7).
 
 **Main theorem (GNFS complexity, heuristic).** *Under standard heuristic assumptions on the
 distribution of smooth norms (stated in §7), the GNFS factors a composite integer $N$ in expected
@@ -1557,17 +1559,20 @@ distributed like those of a random integer, and the probability that all prime f
 B$ is $\rho(\log N / \log B)$ — exponentially small for any fixed $B$. To collect enough smooth
 values to find a dependency, one must either take $B$ very large (making the linear algebra
 expensive) or accept a very low smoothness probability (making the sieve expensive). The optimal
-balance gives $L_N[1/2, 1]$:
+balance gives $L_N[1/2, \sqrt{2}]$ when each candidate costs $L_N[1/2, o(1)]$ to test:
 
 **Theorem (Dixon's random squares, 1981).** *The random-squares method finds a congruence of
-squares in expected time $L_N[1/2, 1]$.*
+squares in expected time $L_N[1/2, \sqrt{2} + o(1)]$, counting the smoothness test of one candidate
+as $L_N[1/2, o(1)]$ (for example by ECM).*
 
 *Proof sketch.* Set $B = L_N[1/2, c]$. The smoothness probability for a random integer near $N$
-is $\rho(\log N / \log B) \approx L_N[-1/2, -1/(2c)]$. To collect $B$ smooth values (enough for
-a linear dependency), one needs $B \cdot L_N[1/2, 1/(2c)]$ trials. The total cost is
-$B \cdot L_N[1/2, 1/(2c)] = L_N[1/2, c + 1/(2c)]$. Minimising over $c$ gives $c = 1/\sqrt{2}$
-and total cost $L_N[1/2, \sqrt{2}]$. The linear algebra costs $O(B^2) = L_N[1, 2c]$, which is
-dominated. $\square$
+is $\rho(\log N / \log B) = 1/L_N[1/2, 1/(2c) + o(1)]$. To collect $B$ smooth values (enough for
+a linear dependency), one needs $B \cdot L_N[1/2, 1/(2c)] = L_N[1/2, c + 1/(2c)]$ trials.
+Minimising over $c$ gives $c = 1/\sqrt{2}$ and $L_N[1/2, \sqrt{2}]$ trials. The linear algebra
+costs $O(B^2) = L_N[1/2, 2c] = L_N[1/2, \sqrt{2}]$ at this $c$, the same order as the trials, so
+the total is $L_N[1/2, \sqrt{2}]$. Testing each candidate by trial division instead multiplies the
+trial cost by $B$, giving $L_N[1/2, 2c + 1/(2c)]$, least at $c = 1/2$ with value $L_N[1/2, 2]$.
+$\square$
 
 The $L_N[1/2, \cdot]$ exponent is the signature of the *quadratic sieve* family of algorithms.
 GNFS escapes to $L_N[1/3, \cdot]$ by replacing random integers near $N$ with *norms of algebraic
@@ -1785,7 +1790,7 @@ relations, two different ideals $\mathfrak{p}_{p,r}$ and $\mathfrak{p}_{p,r'}$ o
 can each have an odd exponent while the exponent of $p$ in the norm of the product, the sum of the
 two, is even. A matrix with one column per ideal constrains each exponent separately, and a matrix
 built from norms would not. Away from the primes dividing $c = \mathrm{lc}(f)$ and the index
-$[\mathcal{O}_K : \mathbb{Z}[\alpha]]$ (the implementation tests the conservative condition
+$[\mathcal{O}_K : \mathbb{Z}[c\alpha]]$ (the implementation tests the conservative condition
 $p \nmid c \cdot \mathrm{disc}(F)$, with $F$ as in §6), the exponent of $\mathfrak{p}_{p,r}$ is
 the valuation of $a - b\alpha$ at the prime ideal of $\mathcal{O}_K$ with the same name. At the
 primes that do divide $c \cdot \mathrm{disc}(F)$ the checked matrix keeps the columns of the
@@ -1911,8 +1916,9 @@ set does so without computing $V_T$ itself. Characters are therefore *necessary*
 square, not certificates of one, and exact verification of the root decides.
 
 **The norm character is redundant.** One may be tempted to use the Legendre symbol of the
-homogeneous norm form $F(a, b)$ instead. For a completely split $q \nmid c \cdot \mathrm{disc}(f)$,
-$f \equiv c\prod_s (x - s) \pmod q$ over the $d$ roots $s$, so for $q \nmid F(a, b)$
+algebraic value $F(a, b)$ (the homogeneous form, $c$ times the norm) instead. For a completely
+split $q \nmid c \cdot \mathrm{disc}(f)$, $f \equiv c\prod_s (x - s) \pmod q$ over the $d$ roots
+$s$, so for $q \nmid F(a, b)$
 
 $$\left(\frac{F(a,b)}{q}\right) = \left(\frac{c}{q}\right)
 \prod_{s} \left(\frac{a - bs}{q}\right),$$
@@ -2088,8 +2094,9 @@ not random integers. The derivation therefore rests on three unproved hypotheses
   $B$-smooth with the probability that a random integer of the same size is.
 - **(H2) Independence.** The smoothness of $G(a, b)$ and of $F(a, b)$ are independent events.
 - **(H3) Dependencies.** Once there are $B^{1+o(1)}$ relations, the dependencies found by linear
-  algebra yield a nontrivial congruence of squares (§6) with probability bounded away from $0$;
-  the quadratic-character columns handle the unit and class-group obstructions.
+  algebra have exact square roots that yield a nontrivial congruence of squares (§6) with
+  probability bounded away from $0$; the quadratic-character columns handle the unit and
+  class-group obstructions.
 
 The result below is a heuristic expected running time under (H1)–(H3). It is not a theorem, and
 nothing in this section proves it.
@@ -4005,7 +4012,9 @@ for the five attacks. The chapter-pairing is:
 43. **Proos, J., and Zalka, C. (2003).** "Shor's discrete logarithm quantum algorithm for
     elliptic curves." *Quantum Information and Computation*, 3(4), 317–344. [PZ03] The
     two-register hidden-subgroup construction for ECDLP; the qubit-budget analysis for
-    elliptic-curve period finding. Source for §11.4.
+    elliptic-curve period finding. Source for §11.4. Read as arXiv:quant-ph/0301141v2 (22 January
+    2004), whose record describes it as essentially the published version; section numbers cited
+    in this chapter are that version's.
 
 44. **Nielsen, M. A., and Chuang, I. L. (2000).** *Quantum Computation and Quantum Information*.
     Cambridge University Press. [NC00] §5.3 (order-finding and factoring), §5.4 (discrete
@@ -5466,48 +5475,48 @@ through-line into speculative territory.
 
 ### §12.8 Further Reading
 
-52. **Wiles, A. (1995).** "Modular elliptic curves and Fermat's Last Theorem." *Annals of
+56. **Wiles, A. (1995).** "Modular elliptic curves and Fermat's Last Theorem." *Annals of
     Mathematics*, 141(3), 443–551. [W95] The proof of the semistable case of the TSW conjecture;
     the central step in the proof of Fermat's Last Theorem.
 
-53. **Taylor, R., and Wiles, A. (1995).** "Ring-theoretic properties of certain Hecke algebras."
+57. **Taylor, R., and Wiles, A. (1995).** "Ring-theoretic properties of certain Hecke algebras."
     *Annals of Mathematics*, 141(3), 553–572. [TW95] The companion paper completing the $R = T$
     argument.
 
-54. **Breuil, C., Conrad, B., Diamond, F., and Taylor, R. (2001).** "On the modularity of
+58. **Breuil, C., Conrad, B., Diamond, F., and Taylor, R. (2001).** "On the modularity of
     elliptic curves over $\mathbb{Q}$: wild 3-adic exercises." *Journal of the American
     Mathematical Society*, 14(4), 843–939. [BCDT01] The completion of the TSW theorem for all
     elliptic curves over $\mathbb{Q}$.
 
-55. **Diamond, F., and Shurman, J. (2005).** *A First Course in Modular Forms*. Springer
+59. **Diamond, F., and Shurman, J. (2005).** *A First Course in Modular Forms*. Springer
     Graduate Texts in Mathematics, vol. 228. [DS05] The standard graduate-level introduction to
     modular forms and the TSW theorem; accessible to a reader with a solid undergraduate algebra
     background.
 
-56. **Silverman, J. H. (2009).** *The Arithmetic of Elliptic Curves*, 2nd ed. Springer Graduate
+60. **Silverman, J. H. (2009).** *The Arithmetic of Elliptic Curves*, 2nd ed. Springer Graduate
     Texts in Mathematics, vol. 106. [S09] The standard reference for elliptic curves; Chapter V
     covers the Hasse bound and the Weil conjectures.
 
-57. **Schoof, R. (1985).** "Elliptic curves over finite fields and the computation of square
+61. **Schoof, R. (1985).** "Elliptic curves over finite fields and the computation of square
     roots mod $p$." *Mathematics of Computation*, 44(170), 483–494. [S85] The original
     polynomial-time point-counting algorithm.
 
-58. **Elkies, N. D. (1992).** "Explicit isogenies." Unpublished manuscript. [E92] The Elkies
+62. **Elkies, N. D. (1992).** "Explicit isogenies." Unpublished manuscript. [E92] The Elkies
     improvement to Schoof's algorithm (the SEA algorithm).
 
-59. **Deligne, P. (1974).** "La conjecture de Weil. I." *Publications Mathématiques de
+63. **Deligne, P. (1974).** "La conjecture de Weil. I." *Publications Mathématiques de
     l'IHÉS*, 43, 273–307. [D74] The proof of the Weil conjectures (including the Ramanujan
     conjecture for weight-2 newforms as a special case).
 
-60. **Birch, B. J., and Swinnerton-Dyer, H. P. F. (1965).** "Notes on elliptic curves. II."
+64. **Birch, B. J., and Swinnerton-Dyer, H. P. F. (1965).** "Notes on elliptic curves. II."
     *Journal für die reine und angewandte Mathematik*, 218, 79–108. [BSD65] The original
     formulation of the BSD conjecture.
 
-61. **Castryck, W., and Decru, T. (2023).** "An efficient key recovery attack on SIDH."
+65. **Castryck, W., and Decru, T. (2023).** "An efficient key recovery attack on SIDH."
     *Advances in Cryptology — EUROCRYPT 2023*, LNCS 14008, 423–447. [CD23] The classical
     polynomial-time break of SIDH/SIKE; the precedent for a modularity-based attack on
     isogeny-based cryptography. (Also cited as ref. 48 in §11.9.)
 
-62. **Weil, A. (1967).** "Über die Bestimmung Dirichletscher Reihen durch Funktionalgleichungen."
+66. **Weil, A. (1967).** "Über die Bestimmung Dirichletscher Reihen durch Funktionalgleichungen."
     *Mathematische Annalen*, 168, 149–156. [W67] Weil's formulation of the conjecture that every
     elliptic curve over $\mathbb{Q}$ has an associated modular form with the same L-function.

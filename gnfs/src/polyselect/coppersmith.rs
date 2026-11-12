@@ -23,7 +23,7 @@
 //! so `PolyPair::verify()` holds for every variant. The rotation parameters `(j_i, k_i)`
 //! are chosen systematically — see [`coppersmith_polys`] for the spiral pattern used here.
 //!
-//! # **Science↔engineering disconnect (ROADMAP principle 4)**
+//! # **Toy scale versus cryptographic scale**
 //!
 //! In production NFS (e.g., RSA-768), using different polynomials for different sieve
 //! regions measurably improves the relation yield. At toy scale (60–100 bit N), the sieve
@@ -34,7 +34,7 @@
 //!
 //! Concretely: at toy scale the Murphy-E score improvement from multi-poly is typically
 //! small (< 2×), and the absolute score values are not meaningful (see the `murphy` module
-//! for the full principle-4 annotation). Downstream consumers should treat the score as an
+//! for the full toy-scale caveat). Downstream consumers should treat the score as an
 //! ordinal ranking, not a cardinal measure.
 //!
 //! # References

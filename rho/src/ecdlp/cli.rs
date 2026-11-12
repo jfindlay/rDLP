@@ -93,7 +93,8 @@ struct Args {
     /// Enable the negation map (BKNS) optimisation.
     ///
     /// When true, `solve_dp_negmap` is used instead of `solve_dp`.  Requires
-    /// `--walkers > 0`.  Expected to reduce wall time by ~√2 vs plain DP.
+    /// `--walkers > 0`.  Expected (heuristic, not measured) to reduce the step count by ~√2
+    /// vs plain DP; `docs/BENCHMARKS.md` records an open step-count anomaly.
     #[arg(long, default_value_t = false)]
     negmap: bool,
 

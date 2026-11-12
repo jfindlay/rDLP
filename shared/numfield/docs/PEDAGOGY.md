@@ -19,10 +19,11 @@ primes and the Dedekind criterion.
 The General Number Field Sieve factors a large integer N by exploiting a homomorphism between two
 rings: the rational integers ℤ and the ring of integers of a number field K = ℚ(α). The key idea
 is to find many pairs (a, b) ∈ ℤ² such that both a + bm (the rational norm, for a suitable integer
-m) and Norm_{K/ℚ}(a + bα) (the algebraic norm) are B-smooth — divisible only by primes up to a
-bound B. When enough such pairs are collected, linear algebra over 𝔽₂ finds candidate dependencies;
-a verified square root of one gives a congruence of squares mod N, whose gcd with N is a
-non-trivial factor unless the congruence is trivial.
+m) and the algebraic value, Norm_{K/ℚ}(a + bα) for monic f and c times that norm for leading
+coefficient c (see below), are B-smooth — divisible only by primes up to a bound B. When enough
+such pairs are collected, linear algebra over 𝔽₂ finds candidate dependencies; a verified square
+root of one gives a congruence of squares mod N, whose gcd with N is a non-trivial factor unless
+the congruence is trivial.
 
 The algebraic side of the sieve requires computing Norm_{K/ℚ}(a + bα) for each sieve pair (a, b).
 For monic f this norm is an integer. For a leading coefficient c ≠ 1 the integer is instead
@@ -205,7 +206,7 @@ division.
 
 The consequence of eager reduction is that **equality is coefficient-wise**: two elements are equal
 if and only if their `poly` fields are equal. No re-reduction is needed before comparison. This is
-the Mul canonicalisation contract (C-NF): it is what makes `PartialEq` for `NumberFieldElement`
+the canonical-form invariant of `Mul`: it is what makes `PartialEq` for `NumberFieldElement`
 correct and cheap.
 
 ```rust
@@ -293,7 +294,7 @@ The factor (−1)^d arises from the Sylvester matrix construction: the resultant
 g = x − c (degree 1) equals (−1)^{d·1} times the product of (αᵢ − c) over all roots αᵢ of f,
 which is (−1)^d · f(c) for monic f.
 
-This sign tripped up the G.A.1a KAT specification: the initial spec stated Norm(α − 1) = −1 for
+The sign is easy to get wrong: a first draft of the norm KAT stated Norm(α − 1) = −1 for
 f = x³ − x − 1, but the correct value is:
 
 > N(α − 1) = (−1)³ · f(1) = −1 · (1 − 1 − 1) = −1 · (−1) = 1
@@ -554,8 +555,10 @@ distinct-root count and the evaluations spent, rather than a report whose multip
 
 Two distinct conditions on a prime p are easy to conflate:
 
-- p is **bad** for f if p | disc(f). This is what `is_bad_prime` tests. The discriminant of a
-  monic polynomial f of degree d is:
+- p is **bad** for f if p | disc(f). This is what `is_bad_prime` tests for monic f; for a non-monic
+  f the `discriminant` function returns lc(f)·disc(f), so `is_bad_prime` also flags a prime that
+  divides only the leading coefficient (this is how the GNFS factor base uses it). The index
+  statements below concern monic f. The discriminant of a monic polynomial f of degree d is:
 
   > disc(f) = (−1)^{d(d−1)/2} · Res(f, f')
 
@@ -673,43 +676,45 @@ describe them. Such primes must be handled by Round 2 or reported as unresolved.
 
 ### How the contracts are consumed downstream
 
-The contracts frozen in G.A are consumed by multiple downstream sub-tracks:
+The interfaces of this crate are consumed by several downstream components:
 
-| Contract | Frozen at | Consumed by |
-|----------|-----------|-------------|
-| C-NF | G.A.1a | G.A.1b, G.A.2, G.A.3, G.B, G.C, D.A, E.D |
-| C-Ideal | G.A.1b | G.A.3, G.C, D.A |
-| C-Res | G.A.2 | G.A.1a (norm), G.B, D.A |
-| C-Dedekind | G.A.3 | none yet |
+| Interface | Consumed by |
+|-----------|-------------|
+| `NumberField` / `NumberFieldElement` arithmetic | ideals, resultants, Dedekind factorisation, polynomial selection, sieving, NFS-DL, the p-adic substrate |
+| prime ideals `(p, α − r)` | Dedekind factorisation, sieving, NFS-DL |
+| resultants | the norm, polynomial selection, NFS-DL |
+| Dedekind factorisation | no solver yet |
 
-**G.B (polynomial selection)** uses `IntPoly` and the resultant to compute discriminants and
+**Polynomial selection** uses `IntPoly` and the resultant to compute discriminants and
 polynomial scores. The defining polynomial f is selected to have small coefficients and a large
 number of roots mod small primes — both properties that depend on the resultant and discriminant
 machinery.
 
-**G.C (sieving)** is the primary consumer of the algebraic substrate. For each sieve pair (a, b),
-it evaluates `NumberFieldElement::norm()` to obtain the algebraic norm, then factors it over the
-algebraic factor base. The factor base does not call `dedekind_factor`: it finds the roots of f
-mod p by its own search and takes only the `is_bad_prime` test from this crate. The degree-one
-report of §8 is therefore not an input to the factor base today.
+**Sieving** uses this crate less than one might expect. For each sieve pair (a, b) it evaluates
+the homogeneous form F(a, b) = b^d·f(a/b) = c·Norm(a − bα) directly from the coefficients of the
+original f (`gnfs/src/sieve/norms.rs`), not `NumberFieldElement::norm()`, and factors that value
+over the algebraic factor base. The factor base does not call `dedekind_factor`: it finds the
+roots of f mod p by its own search and takes only the `is_bad_prime` test from this crate. The
+degree-one report of §8 is therefore not an input to the factor base today.
 
-**D.A (NFS-DL)** uses the same algebraic substrate as G.C, adapted for the discrete logarithm
-setting. The norm and ideal machinery are identical; the difference is in the linear algebra step.
+**NFS-DL** builds the field elements a − bα with `NumberField` (`gnfs/src/dl/relation.rs`), which
+sieving does not, and otherwise shares the factor-base and ideal machinery with sieving; the main
+difference is in the linear algebra step.
 
-**E.B (pairings)** does **not** use `NumberField` or `NumberFieldElement` for extension-field
+**Pairings** do **not** use `NumberField` or `NumberFieldElement` for extension-field
 arithmetic.  Pairing target fields are `F_{p^k}` — finite fields of **characteristic p**, not
 char-0 `ℚ[x]/(f)` number fields in the sense of this crate.  The degree-2 extension `F_{47^2}`
 used by the toy Weil/Tate fixture (and the degree-12 / degree-6 extensions of BN/BLS12 curves at
 crypto scale) are `F_{p^k}`, not `ℚ`-extensions.  The char-0 `NumberFieldElement` arithmetic is
 **not** directly reusable: the coefficient field differs (`F_p` vs `ℚ`).  The real char-p
 substrate is `rho/src/pairing/fpext.rs` (`FpExt<F>`, a polynomial quotient `F_p[u]/(m(u))`
-built over the `shared::field` `Fp<4>` prime field).  (Note: E.D is p-adic arithmetic, not
+built over the `shared::field` `Fp<4>` prime field).  (The p-adic substrate is separate from
 pairings.)
 
-### The C1 resolution: `Uint<4>` sufficiency
+### `Uint<4>` sufficiency
 
-A key question deferred from Phase α was whether the `shared::numth` crate's `Uint<4>` (256-bit
-integers) is sufficient for GNFS norms. The G.A.1a session resolved this:
+Is the `shared::numth` crate's `Uint<4>` (256-bit integers) sufficient for GNFS algebraic values at
+toy scale? It is:
 
 For a toy 60–80 bit semiprime N with factor base bound B ≤ 10⁴:
 - Polynomial degree d = 3–5, coefficients C ~ N^{1/d} ~ 2^{20–27}.
@@ -717,9 +722,9 @@ For a toy 60–80 bit semiprime N with factor base bound B ≤ 10⁴:
 - Norm bound: |Norm| ≤ (d+1)^{(d+1)/2} · (M · C)^d ≈ 2^{120–150}.
 
 **256 bits suffices.** The `shared::numth` crate remains at `Uint<4>` with no widening needed.
-If a future sub-track targets larger N (e.g., 128-bit semiprimes), the norm bound would exceed 256
-bits and `Uint<4>` would need to be widened — but the `Fp` trait was designed at α.2 to support
-this widening without breaking downstream consumers.
+For larger N (e.g., 128-bit semiprimes) the bound would exceed 256 bits and `Uint<4>` would need
+to be widened — the `Fp` trait is designed to support this widening without breaking downstream
+consumers.
 
 ---
 
@@ -744,7 +749,7 @@ each one verifies. All tests are in `shared/numfield/tests/`.
 | `crt_consistency_kat` | `ideal_kat.rs` | CRT: r ≡ 2 (mod 5), r ≡ 3 (mod 7) gives r = 17 in [0,35) |
 | `kat_resultant_1_shared_root` | `resultant_kat.rs` | Res(x²−1, x−1) = 0; shared root implies zero resultant |
 | `kat_resultant_2_coprime_quadratics` | `resultant_kat.rs` | Res(x²−2, x²−3) = 1; coprime polynomials have non-zero resultant |
-| `kat_resultant_3_norm_consistency` | `resultant_kat.rs` | Res(x²−2, x+1) = −1; cross-check with G.A.1a norm |
+| `kat_resultant_3_norm_consistency` | `resultant_kat.rs` | Res(x²−2, x+1) = −1; cross-check with the field norm |
 | `kat_gcd_1_shared_factor` | `resultant_kat.rs` | gcd(x²−1, x−1) ∝ x−1; subresultant PRS finds shared factor |
 | `kat_gcd_2_coprime_polynomials` | `resultant_kat.rs` | gcd(x²−2, x²−3) is constant; coprime polynomials have trivial GCD |
 | `kat1_inert_prime_has_no_degree_one_primes` | `dedekind_kat.rs` | x²−2 at 3: no roots, so no degree-one primes and nonlinear degree 2; no ideal such as (3, α), which is the unit ideal, is listed |

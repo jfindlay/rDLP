@@ -39,7 +39,7 @@ care how f was found — only that f(m) ≡ 0 (mod N) and that F(a, b) is small 
 
 ---
 
-## 2. The `PolyPair` Contract (C-PolyPair)
+## 2. The `PolyPair` Interface
 
 The central type in this module is `PolyPair`, defined in `gnfs/src/polyselect/mod.rs`. It carries
 the polynomial pair and all metadata that downstream stages need:
@@ -57,10 +57,10 @@ pub struct PolyPair {
     /// Polynomial degree (redundant with f.degree() but convenient for pattern matching).
     pub degree: usize,
     /// Skew parameter s: balances algebraic and rational norm sizes.
-    /// None until Murphy-E scoring (G.B.2) computes it.
+    /// None at construction; `score` reads it when set (default 1.0). No stage sets it today.
     pub skew: Option<f64>,
     /// Factor-base bounds (rational_bound, algebraic_bound).
-    /// None until sieving (G.C) sets them.
+    /// None at construction; no stage sets it today.
     pub factor_base_bounds: Option<(u64, u64)>,
 }
 ```
@@ -77,9 +77,10 @@ let pair = select_base_m(&n, 3);
 assert_eq!(pair.verify(), Ok(()));
 ```
 
-The `skew` and `factor_base_bounds` fields are `None` at construction and populated by later
-pipeline stages. This is the substrate-over-specifies pattern: adding them now is cheaper than
-amending the contract after G.C consumes it.
+The `skew` and `factor_base_bounds` fields are `None` at construction. `score` reads `skew` when it
+is set, but no stage in the library sets either field today: they are slots reserved for a
+skew-optimising scorer and a factor-base sizing step. This is the over-specification pattern:
+adding them now is cheaper than amending the interface after the sieve consumes it.
 
 ### The non-monic seam
 
@@ -101,7 +102,7 @@ roots of f. The coefficient of x^k in f_monic is a_k · a_d^{d−1−k}, which i
 
 The design decision is to store the original non-monic f and expose the monic form on demand:
 
-- **Sieving uses the original f.** Evaluation of the algebraic value F(a, b) in G.C uses the
+- **Sieving uses the original f.** Evaluation of the algebraic value F(a, b) in the sieve uses the
   original polynomial coefficients; the monic transformation would change the values.
 - **The transformation is internal to `number_field()`.** Consumers that need `NumberField`
   element arithmetic call `poly_pair.number_field()`; consumers that need the original f
@@ -307,7 +308,7 @@ The optimal skew s balances the sizes of the algebraic value F and the rational 
 function applies the skew by sampling (a, b·s) instead of (a, b), which rescales F relative to G.
 The skew stored in `pair.skew` is used if present; otherwise it defaults to 1.0.
 
-### Science↔engineering disconnect at toy scale (principle-4 annotation)
+### Toy scale versus cryptographic scale
 
 **Murphy-E's predictive value — that higher E implies more relations — only manifests at sieve
 scale (N ≳ 2^100, sieve region ≳ 10^6 pairs).** At toy scale (N < 2^60), the sieve region is
@@ -328,7 +329,7 @@ assert!(score_1x > score_10x);
 assert!(score(&pair) > 0.0);
 ```
 
-Downstream consumers (root sieve, Coppersmith, D.A NFS-DL poly selection) should treat the score
+Downstream consumers (root sieve, Coppersmith, NFS-DL polynomial selection) should treat the score
 as an ordinal ranking, not a cardinal measure.
 
 ---
@@ -504,7 +505,7 @@ pub fn coppersmith_best(seed: &PolyPair, config: &CoppersmithConfig) -> PolyPair
 }
 ```
 
-### Demonstration-fidelity role (principle-4 annotation)
+### Demonstration-fidelity role (toy-scale caveat)
 
 **In production NFS (e.g., RSA-768), using different polynomials for different sieve regions
 measurably improves the relation yield.** The idea is that different parts of the sieve region
@@ -519,7 +520,7 @@ complete, but the engineering payoff requires cryptographic-scale N to observe.
 The KAT documents this explicitly:
 
 ```rust
-// KAT 5: principle-4 annotation — improvement is < 2× at toy scale
+// KAT 5: toy-scale caveat — improvement is < 2× at toy scale
 let improvement = best_score / seed_score;
 assert!(improvement >= 1.0);  // always at least as good as seed
 assert!(improvement < 2.0);   // but not dramatically better at toy scale
@@ -581,23 +582,24 @@ let polys = coppersmith_polys(&best, &copper_config);
 
 ---
 
-## 9. C-PolyPair and C-Score: Public Contracts
+## 9. The `PolyPair` and `score` Interfaces
 
-### C-PolyPair
+### The `PolyPair` interface
 
-The `PolyPair` type is the **C-PolyPair contract** — the interface between polynomial selection
-and all downstream stages. It is frozen at G.B.1 and consumed by:
+The `PolyPair` type is the interface between polynomial selection and all downstream stages. It
+is a stable interface consumed by:
 
-- **G.B.2 (Murphy-E scoring):** reads `pair.f`, `pair.m`, `pair.skew`; writes `pair.skew`.
-- **G.B.3 (root sieve):** reads `pair.f`, `pair.g`, `pair.m`, `pair.n`; produces new `PolyPair`.
-- **G.B.4 (Coppersmith):** same as root sieve.
-- **G.C (sieving):** reads `pair.f`, `pair.m`, `pair.n`, `pair.degree`; writes
+- **Murphy-E scoring:** reads `pair.f`, `pair.m` and `pair.skew` (when set); it does not write
+  `pair.skew`.
+- **Root sieve:** reads `pair.f`, `pair.g`, `pair.m`, `pair.n`; produces new `PolyPair`.
+- **Coppersmith multi-polynomial:** same as root sieve.
+- **Sieving:** reads `pair.f`, `pair.m`, `pair.n`, `pair.degree`; it does not write
   `pair.factor_base_bounds`. The sieve evaluates the algebraic value F(a, b) = b^d · f(a/b) =
   c · N(a − bα) for each sieve pair (a, b) using the original non-monic f.
-- **D.A (NFS-DL poly selection):** adapts `PolyPair` for the discrete logarithm setting. The
+- **NFS-DL polynomial selection:** adapts `PolyPair` for the discrete logarithm setting. The
   polynomial-pair structure is identical; the difference is in the linear algebra step.
 
-The `verify()` method is the contract enforcement mechanism: any code that produces a `PolyPair`
+The `verify()` method is the enforcement mechanism: any code that produces a `PolyPair`
 should call `verify()` before passing it downstream. The KATs enforce this:
 
 ```rust
@@ -610,18 +612,17 @@ for j in -3i64..=3 {
 }
 ```
 
-### C-Score
+### The `score` interface
 
-The `score` function is the **C-Score contract** — the Murphy-E scoring interface consumed by:
+The `score` function is the Murphy-E scoring interface consumed by:
 
-- **G.B.3 (root sieve):** scores each rotation candidate to find the best.
-- **G.B.4 (Coppersmith):** scores each variant to select `coppersmith_best`.
-- **D.A (NFS-DL):** adapts the scoring for the DL polynomial selection problem.
-- **E.K (factor-base balancing):** uses the score to balance algebraic and rational factor-base
-  sizes. The Murphy-E score's sensitivity to the skew parameter is the signal that E.K uses to
-  choose the optimal factor-base bounds.
+- **Root sieve:** scores each rotation candidate to find the best.
+- **Coppersmith multi-polynomial:** scores each variant to select `coppersmith_best`.
+- **NFS-DL polynomial selection:** adapts the scoring for the DL polynomial selection problem.
+- **Factor-base balancing (not implemented):** the score's sensitivity to the skew parameter would
+  be the signal for choosing the split between algebraic and rational factor-base sizes.
 
-The C-Score interface is:
+The `score` interface is:
 
 ```rust
 pub fn score(pair: &PolyPair) -> f64;
@@ -630,24 +631,23 @@ pub fn score(pair: &PolyPair) -> f64;
 It takes `&PolyPair` (not `&mut`), so it is safe to call from multiple contexts without
 mutation. The score is deterministic for a fixed pair (no hidden mutable state).
 
-### Cross-track C3 reuse (D.A and E.K)
+### Reuse by NFS-DL and factor-base balancing
 
-The C3 cross-track reuse is the observation that the same polynomial-selection infrastructure
-serves multiple downstream tracks:
+The same polynomial-selection infrastructure serves more than one downstream consumer:
 
-**D.A (NFS-DL poly selection):** The discrete logarithm variant of NFS uses the same polynomial
+**NFS-DL polynomial selection:** The discrete logarithm variant of NFS uses the same polynomial
 pair structure. The base-m construction, Murphy-E scoring, and root sieve are all reused directly.
 The only difference is the target: instead of factoring N, the goal is to compute discrete
 logarithms in a finite field, which requires a polynomial pair adapted to the field's structure.
 
-**E.K (factor-base balancing):** The factor-base balancing stage uses the Murphy-E score's
-sensitivity to the skew parameter to choose the optimal split between algebraic and rational
-factor-base sizes. The `pair.skew` field (set by G.B.2 scoring) is the signal that E.K reads.
-The `pair.factor_base_bounds` field (set by G.C sieving) is the output that E.K produces.
+**Factor-base balancing (not implemented):** A factor-base balancing step would use the Murphy-E
+score's sensitivity to the skew parameter to choose the split between algebraic and rational
+factor-base sizes: the `pair.skew` field would be its input and `pair.factor_base_bounds` its
+output. Both fields exist and are `None` at construction; no stage sets them today.
 
-Both reuses are enabled by the `PolyPair` struct's over-specification: the `skew` and
-`factor_base_bounds` fields are `None` at construction and populated by later stages, so the
-same type serves all three tracks without modification.
+Both reuses rely on the `PolyPair` struct's over-specification: the `skew` and
+`factor_base_bounds` fields are reserved slots, so the same type can serve factoring, NFS-DL and
+factor-base balancing without modification.
 
 ---
 
@@ -678,7 +678,7 @@ fact each one verifies. All tests are in `gnfs/tests/`.
 | `kat2b_single_poly_is_seed` | `coppersmith_kat.rs` | num_polys=1 returns the seed (identity rotation) |
 | `kat3_best_score_ge_seed` | `coppersmith_kat.rs` | coppersmith_best returns score ≥ seed score |
 | `kat3c_best_matches_max_of_polys` | `coppersmith_kat.rs` | coppersmith_best agrees with max of coppersmith_polys |
-| `kat5_principle4_improvement_small_at_toy_scale` | `coppersmith_kat.rs` | Multi-poly improvement < 2× at toy scale (principle-4) |
+| `kat5_principle4_improvement_small_at_toy_scale` | `coppersmith_kat.rs` | Multi-poly improvement < 2× at toy scale (toy-scale caveat) |
 
 ---
 
@@ -687,15 +687,15 @@ fact each one verifies. All tests are in `gnfs/tests/`.
 Polynomial selection is the first stage of the GNFS pipeline. The output — a `PolyPair` with a
 good Murphy-E score — is the input to the sieve.
 
-**G.C (sieving)** consumes `C-PolyPair` directly. For each sieve pair (a, b) in the sieve region,
-the sieve evaluates:
+**Sieving** consumes the `PolyPair` interface directly. For each sieve pair (a, b) in the sieve
+region, the sieve evaluates:
 - The algebraic value F(a, b) = b^d · f(a/b) = c · N(a − bα) using the original non-monic f.
 - The rational norm G(a, b) = a − bm.
 
 F and G are trial-divided over their respective factor bases. A pair (a, b) is **smooth** if
 both values factor completely over their factor bases. The factor-base bounds (stored in
-`pair.factor_base_bounds`) are set by G.C based on the polynomial's Murphy-E score and the
-target number of relations.
+`pair.factor_base_bounds`) are slots for bounds chosen from the polynomial's Murphy-E score and
+the target number of relations; today the caller passes the bounds to `FactorBase::new` directly.
 
 The `number_field()` method on `PolyPair` is the seam between polynomial selection and
 number-field arithmetic: it constructs the number field K = ℚ(α) from the monic form of f, on the
@@ -703,7 +703,7 @@ order ℤ[a_d·α]. Its consumers are the NFS discrete-logarithm relation code a
 factor base does its own root search on the original f, and the square-root stage does not call
 it.
 
-The polynomial pair is also the input to the linear algebra step (G.D): the smooth pairs collected
+The polynomial pair is also the input to the later steps: the smooth pairs collected
 by the sieve form a matrix over 𝔽₂ whose rows are relations, and its left kernel gives candidate
 congruences of squares for N; the square-root step verifies each candidate and decides whether it
 factors N.
@@ -745,7 +745,7 @@ polynomial selection chapter (§1–§11 above) can read this one without consul
 
 The chapter covers the relation as the unit of NFS data, the two-sided factor base, the norm
 bridge, the line sieve, the special-q strategy, lattice sieving, the exponent vector and relation
-matrix, and the downstream reuse in G.D, G.E, and D.A.
+matrix, and the downstream reuse by filtering, linear algebra and NFS-DL.
 
 ---
 
@@ -801,10 +801,10 @@ rel.verify(&poly, &fb).expect("relation must be valid");
 
 ### Why smoothness on both sides is required
 
-The factoring computation (G.F) looks for a subset S of relations whose rational product
-P = ∏(a − b·m) is a perfect square in ℤ and whose algebraic product γ = ∏(a − b·α) is a square
-β² in the number field K = ℚ(α). The image of β modulo N then squares to the same P, which is the
-congruence of squares that can factor N (MATHEMATICS §5–§6).
+The factoring computation (the square-root stage) looks for a subset S of relations whose
+rational product P = ∏(a − b·m) is a perfect square in ℤ and whose algebraic product
+γ = ∏(a − b·α) is a square β² in the number field K = ℚ(α). The image of β modulo N then squares
+to the same P, which is the congruence of squares that can factor N (MATHEMATICS §5–§6).
 
 For P to be a square, every rational prime must appear to an even total exponent across all
 selected relations and the number of negative factors must be even. The algebraic columns record
@@ -882,7 +882,7 @@ pub struct FactorBase {
     pub b_rat: u64,
     /// Algebraic smoothness bound B_alg.
     pub b_alg: u64,
-    /// Number of obstruction columns reserved for G.E (sign + quadratic chars).
+    /// Number of obstruction columns reserved for linear algebra (sign + quadratic chars).
     pub obstruction_count: usize,
 }
 ```
@@ -920,11 +920,11 @@ those primes are a negligible fraction of the algebraic factor base. At toy scal
 be a significant fraction of the factor base and are unavoidable for hand-picked polynomials. The
 `is_bad_prime` flag makes this visible without changing the algorithm.
 
-### Column indexing for G.D and G.E
+### Column indexing for filtering and linear algebra
 
 The `AlgebraicPrime::index` field and the lookup methods `rational_index(p)` and
-`algebraic_index(p, r)` provide the mapping from factor-base elements to matrix columns. G.D
-(filtering) and G.E (linear algebra) use these indices to build and manipulate the relation
+`algebraic_index(p, r)` provide the mapping from factor-base elements to matrix columns. Filtering
+and linear algebra use these indices to build and manipulate the relation
 matrix without re-scanning the factor base.
 
 The `matrix_width()` method returns the total number of columns:
@@ -935,8 +935,9 @@ pub fn matrix_width(&self) -> usize {
 }
 ```
 
-The `obstruction_count` is initialised to 1 (the sign/−1 column). G.E will add quadratic-character
-columns; the slot exists so the matrix-width calculation is stable across stages.
+The `obstruction_count` is initialised to 1 (the sign/−1 column). Linear algebra adds
+quadratic-character columns; the slot exists so the matrix-width calculation is stable across
+stages.
 
 ---
 
@@ -969,7 +970,7 @@ truncating. Silent truncation would produce incorrect smoothness witnesses — a
 ### The sign column in the relation matrix
 
 The sign of the rational norm is tracked separately in the `rational_sign: bool` field of
-`Relation`. This is the "−1 column" for G.E's linear algebra: the product of all selected
+`Relation`. This is the "−1 column" for the linear algebra step: the product of all selected
 relations' rational norms must be a perfect square, which requires the sign product to be +1
 (an even number of negative norms). The sign column encodes this constraint.
 
@@ -1062,7 +1063,7 @@ call. At cryptographic scale (B ≈ 10⁷, A ≈ 10⁷, B_rat/B_alg ≈ 10⁶), 
 ~99% of candidates, making the sieve dramatically faster than brute-force trial division of
 every (a, b) pair.
 
-### Principle-4 annotation: asymptotic win under-exposed at toy scale
+### Toy-scale caveat: asymptotic win under-exposed at toy scale
 
 **At toy scale (A = 10, B = 3, B_rat = B_alg = 30), the log-sieve barely beats direct trial
 division.** The sieve array has only 21 entries; the factor bases have ~10 primes each; the
@@ -1132,7 +1133,7 @@ The log-sieve array is still computed over the full range (for all primes in the
 but only the q-restricted positions are trial-divided. This is the correct approach: the sieve
 contributions from other primes are still needed to filter candidates.
 
-### Principle-4 annotation: yield advantage under-exposed at toy scale
+### Toy-scale caveat: yield advantage under-exposed at toy scale
 
 **At toy scale, the yield advantage of the special-q strategy over the plain line sieve is
 under-exposed.** The yield multiplier is a scale phenomenon:
@@ -1225,7 +1226,7 @@ pub struct LatticeSieveResult {
 }
 ```
 
-### Principle-4 annotation: yield-per-area improvement is a scale phenomenon
+### Toy-scale caveat: yield-per-area improvement is a scale phenomenon
 
 **At toy scale, the lattice sieve produces the same (a, b) pairs as the special-q line sieve
 for the same (q, r_q).** The two algorithms are mathematically equivalent: both enumerate L_q
@@ -1260,18 +1261,18 @@ pub struct ExponentVector {
 
 The exponent type is `u32`, not `u8` or `bool`. This accommodates:
 
-- **NFS-factoring (G.E):** exponents are small (typically 1–3), reduced mod 2 for the GF(2)
+- **NFS-factoring:** exponents are small (typically 1–3), reduced mod 2 for the GF(2)
   nullspace computation.
-- **NFS-DL (D.A):** exponents are reduced mod ℓ where ℓ is the target group order; ℓ can be
+- **NFS-DL:** exponents are reduced mod ℓ where ℓ is the target group order; ℓ can be
   large, but exponents before reduction are still small integers.
 
 The `u32` type is the smallest that accommodates both without overflow risk. This is the
-over-specification for D.A: storing integer exponents rather than pre-reduced GF(2) parities
-means D.A can read the exponents directly without resharding the relation format.
+over-specification for NFS-DL: storing integer exponents rather than pre-reduced GF(2) parities
+means NFS-DL can read the exponents directly without resharding the relation format.
 
 ### The GF(2) row methods
 
-The `Relation` type provides two methods for G.E:
+The `Relation` type provides two methods for the linear algebra step:
 
 ```rust
 /// GF(2) row for the rational side: sign column prepended, then exponent parities.
@@ -1290,49 +1291,51 @@ pub fn algebraic_row_gf2(&self, fb: &FactorBase) -> Vec<bool> {
     for (idx, exp) in self.algebraic_exponents.iter() {
         if idx < fb.algebraic_size() { row[idx] = (exp % 2) == 1; }
     }
-    // Obstruction columns remain false; G.E fills them in.
+    // Obstruction columns remain false; linear algebra fills them in.
     row
 }
 ```
 
 The sign column is prepended to the rational row: bit 0 is 1 iff `rational_sign` is true. The
-obstruction columns (quadratic characters) are appended to the algebraic row as zeros; G.E fills
-them in when it constructs the full matrix.
+obstruction columns (quadratic characters) are appended to the algebraic row as zeros; linear
+algebra fills them in when it constructs the full matrix.
 
 ### Why integer exponents, not GF(2) parities
 
 The design decision to store full integer exponents (not pre-reduced GF(2) parities) is the
-load-bearing cross-track call in the C-Relation contract. Three consumers need different views:
+load-bearing cross-track call in the `Relation` interface. Three consumers need different views:
 
-- **G.D (filtering):** reads the exponent vectors to detect duplicate or linearly dependent
+- **Filtering:** reads the exponent vectors to detect duplicate or linearly dependent
   relations. Integer exponents are needed to identify exact duplicates.
-- **G.E (linear algebra):** reduces exponents mod 2 via `rational_row_gf2` / `algebraic_row_gf2`
+- **Linear algebra:** reduces exponents mod 2 via `rational_row_gf2` / `algebraic_row_gf2`
   to build the GF(2) matrix. The `u32` exponents are reduced on demand.
-- **D.A (NFS-DL):** reads the integer exponents directly for GF(ℓ) linear algebra, where ℓ is
-  the target group order. Pre-reducing to GF(2) would destroy the information D.A needs.
+- **NFS-DL:** reads the integer exponents directly for GF(ℓ) linear algebra, where ℓ is
+  the target group order. Pre-reducing to GF(2) would destroy the information NFS-DL needs.
 
-Re-narrowing C-Relation after G.E or D.A consumes it would be a destructive reshard. The
+Re-narrowing the `Relation` interface after linear algebra or NFS-DL consumes it would be a
+destructive reshard. The
 over-specification (integer exponents) is the correct design for a cross-track contract.
 
 ---
 
-## 19. Downstream Reuse: G.D, G.E, and D.A
+## 19. Downstream Reuse: Filtering, Linear Algebra, and NFS-DL
 
-### G.D (filtering)
+### Filtering
 
-The relation corpus from the sieve feeds G.D (filtering), which removes:
+The relation corpus from the sieve feeds filtering, which removes:
 
 - **Duplicate relations:** the same (a, b) pair found by multiple sieve runs (e.g., the line
   sieve and the special-q sieve may both find the same relation).
 - **Linearly dependent relations:** relations whose exponent vectors are linearly dependent over
   GF(2), which would not contribute to the null space.
 
-G.D reads the `ExponentVector` entries and the `FactorBase` column indices. The `AlgebraicPrime::index`
-field and the `rational_index` / `algebraic_index` lookup methods provide the column mapping.
+Filtering reads the `ExponentVector` entries and the `FactorBase` column indices. The
+`AlgebraicPrime::index` field and the `rational_index` / `algebraic_index` lookup methods provide
+the column mapping.
 
-### G.E (linear algebra)
+### Linear algebra
 
-G.E (linear algebra over GF(2)) takes the filtered relation corpus and finds a subset S such that
+Linear algebra over GF(2) takes the filtered relation corpus and finds a subset S such that
 the sum of all exponent vectors (mod 2) is the zero vector. This is the null space computation:
 
 1. Build the relation matrix: one row per relation, one column per factor-base prime (plus sign
@@ -1347,20 +1350,20 @@ the sum of all exponent vectors (mod 2) is the zero vector. This is the null spa
 The `matrix_width()` method on `FactorBase` gives the total column count:
 rational_size + algebraic_size + obstruction_count.
 
-### D.A (NFS-DL)
+### NFS-DL
 
-The NFS discrete logarithm algorithm (D.A) uses the same relation structure as NFS factoring,
+The NFS discrete logarithm algorithm uses the same relation structure as NFS factoring,
 but interprets exponents mod ℓ (the target group order) instead of mod 2. The integer exponents
 stored in `ExponentVector` support this interpretation directly.
 
-D.A may add **Schirokauer map** columns to the algebraic exponent vector. The sparse
+NFS-DL may add **Schirokauer map** columns to the algebraic exponent vector. The sparse
 `(index, exponent)` representation accommodates additional entries without resharding the
 `Relation` type. This is the cross-track over-specification: the `Relation` type is designed so
-D.A can read it without modification.
+NFS-DL can read it without modification.
 
 ---
 
-## 20. KAT Summary (G.C)
+## 20. KAT Summary (Sieving)
 
 The following table lists the key known-answer tests across the sieve module, with the
 mathematical fact each one verifies. All tests are in `gnfs/tests/`.
@@ -1401,28 +1404,28 @@ Sieving is the third stage of the GNFS pipeline. The output — a corpus of `Rel
 each with both exponent vectors and the sign bit — is the input to the filtering and linear
 algebra stages.
 
-**G.D (filtering)** takes the raw relation corpus and removes duplicates and linearly dependent
+**Filtering** takes the raw relation corpus and removes duplicates and linearly dependent
 relations. The `ExponentVector` entries and the `FactorBase` column indices are the interface
-between G.C and G.D.
+between sieving and filtering.
 
-**G.E (linear algebra over GF(2))** takes the filtered corpus and finds a subset S of relations
+**Linear algebra over GF(2)** takes the filtered corpus and finds a subset S of relations
 for which every recorded exponent is even, a candidate dependency: the algebraic product need not
 be a square in K (MATHEMATICS, "The square-class obstruction"). The `rational_row_gf2` and
 `algebraic_row_gf2` methods on `Relation` produce the GF(2) matrix rows. The `matrix_width()`
 method on `FactorBase` gives the column count.
 
-**G.F (square root)** takes the subset S from G.E and tries to reconstruct an exact algebraic
-square root. Only a verified root gives a congruence of squares mod N, and its gcd with N may
-still be trivial, in which case the next candidate is tried. This stage uses the number-field
-arithmetic from `shared-numfield` and the algebraic structure of K = ℚ(α).
+**The square-root stage** takes the subset S from linear algebra and tries to reconstruct an
+exact algebraic square root. Only a verified root gives a congruence of squares mod N, and its gcd
+with N may still be trivial, in which case the next candidate is tried. This stage uses the
+number-field arithmetic from `shared-numfield` and the algebraic structure of K = ℚ(α).
 
-**D.A (NFS-DL)** adapts the same relation structure for discrete logarithm computation. The
+**NFS-DL** adapts the same relation structure for discrete logarithm computation. The
 integer exponents in `ExponentVector` are read directly (not reduced mod 2) and used in GF(ℓ)
 linear algebra. The `Relation` type is designed to support this adaptation without resharding.
 
 ---
 
-## Further Reading (G.C)
+## Further Reading (Sieving)
 
 1. **Pomerance, C. (1996).** *A tale of two sieves.* Notices of the AMS, 43(12), 1473–1485.
    An accessible introduction to the quadratic sieve and the number field sieve, with the
@@ -1441,8 +1444,8 @@ linear algebra. The `Relation` type is designed to support this adaptation witho
    as the primary relation-collection strategy.
 
 5. **Schirokauer, O. (1993).** *Discrete logarithms and local units.* Philosophical Transactions
-   of the Royal Society A, 345(1676), 409–423. The Schirokauer maps used in D.A (NFS-DL) to
-   handle the units in the number field — the D.A extension of the C-Relation contract.
+   of the Royal Society A, 345(1676), 409–423. The Schirokauer maps used in NFS-DL to
+   handle the units in the number field — the NFS-DL extension of the `Relation` interface.
 
 ---
 
@@ -1455,7 +1458,7 @@ sieving chapter (§12–§21 above) can read this one without consulting the sou
 
 The chapter covers the transition from a relation corpus to a sparse GF(2) matrix, the graph view
 of that matrix, singleton removal, excess and clique pruning, column merging, and the provenance
-map that threads through to G.F.
+map that threads through to the square-root stage.
 
 ---
 
@@ -1463,9 +1466,9 @@ map that threads through to G.F.
 
 ### From `Vec<Relation>` to a GF(2) matrix
 
-The sieve (G.C) produces a `Vec<Relation>` — a corpus of smooth pairs (a, b). Each relation
+The sieve produces a `Vec<Relation>` — a corpus of smooth pairs (a, b). Each relation
 carries two exponent vectors: one over the rational factor base, one over the algebraic factor
-base. The filtering stage (G.D) converts this corpus into a sparse matrix over GF(2).
+base. The filtering stage converts this corpus into a sparse matrix over GF(2).
 
 The conversion is straightforward:
 
@@ -1524,13 +1527,13 @@ pub fn build_matrix(relations: &[Relation], fb: &FactorBase) -> SparseMatrix {
 }
 ```
 
-The `rational_row_gf2` and `algebraic_row_gf2` methods on `Relation` (defined in G.C) produce
-the GF(2) parities. The sign bit is placed at the first obstruction column, not at column 0 of
-the rational block — this is the re-mapping that `build_matrix` performs.
+The `rational_row_gf2` and `algebraic_row_gf2` methods on `Relation` (defined with the sieve)
+produce the GF(2) parities. The sign bit is placed at the first obstruction column, not at
+column 0 of the rational block — this is the re-mapping that `build_matrix` performs.
 
 ### Why GF(2): the parity condition
 
-The goal of the linear algebra step (G.E) is to find a subset S of relations such that the
+The goal of the linear algebra step is to find a subset S of relations such that the
 rational product P = ∏(a − b·m) is a perfect square in ℤ and the algebraic product
 γ = ∏(a − b·α) is a candidate for a square in the number field K = ℚ(α). A product of integers
 is a perfect square iff every prime appears to an even total exponent. This is a **parity
@@ -1546,11 +1549,11 @@ checked matrix keeps the ideal's column but leaves it unconstrained (the "Checke
 Honest Algebraic Parity" section below).
 
 The sign column encodes the sign parity: the rational product P must be positive (an even number
-of relations with a − b·m < 0). The character columns (filled by G.E) add necessary conditions on
-the algebraic side. Even with every column satisfied, γ need not be a square in K: the units, the
-class group, and the unconstrained ideals can each obstruct, and characters are necessary
-conditions only, since no given finite set is known to separate the dependency's group from the
-squares. The account, with its precise statement, is in MATHEMATICS §5 ("The square-class
+of relations with a − b·m < 0). The character columns (filled by linear algebra) add necessary
+conditions on the algebraic side. Even with every column satisfied, γ need not be a square in K:
+the units, the class group, and the unconstrained ideals can each obstruct, and characters are
+necessary conditions only, since no given finite set is known to separate the dependency's group
+from the squares. The account, with its precise statement, is in MATHEMATICS §5 ("The square-class
 obstruction"); the square-root stage (§44) decides each candidate exactly.
 
 ---
@@ -1645,8 +1648,8 @@ drops to weight 2 (R0 and R1 remain) — the cascade stops.
 ### Obstruction columns are exempt
 
 The obstruction columns (sign bit and quadratic-character columns) are structural: they encode
-constraints that G.E needs, not factor-base primes. A weight-1 sign column does not mean that
-the relation containing it is useless — it means that exactly one relation has a negative
+constraints that linear algebra needs, not factor-base primes. A weight-1 sign column does not
+mean that the relation containing it is useless — it means that exactly one relation has a negative
 rational norm. Treating it as a singleton would incorrectly discard that relation. The loop
 scans only `col in 0..matrix.obstruction_col_start`.
 
@@ -1659,8 +1662,8 @@ documented in the `remove_singletons` docstring:
 > Provenance is preserved unchanged: singleton removal drops rows, never merges them, so each
 > surviving row's provenance is its original singleton set.
 
-The provenance map is the thread that G.F uses to recover original (a, b) pairs from a null-space
-vector. Singleton removal does not disturb it.
+The provenance map is the thread that the square-root stage uses to recover original (a, b) pairs
+from a null-space vector. Singleton removal does not disturb it.
 
 ---
 
@@ -1690,7 +1693,7 @@ columns: excess must be positive.
 The constant `EXCESS_FLOOR = 20` is the minimum excess that the pruning step must preserve:
 
 ```rust
-/// Minimum excess G.D.2 pruning must preserve.
+/// Minimum excess clique pruning must preserve.
 ///
 /// excess = rows − (columns − obstruction_count). At toy scale any positive excess
 /// suffices for a non-trivial nullspace; 20 is a conservative floor that keeps the
@@ -1698,7 +1701,7 @@ The constant `EXCESS_FLOOR = 20` is the minimum excess that the pruning step mus
 pub const EXCESS_FLOOR: usize = 20;
 ```
 
-**Principle-4 annotation (scale-dependent floor).** At toy scale, any positive excess suffices
+**Toy-scale caveat (scale-dependent floor).** At toy scale, any positive excess suffices
 for a non-trivial null space — the floor of 20 is conservative and is never approached in
 practice because the toy corpus is small. At cryptographic scale (RSA-768+), the excess floor
 is typically set to ~200 or a fraction of the column count, balancing the need for many
@@ -1848,18 +1851,18 @@ weight (weight-2 first, then weight-3), breaking ties by column index. This is c
 principle — lower-weight columns are cheaper to merge — but the full heuristic would also
 consider the weight of the merged row.
 
-**Principle-4 annotation (Cavallar weight-cost ordering).** At toy scale, the matrix is small
-enough that any merge order gives a tractable matrix for G.E. The weight-saving the Cavallar
-heuristic buys is under-exposed: the difference between the simplified ordering and the optimal
-ordering is a few percent of total weight, which is invisible when the matrix has tens of rows.
-At cryptographic scale (RSA-768+), the matrix has millions of rows and hundreds of thousands
+**Toy-scale caveat (Cavallar weight-cost ordering).** At toy scale, the matrix is small
+enough that any merge order gives a tractable matrix for linear algebra. The weight-saving the
+Cavallar heuristic buys is under-exposed: the difference between the simplified ordering and the
+optimal ordering is a few percent of total weight, which is invisible when the matrix has tens of
+rows. At cryptographic scale (RSA-768+), the matrix has millions of rows and hundreds of thousands
 of columns; the Cavallar heuristic can reduce the total weight by 30–50% compared to a naive
-ordering, which directly reduces the cost of the structured Gaussian elimination in G.E. The
-module docstring in `merge.rs` annotates this disconnect explicitly.
+ordering, which directly reduces the cost of the structured Gaussian elimination in linear
+algebra. The module docstring in `merge.rs` annotates this disconnect explicitly.
 
 ---
 
-## 27. The Provenance Map as the Thread to G.F
+## 27. The Provenance Map as the Thread to the Square-Root Stage
 
 ### What provenance tracks
 
@@ -1885,15 +1888,16 @@ would break the invariant.)
 Singleton removal and clique pruning drop rows without merging, so provenance is unchanged.
 Only elimination (`merge_columns`, `eliminate_column`) combines provenance sets.
 
-### The G.F expansion
+### The square-root expansion
 
-G.E (linear algebra) finds a null-space vector — a subset of rows in the final matrix whose
-GF(2) column-sum is the zero vector. G.F (square root) needs to expand this subset back to
-the original (a, b) pairs to compute the congruence of squares.
+Linear algebra finds a null-space vector — a subset of rows in the final matrix whose
+GF(2) column-sum is the zero vector. The square-root stage needs to expand this subset back to
+the original (a, b) pairs to reconstruct the exact square roots from which the congruence of
+squares is built.
 
 The expansion is:
 
-1. G.E selects a subset of rows in the final matrix (the null-space vector).
+1. Linear algebra selects a subset of rows in the final matrix (the null-space vector).
 2. For each selected row, collect its `provenance` set.
 3. Take the GF(2) sum (symmetric difference) of all collected provenance sets — this gives the
    set of original relation indices. `SparseMatrix::lift_dependency` does exactly this. An index
@@ -1907,27 +1911,28 @@ provenance equals that row's column set.
 ### Why provenance stores original indices, not pre-reduced row sums
 
 The provenance map stores original relation indices, not the GF(2) column set of the merged
-row. This is the over-specification documented in the C-Matrix contract:
+row. This is the over-specification documented for the `SparseMatrix` interface:
 
-> Over-specify the provenance map now: store original relation indices, not pre-reduced row
-> sums, so G.F can recover the actual (a, b) pairs.
+> Over-specify the provenance map: store original relation indices, not pre-reduced row
+> sums, so the square-root stage can recover the actual (a, b) pairs.
 
-The reason is that G.F needs the actual (a, b) pairs to compute the algebraic square root —
-the product of (a − b·α) in the number field K = ℚ(α). The GF(2) column set of a merged row
-is the XOR of the original exponent parities; it does not contain the original (a, b) values.
-Storing the GF(2) column set instead of the original indices would make G.F impossible without
-re-deriving the (a, b) pairs from the exponent vectors, which would require keeping the full
-`Vec<Relation>` in scope anyway. The provenance map is the clean interface: G.F receives the
-final matrix and the original `Vec<Relation>`, and uses the provenance map to bridge them.
+The reason is that the square-root stage needs the actual (a, b) pairs to compute the algebraic
+square root — the product of (a − b·α) in the number field K = ℚ(α). The GF(2) column set of a
+merged row is the XOR of the original exponent parities; it does not contain the original (a, b)
+values. Storing the GF(2) column set instead of the original indices would make the square-root
+stage impossible without re-deriving the (a, b) pairs from the exponent vectors, which would
+require keeping the full `Vec<Relation>` in scope anyway. The provenance map is the clean
+interface: the square-root stage receives the final matrix and the original `Vec<Relation>`, and
+uses the provenance map to bridge them.
 
 ---
 
-## 28. What G.E Inherits
+## 28. What Linear Algebra Inherits
 
-### The `SparseMatrix` contract (C-Matrix)
+### The `SparseMatrix` interface
 
 The output of the full filtering pipeline — `build_matrix` → `remove_singletons` →
-`prune_cliques` → `merge_columns` — is a `SparseMatrix` that G.E consumes directly:
+`prune_cliques` → `merge_columns` — is a `SparseMatrix` that linear algebra consumes directly:
 
 ```rust
 pub struct SparseMatrix {
@@ -1946,7 +1951,7 @@ pub struct SparseMatrix {
 }
 ```
 
-The key properties G.E inherits:
+The key properties linear algebra inherits:
 
 - **Dimensions.** `rows.len()` rows, `num_cols` columns. The excess `rows.len() − (num_cols −
   obstruction_count)` is ≥ `EXCESS_FLOOR` (guaranteed by `prune_cliques`), ensuring a
@@ -1954,20 +1959,20 @@ The key properties G.E inherits:
 
 - **Obstruction columns.** The sign column (at `obstruction_col_start`) is populated by
   `build_matrix` from `relation.rational_sign`. The quadratic-character columns (at
-  `obstruction_col_start + 1` through `num_cols − 1`) are carried as zeros by G.D — G.E fills
-  them in before running the null-space computation.
+  `obstruction_col_start + 1` through `num_cols − 1`) are carried as zeros by filtering — linear
+  algebra fills them in before running the null-space computation.
 
 - **Row-major store + `col_weights` side table.** The row-major representation (each row is a
   sorted `Vec<usize>` of set column indices) supports the row-XOR operations that structured
   Gaussian elimination performs. The `col_weights` side table supports column-weight queries
-  without scanning all rows — G.E uses it to choose pivot columns.
+  without scanning all rows — linear algebra uses it to choose pivot columns.
 
-- **Provenance map.** Each row carries its provenance set. G.E does not modify provenance; it
-  passes the final matrix (with provenance intact) to G.F.
+- **Provenance map.** Each row carries its provenance set. Linear algebra does not modify
+  provenance; it passes the final matrix (with provenance intact) to the square-root stage.
 
 ### The pipeline in full
 
-The complete G.D pipeline, as exercised by the KATs in `merge_kat.rs`:
+The complete filtering pipeline, as exercised by the KATs in `merge_kat.rs`:
 
 ```rust
 // 1. Build the initial matrix from the relation corpus.
@@ -1982,7 +1987,7 @@ let matrix = prune_cliques(matrix);
 // 4. Eliminate weight-2 and weight-3 columns (lossless: keeps every surviving dependency).
 let matrix = merge_columns(matrix);
 
-// matrix is now ready for G.E (linear algebra over GF(2)).
+// matrix is now ready for linear algebra over GF(2).
 ```
 
 Each step is a pure function (consumes and returns `SparseMatrix`), making the pipeline
@@ -1990,7 +1995,7 @@ composable and testable in isolation.
 
 ---
 
-## 29. KAT Summary (G.D)
+## 29. KAT Summary (Filtering)
 
 The following table lists the key known-answer tests across the filter module, with the
 mathematical fact each one verifies. All tests are in `gnfs/tests/merge_kat.rs`.
@@ -2022,25 +2027,27 @@ mathematical fact each one verifies. All tests are in `gnfs/tests/merge_kat.rs`.
 Filtering is the fourth stage of the GNFS pipeline. The output — a `SparseMatrix` with
 provenance map — is the input to the linear algebra and square-root stages.
 
-**G.E (linear algebra over GF(2))** takes the filtered matrix and finds its left kernel. It
-fills in the root-character columns (currently zero in the G.D output), then runs a block
+**Linear algebra over GF(2)** takes the filtered matrix and finds its left kernel. It
+fills in the root-character columns (currently zero in the filtering output), then runs a block
 nullspace solver to find kernel vectors. Each kernel vector identifies a subset of rows whose
-GF(2) column-sum is zero — a candidate congruence of squares.
+GF(2) column-sum is zero — a candidate dependency, whose verified square roots give the
+congruence of squares.
 
-**G.F (square root)** takes a kernel vector from G.E and expands it through the provenance map to
-recover the original (a, b) pairs. It then computes the rational product P = ∏(a − b·m), which is
-a perfect square in ℤ, and tries to find β in K = ℚ(α) with β² = ∏(a − b·α); the algebraic product
-is only a candidate for a square. A verified β has an image y mod N with y² ≡ P, giving the
-congruence x² ≡ y² (mod N). A non-trivial GCD of x − y and N yields a factor.
+**The square-root stage** takes a kernel vector from linear algebra and expands it through the
+provenance map to recover the original (a, b) pairs. It then computes the rational product
+P = ∏(a − b·m), which is a perfect square in ℤ, and tries to find β in K = ℚ(α) with
+β² = ∏(a − b·α); the algebraic product is only a candidate for a square. A verified β has an image
+y mod N with y² ≡ P, giving the congruence x² ≡ y² (mod N). A non-trivial GCD of x − y and N
+yields a factor.
 
-**D.A (NFS-DL)** adapts the same filtering infrastructure for discrete logarithm computation.
+**NFS-DL** adapts the same filtering infrastructure for discrete logarithm computation.
 The `SparseMatrix` and provenance map are reused directly; the difference is in the linear
 algebra step (GF(ℓ) instead of GF(2)) and the square-root step (Schirokauer maps instead of
 the algebraic square root).
 
 ---
 
-## Further Reading (G.D)
+## Further Reading (Filtering)
 
 1. **Cavallar, S. (2002).** *Strategies in filtering in the number field sieve.* In: Bosma, W.
    (ed.) Algorithmic Number Theory (ANTS-IV), LNCS 1838. Springer. The original source for the
@@ -2060,8 +2067,8 @@ the algebraic square root).
    filtering step explained at a high level.
 
 5. **Wiedemann, D. (1986).** *Solving sparse linear equations over finite fields.* IEEE
-   Transactions on Information Theory, 32(1), 54–62. The Wiedemann algorithm used in G.E for
-   the null-space computation — the downstream consumer of the filtered `SparseMatrix`.
+   Transactions on Information Theory, 32(1), 54–62. The Wiedemann algorithm used in linear
+   algebra for the null-space computation — the downstream consumer of the filtered `SparseMatrix`.
 
 ---
 
@@ -2072,9 +2079,10 @@ Number Field Sieve. It is organised by the implementation, not by mathematical a
 section introduces the mathematics, then shows how it is realised in code. A reader who has read
 the filtering chapter (§21–§30 above) can read this one without consulting the source.
 
-The chapter covers the filtered matrix as a GF(2) linear system, the nullspace as a congruence
-of squares, the role of sign and quadratic-character columns, block Lanczos, block Wiedemann,
-the kernel-vector → provenance → original-relations thread, and the C-LinAlg contract.
+The chapter covers the filtered matrix as a GF(2) linear system, the nullspace as a source of
+congruence-of-squares candidates, the role of sign and quadratic-character columns, block
+Lanczos, block Wiedemann, the kernel-vector → provenance → original-relations thread, and the
+linear-algebra substrate interface.
 
 ---
 
@@ -2082,14 +2090,15 @@ the kernel-vector → provenance → original-relations thread, and the C-LinAlg
 
 ### From filtering to linear algebra
 
-The output of G.D filtering is a `SparseMatrix` — a sparse GF(2) matrix A with m rows and n
+The output of filtering is a `SparseMatrix` — a sparse GF(2) matrix A with m rows and n
 columns. Each row corresponds to a filtered relation (or a merged aggregate of relations), and
 each column corresponds to a rational prime, a prime ideal, or an obstruction entry (sign or
 character). The entry A[i][j] is 1 if the j-th prime or ideal has an odd exponent in the i-th
 row's relation (or the sign or character bit is set), and 0 otherwise.
 
-The goal of G.E is to find vectors in the **left nullspace** (left kernel) of A: subsets of rows
-whose GF(2) column-sum is the zero vector. Formally, we seek non-zero vectors v ∈ GF(2)^m such that:
+The goal of linear algebra is to find vectors in the **left nullspace** (left kernel) of A:
+subsets of rows whose GF(2) column-sum is the zero vector. Formally, we seek non-zero vectors
+v ∈ GF(2)^m such that:
 
 $$
 v^T A = 0 \pmod{2}
@@ -2106,9 +2115,9 @@ exponent of that prime ideal in the product of the elements a − b·α). This i
 condition the matrix encodes; it makes the rational product a perfect square and is a necessary
 condition, not a sufficient one, for the algebraic product to be a square (§32).
 
-### The `SparseMatrix` contract (C-Matrix)
+### The `SparseMatrix` interface
 
-G.E inherits the `SparseMatrix` from G.D unchanged:
+Linear algebra inherits the `SparseMatrix` from filtering unchanged:
 
 ```rust
 pub struct SparseMatrix {
@@ -2135,8 +2144,9 @@ The column layout is:
                        obs_start            (col 0)    (one per character pair)
 ```
 
-G.D populates the rational and algebraic columns and the sign column. G.E fills in the
-quadratic-character columns (one per root character pair) before running the nullspace solver.
+Filtering populates the rational and algebraic columns and the sign column. Linear algebra fills
+in the quadratic-character columns (one per root character pair) before running the nullspace
+solver.
 
 ### Toy-scale matrix dimensions
 
@@ -2271,19 +2281,19 @@ bit and the parity of |S| it carries nothing, and it is redundant with the root 
 same q. The implementation therefore uses individual root characters and no norm characters
 (MATHEMATICS §5, "The norm character is redundant").
 
-**Principle-4 annotation.** The number of character columns is a scale knob: more characters
+**Toy-scale caveat.** The number of character columns is a scale knob: more characters
 shrink the surviving nonsquares, by half per independent character under the heuristic above, at
 the cost of a wider matrix, but no number of sampled characters certifies that a square root
 exists. The generated-relation run (§47) fixes eight.
 
 ---
 
-## 34. The C-LinAlg Substrate
+## 34. The Linear-Algebra Substrate
 
-### The three frozen types
+### The three core types
 
-The C-LinAlg contract (frozen at G.E.1) defines three types that all downstream consumers
-(G.E.2, G.E.3, G.F, D.B) use:
+The linear-algebra substrate defines three types that all downstream consumers (block Lanczos,
+block Wiedemann, the square-root stage, NFS-DL linear algebra) use:
 
 **`BlockVec`** — a block of `BLOCK_WIDTH = 64` GF(2) vectors, each of length `num_rows`,
 packed into a `Vec<u64>`. The layout is "row of words": `data[i]` is a `u64` whose bit j is
@@ -2365,9 +2375,9 @@ pub fn apply_transpose(&self, v: &BlockVec) -> BlockVec {
 ```rust
 /// Block width: 64 vectors packed into machine words.
 ///
-/// Principle-4 annotation: at toy scale a single word suffices and the blocking overhead
+/// Toy-scale caveat: at toy scale a single word suffices and the blocking overhead
 /// is invisible; at NFS scale the word-wide block is the inner loop's cache-friendly unit.
-/// The width is the scale knob — D.B may widen to 128 or parameterise over block width.
+/// The width is the scale knob — NFS-DL may widen to 128 or parameterise over block width.
 pub const BLOCK_WIDTH: usize = 64;
 ```
 
@@ -2531,7 +2541,7 @@ fn gf2_block_pivot(s: [u64; BLOCK_WIDTH]) -> (u64, [u64; BLOCK_WIDTH]) {
 }
 ```
 
-**Principle-4 annotation (self-orthogonality).** Self-orthogonality is a phenomenon that IS
+**Toy-scale caveat (self-orthogonality).** Self-orthogonality is a phenomenon that IS
 exposed at toy scale. The KAT matrix in `lanczos_kat.rs` is deliberately constructed with
 duplicate rows (rows 0 and 3 are identical; rows 4 and 5 are identical). Duplicate rows
 produce self-orthogonal block columns in the starting vector, exercising the winnowing path.
@@ -2542,7 +2552,7 @@ The KAT comment explains this explicitly:
 > vector has a component along e_i XOR e_j, that component is self-orthogonal under B and
 > triggers the winnowing.
 
-**Principle-4 annotation (block width).** The block width `BLOCK_WIDTH = 64` is the scale
+**Toy-scale caveat (block width).** The block width `BLOCK_WIDTH = 64` is the scale
 knob. At toy scale (6 × 4 matrix), the entire matrix fits in a handful of words and the
 blocking overhead is invisible — a single-vector Lanczos would be equally fast. At NFS scale
 (millions of rows), the 64-wide block amortises the cost of loading each matrix row once
@@ -2703,7 +2713,7 @@ machine computes a subset of the sequences independently; the Berlekamp-Massey s
 run on the combined sequences. This is the architecture used in the RSA-768 factorisation
 (Kleinjung et al., 2010).
 
-**Principle-4 annotation (Wiedemann parallelism).** At toy scale, the parallelism payoff is
+**Toy-scale caveat (Wiedemann parallelism).** At toy scale, the parallelism payoff is
 invisible. The implementation uses a single (x, y) pair (the scalar Wiedemann variant) at
 demonstration fidelity; the block variant would use `BLOCK_WIDTH` pairs simultaneously. The
 module docstring annotates this explicitly:
@@ -2734,11 +2744,11 @@ for attempt in 0..num_attempts {
 
 ## 37. The Kernel-Vector → Provenance → Original-Relations Thread
 
-### What G.F consumes
+### What the square-root stage consumes
 
-G.F (the square-root step) needs the original (a, b) pairs — not the filtered-matrix row
+The square-root stage needs the original (a, b) pairs — not the filtered-matrix row
 indices. The bridge is the provenance map: each `MatrixRow` carries a sorted, deduplicated
-list of original relation indices that merged into it during G.D filtering.
+list of original relation indices that merged into it during filtering.
 
 The `KernelVector` type provides the `expand_provenance` method that performs this expansion:
 
@@ -2776,20 +2786,21 @@ times.
 
 The complete kernel-vector → original-relations thread:
 
-1. **G.E** runs `block_lanczos` or `block_wiedemann` on the filtered matrix, returning a
+1. **Linear algebra** runs `block_lanczos` or `block_wiedemann` on the filtered matrix, returning a
    `Vec<KernelVector>`. Each `KernelVector` is a sorted list of filtered-matrix row indices.
 
-2. **G.F** calls `kv.expand_provenance(&matrix)` to get the set of original relation indices.
-   This is the symmetric difference of the provenance sets of all selected rows.
+2. **The square-root stage** calls `kv.expand_provenance(&matrix)` to get the set of original
+   relation indices. This is the symmetric difference of the provenance sets of all selected rows.
 
-3. **G.F** looks up the original `Relation` objects by index to recover the (a, b) pairs.
+3. **The square-root stage** looks up the original `Relation` objects by index to recover the
+   (a, b) pairs.
 
-4. **G.F** computes the rational product P = ∏(a − b·m) (a perfect square in ℤ) and tries to
-   find β in K = ℚ(α) with β² = ∏(a − b·α), which is only a candidate for a square; a verified β
-   has an image y with y² ≡ P (mod N), which forms the congruence x² ≡ y² (mod N).
+4. **The square-root stage** computes the rational product P = ∏(a − b·m) (a perfect square in ℤ)
+   and tries to find β in K = ℚ(α) with β² = ∏(a − b·α), which is only a candidate for a square;
+   a verified β has an image y with y² ≡ P (mod N), which forms the congruence x² ≡ y² (mod N).
 
 The KAT `kat_3_round_trip_provenance` in `linalg_substrate_kat.rs` verifies this thread end-
-to-end before G.F exists. For a matrix with hand-crafted provenance:
+to-end, independently of the square-root stage. For a matrix with hand-crafted provenance:
 
 ```rust
 // Row 0: provenance = [0, 1], Row 1: provenance = [2], Row 2: provenance = [1, 3].
@@ -2810,7 +2821,7 @@ assert_eq!(expanded, vec![0, 2, 3]);
 
 The `KernelVector` stores row indices rather than a bit-mask for three reasons:
 
-1. G.F needs row indices to look up provenance; a bit-mask would require a scan.
+1. The square-root stage needs row indices to look up provenance; a bit-mask would require a scan.
 2. Kernel vectors are sparse (typically a small fraction of rows); a bit-mask wastes space.
 3. Solvers internally work with bit-packed block vectors, but convert to `KernelVector` on
    output — the conversion is O(rows) and happens once per kernel vector, not in the inner
@@ -2818,28 +2829,28 @@ The `KernelVector` stores row indices rather than a bit-mask for three reasons:
 
 ---
 
-## 38. The C-LinAlg Contract and D.B Generalisation
+## 38. The Linear-Algebra Interface and Its F_ℓ Generalisation
 
-### The frozen seam
+### The stable seam
 
-The C-LinAlg contract (frozen at G.E.1) defines the interface that all downstream consumers
-use. The three types — `BlockVec`, `MatrixOperator`, and `KernelVector` — are the frozen seam.
-G.E.2 (block Lanczos), G.E.3 (block Wiedemann), G.F (square root), and D.B (NFS-DL linear
-algebra over F_ℓ) all consume this interface directly.
+The linear-algebra substrate defines the interface that all downstream consumers use. The three
+types — `BlockVec`, `MatrixOperator`, and `KernelVector` — are the stable seam. Block Lanczos,
+block Wiedemann, the square-root stage, and NFS-DL linear algebra over F_ℓ all consume this
+interface directly.
 
 The module docstring in `gnfs/src/linalg/mod.rs` states the contract explicitly:
 
 ```rust
-//! # C-LinAlg contract
+//! # Linear algebra contract
 //!
-//! The types and functions in this module implement the C-LinAlg contract frozen at G.E.1.
-//! G.E.2 (block Lanczos), G.E.3 (Wiedemann), G.F (square root), and D.B (GF(ℓ) extension)
+//! The types and functions in this module implement the GF(2) linear-algebra substrate.
+//! The block Lanczos solver, Wiedemann solver, square root step, and the F_ℓ extension
 //! consume this interface directly.
 ```
 
-### The D.B generalisation
+### The F_ℓ generalisation
 
-D.B (NFS-DL linear algebra) generalises the G.E linear algebra from GF(2) to F_ℓ (the field
+NFS-DL linear algebra generalises the GF(2) linear algebra to F_ℓ (the field
 with ℓ elements, where ℓ is a prime). The generalisation touches three points:
 
 **`BlockVec` generalisation.** The GF(2)-specific packing (64 scalars per `u64`) is the scale
@@ -2848,7 +2859,7 @@ is the field element type. The `BlockVec` docstring annotates this:
 
 > For F_ℓ (ℓ > 2), the natural generalisation is `data: Vec<[Scalar; BLOCK_WIDTH]>` where
 > `Scalar` is the field element type. The GF(2) specialisation packs 64 scalars into one
-> `u64`. D.B may introduce a `BlockVec<S>` generic or a parallel `BlockVecFl` type; the
+> `u64`. NFS-DL may introduce a `BlockVec<S>` generic or a parallel `BlockVecFl` type; the
 > *interface* (inner products, apply, apply_transpose) is the stable seam.
 
 **`MatrixOperator` generalisation.** The operator interface is already abstract: `apply` and
@@ -2857,11 +2868,11 @@ scalar multiplication replacing the GF(2) XOR. The `MatrixOperator` docstring an
 
 > For F_ℓ, the operator needs the same shape but with scalar multiplication. The natural
 > generalisation is a trait `LinearOperator<V>` with `apply(&self, v: &V) -> V` and
-> `apply_transpose(&self, v: &V) -> V`. G.E implements the concrete GF(2) version; D.B
+> `apply_transpose(&self, v: &V) -> V`. The GF(2) solvers implement the concrete version; NFS-DL
 > may introduce the trait and have `MatrixOperator` implement it.
 
 **`KernelVector` generalisation.** For F_ℓ, a kernel vector is still a subset of rows (those
-with nonzero coefficient in the nullspace vector). The row-index spine is stable; D.B may add
+with nonzero coefficient in the nullspace vector). The row-index spine is stable; NFS-DL may add
 a `coefficients` field (`Vec<Scalar>`) for the non-GF(2) case.
 
 ### The interface shape is stable
@@ -2869,15 +2880,15 @@ a `coefficients` field (`Vec<Scalar>`) for the non-GF(2) case.
 The key design decision is that the GF(2)-specific packing is isolated in `BlockVec::data`
 (the `Vec<u64>` representation) and the inner-loop operations (`xor_assign`,
 `inner_product_matrix`). The interface shape — `apply`, `apply_transpose`, `KernelVector`,
-`expand_provenance` — is stable across the GF(2) → F_ℓ generalisation. D.B can reuse the
+`expand_provenance` — is stable across the GF(2) → F_ℓ generalisation. NFS-DL can reuse the
 `MatrixOperator` and `KernelVector` types directly, or introduce a thin generic wrapper, without
 changing the solver structure.
 
 ---
 
-## 39. Principle-4 Annotations Summary (G.E)
+## 39. Toy-Scale Caveats Summary (Linear Algebra)
 
-The following table collects all principle-4 annotations from the G.E module — phenomena that
+The following table collects all toy-scale caveats of the linear-algebra module — phenomena that
 are scale-dependent and either under-exposed or over-exposed at toy scale.
 
 | Phenomenon | Toy-scale behaviour | NFS-scale behaviour | Scale knob |
@@ -2896,7 +2907,7 @@ between them is invisible.
 
 ---
 
-## 40. KAT Summary (G.E)
+## 40. KAT Summary (Linear Algebra)
 
 The following table lists the key known-answer tests across the linalg module, with the
 mathematical fact each one verifies.
@@ -2927,31 +2938,31 @@ Linear algebra is the fifth stage of the GNFS pipeline. The output — a `Vec<Ke
 each with its provenance expansion thread back to the original relations — is the input to the
 square-root stage.
 
-**G.F (square root)** takes a `KernelVector` from G.E and expands it through the provenance
-map to recover the original (a, b) pairs. It then computes the rational product
+**The square-root stage** takes a `KernelVector` from linear algebra and expands it through the
+provenance map to recover the original (a, b) pairs. It then computes the rational product
 P = ∏(a − b·m) (a perfect square in ℤ) and tries to find β in K = ℚ(α) with
 β² = ∏(a − b·α), which is only a candidate for a square; a verified β has an image y with
 y² ≡ P (mod N), giving the congruence x² ≡ y² (mod N). A non-trivial GCD of x − y and N yields a
 factor.
 
-**D.B (NFS-DL linear algebra)** generalises the G.E linear algebra from GF(2) to F_ℓ. The
-`BlockVec`, `MatrixOperator`, and `KernelVector` types are the frozen seam; D.B may introduce
+**NFS-DL linear algebra** generalises the GF(2) linear algebra to F_ℓ. The
+`BlockVec`, `MatrixOperator`, and `KernelVector` types are the stable seam; NFS-DL may introduce
 a generic wrapper or a parallel `BlockVecFl` type for the F_ℓ case. The solver structure
 (block Lanczos or block Wiedemann) is unchanged; only the field arithmetic differs.
 
 ---
 
-## Further Reading (G.E)
+## Further Reading (Linear Algebra)
 
 1. **Montgomery, P. L. (1995).** *A block Lanczos algorithm for finding dependencies over
    GF(2).* In: Guillou, L. C., and Quisquater, J.-J. (eds.) Advances in Cryptology —
    EUROCRYPT '95, LNCS 921. Springer. The original source for the block Lanczos algorithm
-   used in G.E.2, including the self-orthogonality winnowing and the three-term recurrence.
+   used in block Lanczos, including the self-orthogonality winnowing and the three-term recurrence.
 
 2. **Coppersmith, D. (1994).** *Solving homogeneous linear equations over GF(2) via block
    Wiedemann algorithm.* Mathematics of Computation, 62(205), 333–350. The original source
-   for the block Wiedemann algorithm used in G.E.3, including the Berlekamp-Massey step and
-   the parallelism analysis.
+   for the block Wiedemann algorithm used in block Wiedemann, including the Berlekamp-Massey step
+   and the parallelism analysis.
 
 3. **Wiedemann, D. (1986).** *Solving sparse linear equations over finite fields.* IEEE
    Transactions on Information Theory, 32(1), 54–62. The scalar Wiedemann algorithm that
@@ -2992,7 +3003,7 @@ chapters call.
 
 ### What a `KernelVector` represents
 
-The linear algebra step (G.E, §31–§41) produces a `KernelVector` — a sorted list of
+The linear algebra step (§31–§41) produces a `KernelVector` — a sorted list of
 filtered-matrix row indices whose GF(2) column-sum is the zero vector. Each row in the
 filtered matrix corresponds to a relation (or a merged aggregate of relations), and each
 column corresponds to a prime or obstruction entry in the factor base.
@@ -3042,10 +3053,10 @@ pub fn expand_provenance(&self, matrix: &SparseMatrix) -> Vec<usize> {
 }
 ```
 
-This seam was over-specified at G.E.1 for the square-root stage. The checked path does not take
-the method's word for it: `DependencyContext::validate` re-derives the lift itself, because
-`expand_provenance` indexes the matrix directly and is only safe for a vector that is known to be
-in range. The validated index set S is the input to both square roots (see "Checked Dependencies:
+This seam was over-specified in the linear-algebra substrate for the square-root stage. The
+checked path does not take the method's word for it: `DependencyContext::validate` re-derives the
+lift itself, because `expand_provenance` indexes the matrix directly and is only safe for a vector
+that is known to be in range. The validated index set S is the input to both square roots (see "Checked Dependencies:
 Lifting and Exact Products" below).
 
 ---
@@ -3234,9 +3245,12 @@ can only be built here, so its existence records the whole chain.
 ### Why the trivial congruence is expected
 
 The trivial outcome ($x \equiv \pm y \pmod{N}$) is *expected* for some dependencies — it is not a
-bug. For a semiprime $N = p \cdot q$, $x \equiv \pm y \pmod{p}$ and $x \equiv \pm y \pmod{q}$ are
-independent events of probability 1/2 each for a random congruence of squares, so about half of
-the congruences are trivial. The driver therefore tries several candidates.
+bug. For a semiprime $N = p \cdot q$ (with $p, q \nmid y$), $x^2 \equiv y^2$ gives
+$x \equiv \varepsilon_p y \pmod{p}$ and $x \equiv \varepsilon_q y \pmod{q}$ with signs
+$\varepsilon_p, \varepsilon_q \in \{\pm 1\}$. For a random congruence of squares the signs are
+independent and uniform, and the congruence is trivial exactly when they agree, so about half of
+the congruences are trivial (a modelling assumption, not measured here). The driver therefore
+tries several candidates.
 
 ### Bounded retry: `factor`
 
@@ -3269,23 +3283,23 @@ lifted relations:
 
 This chapter closes the GNFS pipeline. The five stages, end to end:
 
-1. **Polynomial selection (G.B, §1–§11).** Choose a polynomial pair $(f, g)$ with $f(m) \equiv
+1. **Polynomial selection (§1–§11).** Choose a polynomial pair $(f, g)$ with $f(m) \equiv
    0 \pmod{N}$ and good Murphy-E score. Output: `PolyPair`.
 
-2. **Sieving (G.C, §12–§21).** For each $(a, b)$ in the sieve region, check whether both the
+2. **Sieving (§12–§21).** For each $(a, b)$ in the sieve region, check whether both the
    rational norm $a - b \cdot m$ and the algebraic value $F(a, b) = b^d \cdot f(a/b)$ are smooth
    over their respective factor bases. Output: `Vec<Relation>`.
 
-3. **Filtering (G.D, §22–§30).** Remove duplicate and linearly dependent relations; merge
+3. **Filtering (§22–§30).** Remove duplicate and linearly dependent relations; merge
    weight-2 and weight-3 columns; build the sparse GF(2) matrix with provenance map. Output:
    `SparseMatrix`.
 
-4. **Linear algebra (G.E, §31–§41).** Find the left nullspace of the filtered matrix over
+4. **Linear algebra (§31–§41).** Find the left nullspace of the filtered matrix over
    GF(2) via block Lanczos or block Wiedemann, with root-character columns as additional
    necessary filters. Output: `Vec<KernelVector>`, whose bounded XOR combinations are the
    candidates.
 
-5. **Square root and assembly (G.F, §42–§50, this chapter).** For each candidate: validate it
+5. **Square root and assembly (§42–§50, this chapter).** For each candidate: validate it
    against the original relations and lift it to the relation set S; compute the exact rational
    root $x$ and a verified algebraic root with image $y$; check $x^2 \equiv y^2 \pmod N$ and
    take $\gcd(x - y, N)$. Output: a `FactorReport` whose outcome is a verified proper factor of
@@ -3382,7 +3396,7 @@ typed outcome or error; none panics, and none returns a root that has not been v
 
 ---
 
-## 49. Principle-4 Annotations Summary (G.F)
+## 49. Toy-Scale Caveats Summary (Square Root)
 
 The following table collects the scale-dependent phenomena of the square-root stage.
 
@@ -3401,7 +3415,7 @@ verify, and the exact recombination matches signs without a real root.
 
 ---
 
-## 50. KAT Summary (G.F)
+## 50. KAT Summary (Square Root)
 
 The following table lists the key known-answer tests across the sqrt module, with the
 mathematical fact each one verifies.
@@ -4345,17 +4359,17 @@ treats every candidate as untrusted.
 The square-root and assembly stage is the final stage of the GNFS factoring pipeline. The
 output — a non-trivial factor of N — closes the GNFS arc.
 
-**G.W (integrative writeup)** will articulate the whole cross-phase pipeline in a single
-narrative, connecting polynomial selection through sieving, filtering, linear algebra, and
-square root. The L-notation complexity analysis lands in G.W, not here.
+**The integrative chapter** (§52–§62) articulates the whole pipeline in a single narrative,
+connecting polynomial selection through sieving, filtering, linear algebra, and square root. The
+L-notation complexity analysis lands there, not here.
 
-**D.B (NFS-DL linear algebra)** generalises the G.E linear algebra from GF(2) to $\mathbb{F}_\ell$.
-The `reduce_mod_ideal` method added at G.F.1 is the natural re-consumer: D.B uses the same
+**NFS-DL linear algebra** generalises the GF(2) linear algebra to $\mathbb{F}_\ell$.
+The `reduce_mod_ideal` method is the natural re-consumer: NFS-DL uses the same
 residue-field reduction to compute Schirokauer maps in $\mathbb{F}_\ell$.
 
 ---
 
-## Further Reading (G.F)
+## Further Reading (Square Root)
 
 1. **Couveignes, J.-M. (1993).** *Computing a square root for the number field sieve.*
    Unpublished manuscript, cited in Lenstra et al. (1993). The classical CRT-based algebraic
@@ -4390,60 +4404,60 @@ residue-field reduction to compute Schirokauer maps in $\mathbb{F}_\ell$.
 
 This chapter is the integrative code-tour for the complete GNFS factoring pipeline. The five
 preceding chapters (§1–§51) each explained one stage in isolation. This chapter traces the
-whole data-flow from N to a factor in a single narrative, names the cross-phase contracts that
-connect the stages, verifies the design statement against what was actually implemented, and
-derives the L-notation complexity of GNFS as a payoff.
+whole data-flow from N to a factor in a single narrative, names the cross-stage interfaces that
+connect the stages, verifies the project's design commitments against what was actually
+implemented, and derives the L-notation complexity of GNFS as a payoff.
 
 A reader who has read §1–§51 can read this chapter as a synthesis. A reader who has not can
-use it as a map: each section names the stage, states its contract, and points to the detailed
+use it as a map: each section names the stage, states its interface, and points to the detailed
 chapter.
 
 ---
 
 ## 52. The Pipeline at a Glance
 
-The GNFS pipeline has five stages. Each stage consumes a contract from the previous stage and
-produces a contract for the next. The contracts are the frozen interfaces that allow the stages
-to be developed, tested, and reasoned about independently.
+The GNFS pipeline has five stages. Each stage consumes an interface from the previous stage and
+produces one for the next. The interfaces are the stable types that allow the stages to be
+developed, tested, and reasoned about independently.
 
 ```text
 N (integer to factor)
     │
     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  G.B — Polynomial Selection                                         │
+│  Polynomial Selection                                               │
 │  Input:  N, degree d                                                │
 │  Output: PolyPair (f, g, m, n, skew, factor_base_bounds)           │
-│  Contracts: C-PolyPair (frozen G.B.1), C-Score (frozen G.B.2)      │
+│  Interface: PolyPair, score                                         │
 └─────────────────────────────────────────────────────────────────────┘
-    │  C-PolyPair
+    │  PolyPair
     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  G.C — Sieving                                                      │
+│  Sieving                                                            │
 │  Input:  PolyPair, sieve region [−A, A] × [1, B]                   │
 │  Output: Vec<Relation>                                              │
-│  Contracts: C-Relation (frozen G.C.1), C-FactorBase (frozen G.C.1) │
+│  Interfaces: Relation, FactorBase                                   │
 └─────────────────────────────────────────────────────────────────────┘
-    │  C-Relation, C-FactorBase
+    │  Relation, FactorBase
     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  G.D — Filtering                                                    │
+│  Filtering                                                          │
 │  Input:  Vec<Relation>, FactorBase                                  │
 │  Output: SparseMatrix (with provenance map)                         │
-│  Contract: C-Matrix (frozen G.D.1)                                  │
+│  Interface: SparseMatrix                                            │
 └─────────────────────────────────────────────────────────────────────┘
-    │  C-Matrix
+    │  SparseMatrix
     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  G.E — Linear Algebra                                               │
+│  Linear Algebra                                                     │
 │  Input:  SparseMatrix, Vec<Relation>, PolyPair                      │
 │  Output: Vec<KernelVector>                                          │
-│  Contract: C-LinAlg (frozen G.E.1)                                  │
+│  Interface: BlockVec, MatrixOperator, KernelVector                  │
 └─────────────────────────────────────────────────────────────────────┘
-    │  C-LinAlg (KernelVector + expand_provenance seam)
+    │  KernelVector (+ expand_provenance seam)
     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  G.F — Square Root and Assembly                                     │
+│  Square Root and Assembly                                           │
 │  Input:  DependencyContext, candidate KernelVectors                 │
 │  Output: FactorReport (verified factor / incidental / exhausted)    │
 │  Contract: verified roots and typed reports                         │
@@ -4463,11 +4477,11 @@ the tested scope for sieve-to-factor.
 
 ---
 
-## 53. Stage 1: Polynomial Selection and the C-PolyPair Contract
+## 53. Stage 1: Polynomial Selection and the `PolyPair` Interface
 
 ### What polynomial selection does
 
-Polynomial selection (G.B, §1–§11) finds a polynomial pair (f, g) such that:
+Polynomial selection (§1–§11) finds a polynomial pair (f, g) such that:
 
 - f ∈ ℤ[x] has degree d ≥ 2, small coefficients, and many roots mod small primes.
 - g(x) = x − m is the rational-side polynomial.
@@ -4481,10 +4495,9 @@ a − bα is F(a, b)/c). This connection is what lets the candidate dependencies
 become a congruence of squares mod N: the congruence exists only once both square roots of a
 dependency's product have been reconstructed and verified.
 
-### The C-PolyPair contract (frozen G.B.1, commit 2f43f99)
+### The `PolyPair` interface
 
-The `PolyPair` struct is the **C-PolyPair contract** — the interface between polynomial
-selection and all downstream stages:
+The `PolyPair` struct is the interface between polynomial selection and all downstream stages:
 
 ```rust
 pub struct PolyPair {
@@ -4493,8 +4506,8 @@ pub struct PolyPair {
     pub m: BigInt,                           // shared root: f(m) ≡ 0 (mod n)
     pub n: BigInt,                           // the integer to factor
     pub degree: usize,                       // degree of f
-    pub skew: Option<f64>,                   // Murphy-E skew (set by G.B.2)
-    pub factor_base_bounds: Option<(u64, u64)>, // (B_rat, B_alg) (set by G.C)
+    pub skew: Option<f64>,                   // Murphy-E skew (read by `score`; not set today)
+    pub factor_base_bounds: Option<(u64, u64)>, // (B_rat, B_alg) (reserved; not set today)
 }
 ```
 
@@ -4502,13 +4515,13 @@ The `verify()` method enforces the invariants: f has degree ≥ 1, `degree` is c
 f, g = x − m, and f(m) ≡ 0 (mod n). Every generator (base-m, root sieve, Coppersmith) calls
 `verify()` before returning a pair.
 
-The `skew` and `factor_base_bounds` fields are `None` at construction and populated by later
-stages. This is the over-specification pattern: adding them now is cheaper than amending the
-contract after G.C consumes it.
+The `skew` and `factor_base_bounds` fields are `None` at construction, and no stage sets them
+today (`score` reads `skew` when it is set). This is the over-specification pattern: adding them
+now is cheaper than amending the interface after the sieve consumes it.
 
-### The C-Score contract (frozen G.B.2, commit 00aa32d)
+### The `score` interface
 
-The `score` function is the **C-Score contract** — the Murphy-E scoring interface:
+The `score` function is the Murphy-E scoring interface:
 
 ```rust
 pub fn score(pair: &PolyPair) -> f64;
@@ -4522,11 +4535,11 @@ of the product of Dickman-ρ values for the algebraic and rational norms:
 E(f, g) ≈ (1/|S|) Σ_{(a,b) ∈ S} ρ(log|F(a,b)| / log B_f) · ρ(log|G(a,b)| / log B_g)
 ```
 
-The C-Score contract is consumed by the root sieve (G.B.3), Coppersmith multi-poly (G.B.4),
-and the D.A NFS-DL polynomial selection. It is also the signal that E.K (factor-base balancing)
-uses to choose the optimal factor-base bounds.
+The `score` interface is consumed by the root sieve, Coppersmith multi-poly, and the NFS-DL
+polynomial selection. A factor-base balancing step (not implemented) would also use it as the
+signal for choosing the factor-base bounds.
 
-**Principle-4 annotation.** Murphy-E's predictive value only manifests at sieve scale
+**Toy-scale caveat.** Murphy-E's predictive value only manifests at sieve scale
 (N ≳ 2^100). At toy scale, the score is a ranking heuristic: the ordering is correct in
 expectation, but the absolute values are not meaningful.
 
@@ -4548,11 +4561,11 @@ square-root stage builds its own monic form without calling it. The seam is inte
 
 ---
 
-## 54. Stage 2: Sieving and the C-Relation / C-FactorBase Contracts
+## 54. Stage 2: Sieving and the `Relation` / `FactorBase` Interfaces
 
 ### What sieving does
 
-Sieving (G.C, §12–§21) collects smooth pairs (a, b) — pairs for which both the rational norm
+Sieving (§12–§21) collects smooth pairs (a, b) — pairs for which both the rational norm
 a − bm and the algebraic value F(a, b) = b^d · f(a/b) factor completely over their respective
 factor bases. Each smooth pair is a **relation**: a row in the eventual GF(2) matrix.
 
@@ -4562,9 +4575,9 @@ the corresponding value (N_rat or F), and confirm candidates where the accumulat
 smoothness threshold. The threshold filter eliminates most candidates before the expensive
 trial-division confirmation step.
 
-### The C-FactorBase contract (frozen G.C.1, commit c1dc0b6)
+### The `FactorBase` interface
 
-The `FactorBase` struct is the **C-FactorBase contract** — the two-sided factor base:
+The `FactorBase` struct is the two-sided factor base:
 
 ```rust
 pub struct FactorBase {
@@ -4581,8 +4594,9 @@ of f mod p. The sieve condition for the algebraic side is: the ideal (p, r) divi
 a − b·α if and only if a ≡ r·b (mod p), and then p divides the algebraic value
 N_alg(a, b) = F(a, b). This is the algebraic analogue of the rational condition a ≡ b·m (mod p).
 
-The `obstruction_count` field is initialised to 1 (the sign/−1 column). G.E adds quadratic-
-character columns; the slot exists so the matrix-width calculation is stable across stages.
+The `obstruction_count` field is initialised to 1 (the sign/−1 column). Linear algebra adds
+quadratic-character columns; the slot exists so the matrix-width calculation is stable across
+stages.
 
 **Why degree-1 ideals.** For a coprime pair (a, b) and a prime p ∤ c·disc(F), the only prime
 ideal over p that can divide (a − b·α) is the degree-one ideal (p, α − r) with r ≡ a·b⁻¹ (mod p).
@@ -4591,9 +4605,9 @@ localised away from c exactly when a ≡ r·b (mod p), and then p divides
 N_alg(a, b) = b^d · f(a/b) = c·N_{K/ℚ}(a − b·α). The sieve condition is the efficient way to
 enumerate which (a, b) pairs have the ideal (p, r) dividing (a − b·α).
 
-### The C-Relation contract (frozen G.C.1, commit c1dc0b6)
+### The `Relation` interface
 
-The `Relation` struct is the **C-Relation contract** — the unit of NFS data:
+The `Relation` struct is the unit of NFS data:
 
 ```rust
 pub struct Relation {
@@ -4606,11 +4620,12 @@ pub struct Relation {
 ```
 
 The `ExponentVector` stores sparse (factor-base index, exponent) pairs with `u32` exponents —
-not pre-reduced GF(2) parities. This is the load-bearing cross-track decision: G.D needs
-integer exponents to detect exact duplicates; G.E reduces them mod 2 on demand; D.A reads them
-mod ℓ for GF(ℓ) linear algebra. Pre-reducing to GF(2) would destroy the information D.A needs.
+not pre-reduced GF(2) parities. This is the load-bearing cross-track decision: filtering needs
+integer exponents to detect exact duplicates; linear algebra reduces them mod 2 on demand; NFS-DL
+reads them mod ℓ for GF(ℓ) linear algebra. Pre-reducing to GF(2) would destroy the information
+NFS-DL needs.
 
-The `rational_sign` field is the "−1 column" for G.E's linear algebra: the rational product
+The `rational_sign` field is the "−1 column" for the linear algebra step: the rational product
 ∏(a − b·m) over the selected relations must be positive (an even number of negative factors).
 The sign column encodes this constraint.
 
@@ -4622,22 +4637,22 @@ sign matches.
 
 The sieve module provides three relation-collection strategies:
 
-| Variant | Description | Principle-4 annotation |
-|---------|-------------|------------------------|
+| Variant | Description | Toy-scale caveat |
+|---------|-------------|------------------|
 | `line_sieve` | For each b, sieve a ∈ [−A, A] | Asymptotic win under-exposed at toy scale |
 | `special_q_sieve` | Restrict to pairs with q | N_alg(a, b); yield multiplier | Yield advantage under-exposed at toy scale |
 | `lattice_sieve` | Enumerate the lattice L_q via Gauss-reduced basis | Efficiency gain under-exposed at toy scale |
 
-All three produce `Vec<Relation>` satisfying the C-Relation contract. The choice of variant
+All three produce `Vec<Relation>` satisfying the `Relation` interface. The choice of variant
 affects the yield and efficiency but not the downstream interface.
 
 ---
 
-## 55. Stage 3: Filtering and the C-Matrix Contract
+## 55. Stage 3: Filtering and the `SparseMatrix` Interface
 
 ### What filtering does
 
-Filtering (G.D, §22–§30) converts the raw relation corpus into a sparse GF(2) matrix suitable
+Filtering (§22–§30) converts the raw relation corpus into a sparse GF(2) matrix suitable
 for the linear algebra step. The pipeline is:
 
 ```rust
@@ -4650,10 +4665,9 @@ let matrix = merge_columns(matrix);              // weight-2 and weight-3 XOR me
 Each step is a pure function (consumes and returns `SparseMatrix`), making the pipeline
 composable and testable in isolation.
 
-### The C-Matrix contract (frozen G.D.1, commit a0e854b)
+### The `SparseMatrix` interface
 
-The `SparseMatrix` struct is the **C-Matrix contract** — the filtered sparse GF(2) matrix with
-provenance map:
+The `SparseMatrix` struct is the filtered sparse GF(2) matrix with provenance map:
 
 ```rust
 pub struct SparseMatrix {
@@ -4669,17 +4683,18 @@ Each `MatrixRow` carries:
 - `cols: Vec<usize>` — sorted column indices where this row has a 1 in GF(2).
 - `provenance: Vec<usize>` — sorted, deduplicated original relation indices.
 
-The provenance map is the thread to G.F: it records which original (a, b) pairs contributed
-to each filtered-matrix row. G.E does not modify provenance; it passes the final matrix (with
-provenance intact) to G.F.
+The provenance map is the thread to the square-root stage: it records which original (a, b) pairs
+contributed to each filtered-matrix row. Linear algebra does not modify provenance; it passes the
+final matrix (with provenance intact) to the square-root stage.
 
 ### Why the provenance map is over-specified
 
 The provenance map stores original relation indices, not the GF(2) column set of the merged
-row. G.F needs the actual (a, b) pairs to compute the algebraic square root — the product of
-(a − b·α) in the number field K = ℚ(α). The GF(2) column set of a merged row is the XOR of
-the original exponent parities; it does not contain the original (a, b) values. Storing the
-GF(2) column set instead of the original indices would make G.F impossible without re-deriving
+row. The square-root stage needs the actual (a, b) pairs to compute the algebraic square root —
+the product of (a − b·α) in the number field K = ℚ(α). The GF(2) column set of a merged row is
+the XOR of the original exponent parities; it does not contain the original (a, b) values.
+Storing the GF(2) column set instead of the original indices would make the square-root stage
+impossible without re-deriving
 the (a, b) pairs from the exponent vectors, which would require keeping the full `Vec<Relation>`
 in scope anyway.
 
@@ -4697,11 +4712,11 @@ non-obstruction column remains.
 
 ---
 
-## 56. Stage 4: Linear Algebra and the C-LinAlg Contract
+## 56. Stage 4: Linear Algebra and the Linear-Algebra Interface
 
 ### What linear algebra does
 
-Linear algebra (G.E, §31–§41) finds the left nullspace of the filtered matrix over GF(2). A
+Linear algebra (§31–§41) finds the left nullspace of the filtered matrix over GF(2). A
 left nullspace vector v is a 0/1 indicator over rows: the rows it selects form a subset S of
 filtered relations such that, for every rational prime and every constrained degree-one prime
 ideal (p, r) in the factor base, the total exponent across all relations in S is even, and the
@@ -4709,9 +4724,9 @@ number of negative rational factors is even. These are exponents of primes and i
 norms, and the condition makes the rational product a perfect square. It is necessary, and not
 sufficient, for the algebraic product γ = ∏(a − b·α) to be a square in K.
 
-Before running the nullspace solver, G.E fills in the root-character columns. For each pair (q, s)
-of an odd prime q ∤ c·disc(f) and a root s of f modulo q, the column records the Legendre-symbol
-parity of a − b·s. If γ is a square in K, the character values over S multiply to +1, so each
+Before running the nullspace solver, linear algebra fills in the root-character columns. For each
+pair (q, s) of an odd prime q ∤ c·disc(f) and a root s of f modulo q, the column records the
+Legendre-symbol parity of a − b·s. If γ is a square in K, the character values over S multiply to +1, so each
 column is a necessary condition. Characters are filters: units, the class group, and ideals the
 matrix leaves unconstrained can still obstruct, and no finite number of characters certifies a
 square, so the exact square-root stage decides. The precise account is in MATHEMATICS §5 ("The
@@ -4720,9 +4735,9 @@ Provenance" section. The linear-algebra cost is O(k·W) for iterative solvers, w
 nonzeros, and O(k³) for dense elimination; block Lanczos divides its matrix-product cost by the
 word width (MATHEMATICS §5, the linear-algebra paragraph).
 
-### The C-LinAlg contract (frozen G.E.1, commit 416f6db)
+### The linear-algebra interface
 
-The C-LinAlg contract defines three types:
+The linear-algebra interface defines three types:
 
 **`BlockVec`** — a block of `BLOCK_WIDTH = 64` GF(2) vectors, packed into a `Vec<u64>`. The
 layout is "row of words": `data[i]` is a `u64` whose bit j is the j-th vector's value at row
@@ -4736,7 +4751,7 @@ interface exclusively; they never read `SparseMatrix` fields directly.
 **`KernelVector`** — a vector in the left nullspace of the matrix, represented as a sorted,
 deduplicated `Vec<usize>` of filtered-matrix row indices.
 
-The `expand_provenance` method on `KernelVector` is the seam to G.F:
+The `expand_provenance` method on `KernelVector` is the seam to the square-root stage:
 
 ```rust
 pub fn expand_provenance(&self, matrix: &SparseMatrix) -> Vec<usize> {
@@ -4746,12 +4761,12 @@ pub fn expand_provenance(&self, matrix: &SparseMatrix) -> Vec<usize> {
 }
 ```
 
-This seam was over-specified at G.E.1 precisely for G.F: it bridges the filtered-matrix row
-indices to the original relation indices that G.F needs.
+This seam was over-specified precisely for the square-root stage: it bridges the filtered-matrix
+row indices to the original relation indices that the square-root stage needs.
 
 ### The two solvers
 
-G.E provides two nullspace solvers:
+Linear algebra provides two nullspace solvers:
 
 **Block Lanczos** (`block_lanczos`): builds a Krylov basis for B = A·Aᵀ using a three-term
 recurrence. The self-orthogonality winnowing step handles the GF(2)-specific problem that a
@@ -4773,7 +4788,7 @@ across multiple machines — the architecture used in the RSA-768 factorisation.
 
 ### What the square-root stage does
 
-The square-root stage (G.F, §42–§51) takes candidate `KernelVector`s from G.E and a
+The square-root stage (§42–§51) takes candidate `KernelVector`s from linear algebra and a
 `DependencyContext` (the matrix bound to its original relations), and produces a `FactorReport`.
 For each candidate it has three sub-steps:
 
@@ -4817,90 +4832,92 @@ incidental divisor and continues, and aborts on an invalid candidate. The report
 the search or any attempt was resource limited, so that `Exhausted` is read as a complete negative
 only for the supplied candidates.
 
-The retry loop is the safety net for trivial congruences: roughly 50% of candidates yield a
-trivial congruence for a semiprime N = p × q (because x ≡ ±y mod p and x ≡ ±y mod q are
-independent events, each with probability 1/2), and some candidates have a nonsquare γ. The
+The retry loop is the safety net for trivial congruences: about 50% of candidates are expected to
+yield a trivial congruence for a semiprime N = p × q (the signs in x ≡ ±y mod p and x ≡ ±y mod q
+are modelled as independent and uniform, and the congruence is trivial when they agree; not
+measured here), and some candidates have a nonsquare γ. The
 nullspace dimension grows with the excess, and bounded XOR combinations enlarge the candidate
 list further.
 
 ---
 
-## 58. The Cross-Phase Contracts: A Unified View
+## 58. The Cross-Stage Interfaces: A Unified View
 
-The seven cross-phase contracts are the frozen interfaces that allow the GNFS pipeline to be
-developed, tested, and reasoned about in stages. This section names them in one place for the
-first time.
+The seven cross-stage interfaces are the stable types that allow the GNFS pipeline to be
+developed, tested, and reasoned about in stages. This section names them in one place.
 
-| Contract | Frozen at | What it defines | Consumed by |
-|----------|-----------|-----------------|-------------|
-| **C-PolyPair** | G.B.1 (2f43f99) | `PolyPair`: polynomial pair + number-field constructor | G.B.2–4, G.C, G.F, D.A |
-| **C-Score** | G.B.2 (00aa32d) | `score(pair) -> f64`: Murphy-E scoring | G.B.3–4, D.A, E.K |
-| **C-Relation** | G.C.1 (c1dc0b6) | `Relation`: (a, b) + two exponent vectors + sign bit | G.D, G.E, G.F, D.A |
-| **C-FactorBase** | G.C.1 (c1dc0b6) | `FactorBase`: two-sided factor base + sign/character columns | G.D, G.E, G.F, D.A |
-| **C-Matrix** | G.D.1 (a0e854b) | `SparseMatrix`: filtered sparse GF(2) matrix + provenance map | G.E, G.F, D.B |
-| **C-LinAlg** | G.E.1 (416f6db) | `BlockVec`, `MatrixOperator`, `KernelVector` + `expand_provenance` | G.E.2–3, G.F, D.B |
-| **C-AlgSqrt** | G.F.3 (c80a855 + ec69a1f) | Original square-root contract; since replaced by `algebraic_sqrt` over a `CheckedDependency` returning a verified root or a typed outcome | G.F.4, D.B |
+| Interface | What it defines | Consumed by |
+|-----------|-----------------|-------------|
+| **`PolyPair`** | polynomial pair + number-field constructor | scoring, root sieve, Coppersmith, sieving, square root, NFS-DL |
+| **`score`** | `score(pair) -> f64`: Murphy-E scoring | root sieve, Coppersmith, NFS-DL |
+| **`Relation`** | (a, b) + two exponent vectors + sign bit | filtering, linear algebra, square root, NFS-DL |
+| **`FactorBase`** | two-sided factor base + sign/character columns | filtering, linear algebra, square root, NFS-DL |
+| **`SparseMatrix`** | filtered sparse GF(2) matrix + provenance map | linear algebra, square root, NFS-DL linear algebra |
+| **Linear-algebra substrate** | `BlockVec`, `MatrixOperator`, `KernelVector` + `expand_provenance` | both solvers, square root, NFS-DL linear algebra |
+| **Algebraic square root** | `algebraic_sqrt` over a `CheckedDependency`, returning a verified root or a typed outcome | assembly, NFS-DL |
 
-### The data-flow in one sentence per contract
+### The data-flow in one sentence per interface
 
-**C-PolyPair** carries the polynomial pair from selection to sieving: the sieve evaluates
+**`PolyPair`** carries the polynomial pair from selection to sieving: the sieve evaluates
 F(a, b) = b^d · f(a/b) using the original non-monic f. `number_field()` is not on this path: it
 serves the NFS discrete-logarithm relation code and tests, and the square-root stage builds its
 own monic form.
 
-**C-Score** carries the Murphy-E score from scoring to the root sieve and Coppersmith: higher
+**`score`** carries the Murphy-E score from scoring to the root sieve and Coppersmith: higher
 score means more smooth relations, so the search maximises score.
 
-**C-Relation** carries each smooth pair from sieving to filtering: the exponent vectors are
+**`Relation`** carries each smooth pair from sieving to filtering: the exponent vectors are
 the rows of the GF(2) matrix; the sign bit is the "−1 column"; the integer exponents (not
-pre-reduced GF(2) parities) support D.A's GF(ℓ) linear algebra.
+pre-reduced GF(2) parities) support NFS-DL's GF(ℓ) linear algebra.
 
-**C-FactorBase** carries the column layout from sieving to filtering and linear algebra: the
+**`FactorBase`** carries the column layout from sieving to filtering and linear algebra: the
 `matrix_width()` method gives the total column count; the `rational_index` / `algebraic_index`
 lookup methods provide the column mapping without re-scanning the factor base.
 
-**C-Matrix** carries the filtered matrix from filtering to linear algebra and square root: the
-provenance map is the thread that G.F uses to recover original (a, b) pairs from a null-space
-vector.
+**`SparseMatrix`** carries the filtered matrix from filtering to linear algebra and square root:
+the provenance map is the thread that the square-root stage uses to recover original (a, b)
+pairs from a null-space vector.
 
-**C-LinAlg** carries the nullspace substrate from the substrate layer to both solvers and to
-G.F: `expand_provenance` is the seam that bridges filtered-matrix row indices to original
+**Linear-algebra substrate** carries the nullspace types to both solvers and to the square-root
+stage: `expand_provenance` is the seam that bridges filtered-matrix row indices to original
 relation indices.
 
-**C-AlgSqrt** carried the algebraic square root to the assembly step. The current form returns a
-verified root whose image y satisfies y² ≡ P (mod N), where P = ∏(a − b·m); the earlier statement
-y² ≡ Norm(γ) (mod N) is not the congruence the assembly needs.
+**Algebraic square root** carries the algebraic square root to the assembly step. The current form
+returns a verified root whose image y satisfies y² ≡ P (mod N), where P = ∏(a − b·m); the earlier
+statement y² ≡ Norm(γ) (mod N) is not the congruence the assembly needs.
 
 ### The over-specification pattern
 
-Every contract is over-specified relative to the immediate consumer's needs. The pattern is
-consistent across all seven contracts:
+Every interface is over-specified relative to the immediate consumer's needs. The pattern is
+consistent across them:
 
-- **C-PolyPair** includes `skew` and `factor_base_bounds` fields that are `None` at
-  construction and populated by later stages. Adding them at construction is cheaper than
-  amending the contract after G.C consumes it.
-- **C-Relation** stores integer exponents rather than GF(2) parities. G.E only needs parities,
-  but D.A needs the full integers. Pre-reducing would destroy the information D.A needs.
-- **C-Matrix** stores original relation indices in the provenance map rather than the GF(2)
-  column set of the merged row. G.E only needs the column set, but G.F needs the original
-  (a, b) pairs.
-- **C-LinAlg** stores row indices in `KernelVector` rather than a bit-mask. G.F needs row
+- **`PolyPair`** includes `skew` and `factor_base_bounds` fields that are `None` at
+  construction and that no stage sets today. Adding them at construction is cheaper than
+  amending the interface after the sieve consumes it.
+- **`Relation`** stores integer exponents rather than GF(2) parities. Linear algebra only needs
+  parities, but NFS-DL needs the full integers. Pre-reducing would destroy the information
+  NFS-DL needs.
+- **`SparseMatrix`** stores original relation indices in the provenance map rather than the GF(2)
+  column set of the merged row. Linear algebra only needs the column set, but the square-root
+  stage needs the original (a, b) pairs.
+- **`KernelVector`** stores row indices rather than a bit-mask. The square-root stage needs row
   indices to look up provenance; a bit-mask would require a scan.
 
-The over-specification rule is: when a contract is consumed by multiple downstream stages with
+The over-specification rule is: when an interface is consumed by multiple downstream stages with
 different needs, over-specify for the most demanding consumer. The cost of over-specification
 is a slightly larger data structure; the cost of under-specification is a destructive reshard
-of a frozen contract.
+of a stable interface.
 
 ---
 
-## 59. Design-Statement Verification
+## 59. Design-Commitment Verification
 
-The ROADMAP names G.W as "the moment where the design statement is verified against the actual
-implementation." The design statement has three scoping principles. This section walks each
-principle against what G.A–G.F actually shipped.
+The project's design statement makes three scoping commitments: the algorithmic content is
+complete, no new engineering optimisations are added, and the implementation is correct but
+confined to demonstration scale with scale-dependent phenomena annotated. This section walks each
+commitment against what the number-field substrate and the five pipeline stages actually ship.
 
-### Principle 1: Algorithmic content complete
+### Commitment: algorithmic content complete
 
 **Statement.** The full GNFS algorithm is implemented, not a stub. Every stage — polynomial
 selection, sieving, filtering, linear algebra, square root, and assembly — is present and
@@ -4908,32 +4925,32 @@ correct.
 
 **Verification.**
 
-- **G.A (number-field substrate).** `shared/numfield` implements polynomial arithmetic
+- **Number-field substrate.** `shared/numfield` implements polynomial arithmetic
   (`IntPoly`, `RatPoly`), number fields and elements (`NumberField`, `NumberFieldElement`),
   norm via resultant, trace via companion matrix, ideal representation (two-element primary
   form), Dedekind factorisation, and the Dedekind criterion. The `reduce_mod_ideal` method
-  (added at G.F.1) reduces an element modulo a degree-1 prime ideal. **Complete.**
+  reduces an element modulo a degree-1 prime ideal. **Complete.**
 
-- **G.B (polynomial selection).** Base-m expansion, degree selection, Murphy-E scoring
+- **Polynomial selection.** Base-m expansion, degree selection, Murphy-E scoring
   (Dickman-ρ via 4th-order Runge-Kutta), root sieve (Kleinjung rotation), and Coppersmith
   multi-poly are all implemented and KAT-verified. **Complete.**
 
-- **G.C (sieving).** Two-sided factor base (rational primes + algebraic degree-1 ideals),
+- **Sieving.** Two-sided factor base (rational primes + algebraic degree-1 ideals),
   norm bridge (signed BigInt → Uint<4>), line sieve (log-p mark-then-confirm), special-q
   strategy, and lattice sieve (Gauss 2D reduction + enumeration) are all implemented and
   KAT-verified. **Complete.**
 
-- **G.D (filtering).** `build_matrix`, `remove_singletons` (fixpoint), `prune_cliques`
+- **Filtering.** `build_matrix`, `remove_singletons` (fixpoint), `prune_cliques`
   (greedy excess-floor), and `merge_columns` (weight-2 and weight-3 XOR merges) are all
   implemented and KAT-verified. The provenance map is maintained throughout. **Complete.**
 
-- **G.E (linear algebra).** Root-character selection and column filling
+- **Linear algebra.** Root-character selection and column filling
   (`select_root_characters`, `RootCharacters::fill_columns`), block Lanczos (three-term recurrence
   + self-orthogonality winnowing), block Wiedemann (Krylov sequence + Berlekamp-Massey + Horner
   extraction), and `expand_provenance` are all implemented and KAT-verified. The characters are
   necessary filters, never square certificates (MATHEMATICS §5). **Complete.**
 
-- **G.F (square root and assembly).** The exact rational square root (`rational_sqrt`), the
+- **Square root and assembly.** The exact rational square root (`rational_sqrt`), the
   verified algebraic square root (`algebraic_sqrt`: direct Newton lifting, split-prime lifting
   with exact sign recombination, exact verification), and checked assembly (`attempt_factor`,
   `factor`, `factor_from_congruence`) are implemented and KAT-verified. The end-to-end KATs
@@ -4941,16 +4958,16 @@ correct.
   non-monic polynomial, and 197 · 229 from N = 45113 on relations generated by `line_sieve`.
   **Complete** for these tested fixtures.
 
-**Verdict: Principle 1 — pass, for the tested scope.** Every stage of the GNFS algorithm is
-implemented. The stages compose on the tested fixtures, including one run from generated relations
-to a verified factor (§47); that is a tested scope, not a claim for arbitrary inputs. The algebraic
+**Verdict: algorithmic content complete — pass, for the tested scope.** Every stage of the GNFS
+algorithm is implemented. The stages compose on the tested fixtures, including one run from
+generated relations to a verified factor (§47); that is a tested scope, not a claim for arbitrary inputs. The algebraic
 facts of the square-root stage (irreducibility, discriminants, `β² = γ`, nonsquares, and
 `y² ≡ P`) are cross-checked against PARI/GP by ignored `kat_pari_*` tests that run by hand (§50).
 The CADO-NFS / msieve cross-checks are still ignored placeholders that do not invoke an external
 tool (for example `kat_c_cado_oracle_n35`, §40, and `kat_c_oracle_80_100_bit_challenge`), so
 they are not part of this verdict.
 
-### Principle 3: No new engineering optimisations
+### Commitment: no new engineering optimisations
 
 **Statement.** CADO-NFS / msieve remain dev-only oracles, unchanged. No FFT sieve, no GPU
 acceleration, no large-prime variation, no distributed computation.
@@ -4973,30 +4990,30 @@ acceleration, no large-prime variation, no distributed computation.
 - **Polynomial selection.** Base-m, root sieve, and Coppersmith multi-poly are present. No
   size-optimisation step (Bai et al. 2014), no alpha-value term in Murphy-E.
 
-**Verdict: Principle 3 — pass.** No new engineering optimisations were added. The
+**Verdict: no new engineering optimisations — pass.** None were added. The
 implementation is at demonstration fidelity throughout.
 
-### Principle 4: Scale-only at demonstration fidelity
+### Commitment: scale-only at demonstration fidelity
 
 **Statement.** The implementation is correct but not production-scale. Scale-dependent
 phenomena are annotated explicitly; the annotations document the science↔engineering gap
 rather than papering over it.
 
-**Verification.** The principle-4 annotations are present throughout the codebase:
+**Verification.** The toy-scale caveats are present throughout the codebase:
 
 | Stage | Phenomenon | Annotation location |
 |-------|-----------|---------------------|
-| G.B | Murphy-E predictive value under-exposed at toy scale | §5, §7 of this document |
-| G.C | Log-sieve asymptotic win under-exposed | §15 |
-| G.C | Special-q yield multiplier under-exposed | §16 |
-| G.C | Lattice sieve efficiency under-exposed | §17 |
-| G.D | Singleton cascade depth under-exposed | §25 |
-| G.D | Cavallar merge-ordering gain under-exposed | §26 |
-| G.D | EXCESS_FLOOR calibration under-exposed | §25 |
-| G.E | Block-width amortisation under-exposed | §34, §39 |
-| G.E | Wiedemann parallelism under-exposed | §36, §39 |
-| G.F | Lifting precision and split-prime count under-exposed | §44, §49 |
-| G.F | Trivial-congruence probability correctly exposed | §46, §49 |
+| Polynomial selection | Murphy-E predictive value under-exposed at toy scale | §5, §7 of this document |
+| Sieving | Log-sieve asymptotic win under-exposed | §15 |
+| Sieving | Special-q yield multiplier under-exposed | §16 |
+| Sieving | Lattice sieve efficiency under-exposed | §17 |
+| Filtering | Singleton cascade depth under-exposed | §25 |
+| Filtering | Cavallar merge-ordering gain under-exposed | §26 |
+| Filtering | EXCESS_FLOOR calibration under-exposed | §25 |
+| Linear algebra | Block-width amortisation under-exposed | §34, §39 |
+| Linear algebra | Wiedemann parallelism under-exposed | §36, §39 |
+| Square root | Lifting precision and split-prime count under-exposed | §44, §49 |
+| Square root | Trivial-congruence probability correctly exposed | §46, §49 |
 
 Resource exhaustion in the square-root stage is reported, never treated as evidence; the former
 real-embedding sign rule no longer exists (exact sign recombination replaces it).
@@ -5004,23 +5021,23 @@ real-embedding sign rule no longer exists (exact sign recombination replaces it)
 **One discovery: bad primes over-exposed at toy scale.** The `is_bad_prime` flag in
 `AlgebraicPrime` (§13) documents a phenomenon that is *over-exposed* at toy scale: bad primes
 (primes dividing c·disc(f)) are marginal at cryptographic scale but unavoidable for hand-picked
-polynomials at toy scale. This is a principle-4 annotation in the opposite direction — the
+polynomials at toy scale. This is a toy-scale caveat in the opposite direction — the
 phenomenon is more prominent at toy scale than at real scale. The annotation is present in the
 code and in §13 of this document.
 
-**Verdict: Principle 4 — pass.** The implementation is correct at demonstration fidelity.
-Scale-dependent phenomena are annotated explicitly throughout. No phenomenon is silently
-omitted or misrepresented.
+**Verdict: scale-only at demonstration fidelity — pass.** The implementation is correct at
+demonstration fidelity. Scale-dependent phenomena are annotated explicitly throughout. No
+phenomenon is silently omitted or misrepresented.
 
-### Design-statement verification summary
+### Design-commitment verification summary
 
-**Design-statement verified: pass on all three principles.**
+**Design commitments verified: pass on all three.**
 
-- Principle 1 (algorithmic content complete): **pass** — every stage implemented, no stubs; the
+- Algorithmic content complete: **pass** — every stage implemented, no stubs; the
   composition is demonstrated on the tested fixtures only.
-- Principle 3 (no new engineering optimisations): **pass** — CADO-NFS / msieve remain
+- No new engineering optimisations: **pass** — CADO-NFS / msieve remain
   dev-only oracles; no FFT sieve, GPU, or distributed computation.
-- Principle 4 (scale-only at demonstration fidelity): **pass** — all scale-dependent
+- Scale-only at demonstration fidelity: **pass** — all scale-dependent
   phenomena annotated explicitly; one over-exposed phenomenon (bad primes) noted.
 
 Every stage is implemented and KAT-green on the default test path; whole-chain evidence is limited
@@ -5158,25 +5175,26 @@ factoring problem is an open question.
 
 ### Per-stage code-tour chapters (this document)
 
-- **G.A (number-field substrate):** `shared/numfield/docs/PEDAGOGY.md` — polynomial arithmetic,
+- **Number-field substrate:** `shared/numfield/docs/PEDAGOGY.md` — polynomial arithmetic,
   number fields, norm via resultant, ideal representation, Dedekind factorisation.
-- **G.B (polynomial selection):** §1–§11 of this document — base-m construction, Murphy-E
-  scoring, root sieve, Coppersmith multi-poly, C-PolyPair and C-Score contracts.
-- **G.C (sieving):** §12–§21 of this document — the relation as the unit of NFS data, the
+- **Polynomial selection:** §1–§11 of this document — base-m construction, Murphy-E
+  scoring, root sieve, Coppersmith multi-poly, the `PolyPair` and `score` interfaces.
+- **Sieving:** §12–§21 of this document — the relation as the unit of NFS data, the
   two-sided factor base, the norm bridge, the line sieve, special-q, lattice sieving,
-  C-Relation and C-FactorBase contracts.
-- **G.D (filtering):** §22–§30 of this document — the relation corpus as a sparse matrix, the
-  graph view, singleton removal, excess and clique pruning, column merging, C-Matrix contract.
-- **G.E (linear algebra):** §31–§41 of this document — the filtered matrix as a GF(2) linear
+  the `Relation` and `FactorBase` interfaces.
+- **Filtering:** §22–§30 of this document — the relation corpus as a sparse matrix, the
+  graph view, singleton removal, excess and clique pruning, column merging, the `SparseMatrix`
+  interface.
+- **Linear algebra:** §31–§41 of this document — the filtered matrix as a GF(2) linear
   system, sign and character columns, block Lanczos, block Wiedemann, the kernel-vector →
-  provenance → original-relations thread, C-LinAlg contract.
-- **G.F (square root and assembly):** §42–§51 of this document — the kernel vector as a
+  provenance → original-relations thread, the linear-algebra substrate interface.
+- **Square root and assembly:** §42–§51 of this document — the kernel vector as a
   candidate dependency, exact rational square root, verified algebraic square root, checked
   congruence assembly with bounded retry.
 
 ### Mathematical textbook
 
-- **`docs/MATHEMATICS.md` §GNFS** (T.G chapter, to be appended) — the maths-first sibling to
+- **`docs/MATHEMATICS.md`, the GNFS chapter (chapter 8)** — the maths-first sibling to
   this integrative chapter. Develops the GNFS algorithm mathematically from the
   difference-of-squares idea through the number-field bridge, factor-base smoothness, linear-
   algebra dependency, and square-root recovery. Carries the full L-notation subexponentiality
@@ -5188,14 +5206,14 @@ factoring problem is an open question.
 
 - **`docs/MATHEMATICS.md` §On Scale** — the three axes of scale (resource/operational,
   mathematical-dimension, structural), the three couplings, and the honest science↔engineering
-  gap. The natural-philosophy context for the principle-4 annotations throughout this document.
+  gap. The natural-philosophy context for the toy-scale caveats throughout this document.
 
 ---
 
-## 62. KAT Summary (G.W — Integrative)
+## 62. KAT Summary (Integrative)
 
 The integrative chapter does not add new KATs (it is a code-tour, not a new implementation).
-The KATs that verify the cross-phase pipeline end-to-end are:
+The KATs that verify the cross-stage pipeline end-to-end are:
 
 | Test | File | What it verifies |
 |------|------|-----------------|
@@ -5217,11 +5235,11 @@ vectors, and candidate are all produced at run time, and its factor is re-derive
 the second pipeline test. Its scope is one deterministic fixture (N = 45113 with an irreducible cubic) under the pinned
 limits at the top of the file, on the checked path, at toy scale; it is not evidence that arbitrary
 inputs factor or about performance at scale. The provenance KATs verify the cross-stage thread that
-connects G.D, G.E, and G.F.
+connects filtering, linear algebra, and the square-root stage.
 
 ---
 
-## Further Reading (G.W — Integrative)
+## Further Reading (Integrative)
 
 1. **Lenstra, A. K., and Lenstra, H. W. Jr. (eds.) (1993).** *The Development of the Number
    Field Sieve.* Springer LNM 1554. The original papers on GNFS, including the full pipeline
@@ -5247,7 +5265,7 @@ connects G.D, G.E, and G.F.
    Publications 44. The smooth-number density theorem (Canfield–Erdős–Pomerance) and the
    Dickman-ρ function — the mathematical engine of the L-notation derivation in §60.
 
-7. **`docs/MATHEMATICS.md` §GNFS** (T.G chapter, to be appended). The maths-first sibling to
+7. **`docs/MATHEMATICS.md`, the GNFS chapter (chapter 8).** The maths-first sibling to
    this chapter: the full L-notation subexponentiality derivation as a payoff proof, the
    algebraic-square-root correctness sketch, and the GNFS algorithm developed mathematically from first
    principles.
@@ -5439,7 +5457,8 @@ table**: the discrete logarithms $\log_g(p_i) \bmod \ell$ for each factor-base p
 
 The key difference from NFS-factoring linear algebra is the field. In NFS-factoring (G.E), the
 linear system is over GF(2): the exponent parities must sum to zero, and the null-space vector
-identifies a congruence of squares. In NFS-DL, the linear system is over $\mathbb{F}_\ell$: the
+identifies a candidate dependency (verified square roots then give the congruence of squares).
+In NFS-DL, the linear system is over $\mathbb{F}_\ell$: the
 exponents (reduced mod ℓ) plus the Schirokauer correction columns must sum to zero, and the
 solution vector gives the virtual logs. See §68 for the explicit comparison.
 

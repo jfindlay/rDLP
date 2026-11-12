@@ -22,7 +22,10 @@
 //! less than `m` (i.e., `f` is non-monic). The number-field substrate (`NumberField::new`)
 //! requires a monic defining polynomial. `PolyPair` stores the original non-monic `f` and
 //! exposes [`PolyPair::number_field`] / [`PolyPair::monic_f`] to perform the standard NFS
-//! homogenisation `f(x) → a_d^{d−1} f(x/a_d)` when monic form is needed.
+//! homogenisation `f(x) → a_d^{d−1} f(x/a_d)` when monic form is needed. The consumers of
+//! `number_field` are the NFS discrete-logarithm relation code (which takes the field as a
+//! parameter) and tests; the factor base searches roots of the original `f`, the sieve evaluates
+//! `F(a, b)` from the original `f`, and the square-root stage builds its own monic form.
 //!
 //! # Module layout
 //!
@@ -117,10 +120,12 @@ impl std::error::Error for PolyPairError {}
 ///
 /// The algebraic polynomial `f` is stored in its *original* form (generally non-monic for
 /// base-m expansion). Use [`number_field`](PolyPair::number_field) or
-/// [`monic_f`](PolyPair::monic_f) to obtain the monic form required by `NumberField::new`.
+/// [`monic_f`](PolyPair::monic_f) to obtain the monic form required by `NumberField::new`;
+/// `number_field` serves the NFS discrete-logarithm relation code and tests only (the sieve and
+/// factor base work from the original `f`).
 ///
-/// The `skew` and `factor_base_bounds` fields are `None` at construction and populated by
-/// later pipeline stages (Murphy-E scoring, sieving).
+/// The `skew` and `factor_base_bounds` fields are `None` at construction; no stage in the
+/// library sets either today (they are reserved slots).
 #[derive(Debug, Clone)]
 pub struct PolyPair {
     /// Algebraic-side polynomial `f ∈ ℤ[x]`. Generally non-monic for base-m; stored as-is.
@@ -135,11 +140,11 @@ pub struct PolyPair {
     pub degree: usize,
     /// Skew parameter `s`: the ratio that balances algebraic and rational norm sizes.
     ///
-    /// `None` until Murphy-E scoring computes it.
+    /// `None` at construction; [`score`] reads it when set (default 1.0). No stage sets it today.
     pub skew: Option<f64>,
     /// Factor-base bounds `(rational_bound, algebraic_bound)`.
     ///
-    /// `None` until sieving sets them.
+    /// `None` at construction; no stage sets it today.
     pub factor_base_bounds: Option<(u64, u64)>,
 }
 

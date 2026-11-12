@@ -267,7 +267,7 @@ The KATs annotate all three disconnects explicitly (scale annotations in `line_s
 | Test file | Scope |
 |-----------|-------|
 | `tests/factor_base_kat.rs` | Factor-base construction, index lookups, norm bridge, `Relation::verify()` |
-| `tests/line_sieve_kat.rs` | Relation count, verify, determinism, threshold monotonicity; CADO oracle (ignored) |
+| `tests/line_sieve_kat.rs` | Relation count, verify, determinism, threshold monotonicity; an `#[ignore]`d CADO-NFS placeholder whose assertion compares the sieve with itself (no oracle is run) |
 | `tests/special_q_kat.rs` | q-restriction enforcement, q in algebraic EV, yield annotation, subset check |
 | `tests/lattice_kat.rs` | Lattice membership, verify, q in algebraic EV, basis reduction, subset check |
 
@@ -327,7 +327,7 @@ at toy scale:
 
 | Test file | Scope |
 |-----------|-------|
-| `tests/merge_kat.rs` | 2-way merge correctness, determinism, CADO oracle (ignored), end-to-end provenance, excess-floor enforcement |
+| `tests/merge_kat.rs` | 2-way merge correctness, determinism, end-to-end provenance, excess-floor enforcement; an `#[ignore]`d CADO-NFS placeholder whose body is `unimplemented!()` (no oracle is run) |
 
 ## Linear algebra: block Lanczos and block Wiedemann
 
@@ -378,7 +378,7 @@ identifies them as kernel candidates. This phenomenon is fully exposed at toy sc
 | Test file | Scope |
 |-----------|-------|
 | `tests/linalg_substrate_kat.rs` | Operator correctness (A·V, Aᵀ·V), root-character columns on a checked matrix, provenance round-trip, determinism, and the individual root-character tests |
-| `tests/lanczos_kat.rs` | Self-orthogonality path, single dependency, full-rank, determinism, multiple dependencies; CADO oracle (ignored) |
+| `tests/lanczos_kat.rs` | Self-orthogonality path, single dependency, full-rank, determinism, multiple dependencies; an `#[ignore]`d test named for CADO-NFS that checks kernel vectors and provenance on a hand-built matrix and never invokes CADO-NFS |
 | `tests/wiedemann_kat.rs` | Cross-validation with Lanczos, full-rank, empty matrix, single dependency, determinism, BM Fibonacci, BM period-4, BM all-ones, all-zero rows, multiple dependencies |
 
 ## Square root and assembly: exact rational root, verified algebraic root, checked assembly
@@ -423,7 +423,7 @@ scale:
 |-----------|-------|
 | `tests/sqrt_rational_kat.rs` | Exact rational root on non-monic, seam, and multi-relation dependencies; binding to the dependency's P |
 | `tests/sqrt_algebraic_kat.rs` | Verified algebraic root; image is the normalized map, not the norm; totally imaginary field; nonsquare certificate; precision exhaustion; non-monic direct and split-prime roots; cubic cross-method agreement |
-| `tests/factor_end_to_end_kat.rs` | Checked congruence; seam (N = 527) and non-monic (N = 35) factors; nonsquare-to-success retry; factor only in a combination; trivial congruence; incidental provenance; complete vs resource-limited exhaustion; invalid candidates; an `#[ignore]`-gated oracle KAT |
+| `tests/factor_end_to_end_kat.rs` | Checked congruence; seam (N = 527) and non-monic (N = 35) factors; nonsquare-to-success retry; factor only in a combination; trivial congruence; incidental provenance; complete vs resource-limited exhaustion; invalid candidates; `#[ignore]`d PARI/GP cross-checks (`kat_pari_*`, which need `gp`) and one `#[ignore]`d placeholder (`todo!()`) for an 80–100-bit challenge that is not an oracle check |
 
 ## End-to-end pipeline: polynomial selection → sieving → filtering → linear algebra → square root
 
@@ -470,7 +470,7 @@ implementation). The pipeline-level verification is provided by the end-to-end K
 
 | Test file | Scope |
 |-----------|-------|
-| `tests/factor_end_to_end_kat.rs` | Square-root stage from checked relations: N=527→17·31, non-monic N=35, checked congruence, trivial/incidental/nonsquare attempts, bounded retry; oracle KAT (ignored) |
+| `tests/factor_end_to_end_kat.rs` | Square-root stage from checked relations: N=527→17·31, non-monic N=35, checked congruence, trivial/incidental/nonsquare attempts, bounded retry; `#[ignore]`d PARI/GP cross-checks (`kat_pari_*`) and an `#[ignore]`d `todo!()` placeholder that is not an oracle check |
 
 ## Cross-attack ECDLP benchmark harness
 

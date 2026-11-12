@@ -5,7 +5,8 @@
 //! - [`factor_base`] — two-sided factor base construction (rational + algebraic).
 //! - [`norms`] — rational norm and algebraic value computation, and the bridge to ``Uint<4>``.
 //! - [`ExponentVector`] — sparse exponent vector over a factor base (rational or algebraic side).
-//! - [`Relation`] — a coprime pair ``(a, b)`` with both norms smooth over the factor bases.
+//! - [`Relation`] — a coprime pair ``(a, b)`` with the rational norm and the algebraic value both
+//!   smooth over the factor bases.
 //! - [`RelationError`] — error type for relation verification.
 //! - [`checked`] — the checked relation context: [`RelationChecker`], [`CheckedRelation`],
 //!   [`CheckedRelations`], and [`classify_prime`], which re-derive every norm, sign, and affine
@@ -271,7 +272,7 @@ impl Relation {
     /// ``gcd(a, b) ≠ 1``.
     ///
     /// For the algebraic side, the mapping from primes to ideals uses the sieve condition:
-    /// the ideal ``(p, α − r)`` divides ``N_alg(a, b)`` iff ``a ≡ r·b (mod p)``. For each
+    /// the ideal ``(p, α − r)`` divides ``(a − b·α)`` iff ``a ≡ r·b (mod p)``. For each
     /// prime ``p`` in the algebraic witness, we find the root ``r`` satisfying this condition
     /// and look up ``fb.algebraic_index(p, r)``.
     ///

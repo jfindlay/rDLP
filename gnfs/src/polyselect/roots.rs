@@ -2,7 +2,7 @@
 //!
 //! Provides `f64`-precision real-root finding for `IntPoly` values. This is a
 //! *scoring-only* facility: the roots are used to count real roots and to
-//! characterise the size of algebraic norms over the sieve region. Exact
+//! characterise the size of the algebraic value `F(a, b)` over the sieve region. Exact
 //! arithmetic (discriminants, resultants) stays in `shared-numfield`.
 //!
 //! # Algorithm
