@@ -1,29 +1,31 @@
 //! Norm computation and the signed-BigInt → Uint<4> bridge for NFS sieving.
 //!
-//! NFS sieving requires computing two norms for each candidate pair ``(a, b)``:
+//! NFS sieving requires computing two values for each candidate pair ``(a, b)``:
 //!
 //! - **Rational norm** ``N_rat(a, b) = a − b·m``: the value of the rational-side polynomial
 //!   ``g(x) = x − m`` evaluated at ``a/b``, cleared of denominators. This is the norm from
 //!   ℚ to ℚ of the element ``a/b − m`` in the rational number field.
 //!
-//! - **Algebraic norm** ``N_alg(a, b) = b^d · f(a/b)``: the homogeneous form of ``f``
-//!   evaluated at ``(a, b)``. Computed directly as ``Σ f.coeffs[i] · a^i · b^{d−i}`` to
-//!   avoid rational arithmetic. This equals ``Res(f, a − b·x)`` up to sign and leading-
-//!   coefficient factors (the resultant relationship is the pedagogical hook for the sieve
-//!   pedagogy section).
+//! - **Algebraic value** ``F(a, b) = b^d · f(a/b)`` (the "homogeneous norm value", named
+//!   ``N_alg`` in this module): the homogeneous form of ``f`` evaluated at ``(a, b)``. Computed
+//!   directly as ``Σ f.coeffs[i] · a^i · b^{d−i}`` to avoid rational arithmetic. With ``c`` the
+//!   leading coefficient of ``f`` and ``α`` a root, ``F(a, b) = c · N_{K/ℚ}(a − b·α)``, so it is
+//!   the field norm ``N`` of ``a − b·α`` only when ``f`` is monic; in general it is ``c`` times
+//!   that norm. "Norm" alone names ``N``.
 //!
-//! Both norms are signed ``BigInt`` values. The smoothness predicate ``trial_smooth`` operates
-//! on ``Uint<4>`` (unsigned 256-bit integers). The **norm bridge** converts a signed norm to
+//! Both are signed ``BigInt`` values. The smoothness predicate ``trial_smooth`` operates
+//! on ``Uint<4>`` (unsigned 256-bit integers). The **norm bridge** converts a signed value to
 //! its absolute value as ``Uint<4>``, with a range check: toy-scale norms fit 256 bits per the
 //! C1 resolution in ROADMAP, but the bridge rejects out-of-range norms rather than silently
 //! truncating.
 //!
 //! # Science↔engineering note (principle 4)
 //!
-//! At toy scale, norms are small (tens of bits). At cryptographic scale (RSA-768+), algebraic
-//! norms ``b^d · f(a/b)`` can be hundreds of bits. The ``Uint<4>`` (256-bit) bridge is sized
-//! for toy-scale norms; a production implementation would use a wider type or a different
-//! smoothness predicate. The ``NormBridgeError::Overflow`` variant documents this boundary.
+//! At toy scale, these values are small (tens of bits). At cryptographic scale (RSA-768+), the
+//! algebraic value ``F(a, b) = b^d · f(a/b)`` can be hundreds of bits. The ``Uint<4>`` (256-bit)
+//! bridge is sized for toy-scale values; a production implementation would use a wider type or a
+//! different smoothness predicate. The ``NormBridgeError::Overflow`` variant documents this
+//! boundary.
 
 use crypto_bigint::Uint;
 use num_bigint::BigInt;
@@ -47,9 +49,10 @@ pub fn rational_norm(a: &BigInt, b: &BigInt, m: &BigInt) -> BigInt {
 
 // ─── Algebraic norm ───────────────────────────────────────────────────────────
 
-/// Compute the algebraic norm ``N_alg(a, b) = b^d · f(a/b)``.
+/// Compute the algebraic value ``F(a, b) = b^d · f(a/b)`` (named ``N_alg`` here).
 ///
-/// This is the homogeneous form of ``f`` evaluated at ``(a, b)``:
+/// This is the homogeneous form of ``f`` evaluated at ``(a, b)``; for ``f`` with leading
+/// coefficient ``c`` and root ``α`` it equals ``c · N_{K/ℚ}(a − b·α)``:
 ///
 /// ```text
 /// N_alg(a, b) = Σ_{i=0}^{d} f.coeffs[i] · a^i · b^{d−i}
@@ -60,9 +63,15 @@ pub fn rational_norm(a: &BigInt, b: &BigInt, m: &BigInt) -> BigInt {
 ///
 /// # Mathematical note
 ///
-/// This equals ``Res(f, a − b·x)`` up to sign and leading-coefficient factors. The resultant
-/// relationship is the pedagogical hook for the sieve pedagogy: the algebraic norm is the norm of the
-/// ideal ``(a − b·α)`` in ℤ[α], which equals the resultant of ``f`` and ``a − b·x``.
+/// ``F(a, b) = c · N_{K/ℚ}(a − b·α)``, where ``c`` is the leading coefficient of ``f``. It
+/// equals ``Res(f, a − b·x)`` up to sign (the resultant is taken with ``f`` of degree ``d``
+/// and ``a − b·x`` of degree 1, so ``Res(f, a − b·x) = ± F(a, b)``). Only for monic ``f``
+/// (``c = 1``) is it the norm of the ideal ``(a − b·α)`` in ℤ[α]; for non-monic ``f`` the
+/// ideal norm is ``F(a, b)/c`` and ``α`` is not an algebraic integer. Existing tests:
+/// ``algebraic_norm_cubic_hand_computed``, ``algebraic_norm_with_b_greater_than_1`` and
+/// ``algebraic_norm_matches_eval_when_b_is_one`` below (monic ``f``), and, for a non-monic
+/// ``f = 3x² + x − 1``, ``kat_good_and_exceptional_relations_accepted`` in
+/// ``tests/checked_relations_kat.rs``.
 ///
 /// # Why not f.eval(a/b)?
 ///
@@ -73,7 +82,7 @@ pub fn rational_norm(a: &BigInt, b: &BigInt, m: &BigInt) -> BigInt {
 /// :param a: The a-coordinate of the sieve pair.
 /// :param b: The b-coordinate of the sieve pair (positive).
 /// :param f: The algebraic polynomial (from PolyPair).
-/// :returns: The algebraic norm ``b^d · f(a/b)``.
+/// :returns: The algebraic value ``b^d · f(a/b) = c · N_{K/ℚ}(a − b·α)``.
 pub fn algebraic_norm(a: &BigInt, b: &BigInt, f: &IntPoly) -> BigInt {
     let d = match f.degree() {
         None => return BigInt::zero(), // zero polynomial

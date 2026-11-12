@@ -57,13 +57,13 @@ use super::{
 ///
 /// The threshold is computed as ``threshold_scale × log2(B_alg)``, where ``B_alg`` is the
 /// algebraic smoothness bound. The sieve accumulates ``log2(p)`` for each prime ``p`` dividing
-/// the norm; for a fully smooth norm ``N``, the total equals ``log2(|N|)``. The threshold
-/// accepts candidates where the algebraic sieve has accumulated at least
+/// the sieved value; for a fully smooth value ``V``, the total equals ``log2(|V|)``. The
+/// threshold accepts candidates where the algebraic sieve has accumulated at least
 /// ``threshold_scale × log2(B_alg)`` worth of contributions.
 ///
 /// A value of ``0.8`` (default) is conservative: it accepts candidates where the algebraic
-/// norm has at least one prime factor ≥ ``B_alg^0.8``. The exact trial-division step is the
-/// correctness gate; the threshold is only a pre-filter.
+/// value ``F(a, b)`` has at least one prime factor ≥ ``B_alg^0.8``. The exact trial-division
+/// step is the correctness gate; the threshold is only a pre-filter.
 ///
 /// At toy scale, the threshold barely filters anything — the asymptotic win of the sieve is
 /// under-exposed (see module-level principle-4 annotation).
@@ -149,15 +149,17 @@ pub fn line_sieve(
 
     // Compute the smoothness threshold.
     //
-    // The sieve accumulates log2(p) for each prime p dividing the norm. For a fully smooth
-    // norm N, the total accumulated log equals log2(|N|). The threshold is set to
+    // The sieve accumulates log2(p) for each prime p dividing the sieved value. For a fully
+    // smooth value V, the total accumulated log equals log2(|V|). The threshold is set to
     // threshold_scale × log2(B_alg), where B_alg is the algebraic smoothness bound.
     //
-    // Rationale: the algebraic norm is typically the bottleneck for smoothness (it grows as
-    // b^d · f(a/b), which is larger than the rational norm a − b·m for most (a, b)). Using
-    // log2(B_alg) as the base means we accept candidates where the algebraic sieve has
+    // Rationale: the algebraic value is typically the bottleneck for smoothness (F(a, b) =
+    // b^d · f(a/b) = c · N(a − b·α) is larger than the rational norm a − b·m for most (a, b)).
+    // Using log2(B_alg) as the base means we accept candidates where the algebraic sieve has
     // accumulated at least threshold_scale × log2(B_alg) worth of contributions — i.e.,
-    // candidates where the algebraic norm has at least one factor ≥ B_alg^threshold_scale.
+    // candidates where F(a, b) has at least one factor ≥ B_alg^threshold_scale. The value
+    // sieved is F (computed by `algebraic_norm`, tested by `algebraic_norm_cubic_hand_computed`
+    // in norms.rs); it differs from the field norm N(a − b·α) by the factor c.
     //
     // This threshold is intentionally conservative (low) to avoid missing smooth pairs where
     // one norm is small (e.g., N_rat = 1 contributes nothing to the sieve). The exact

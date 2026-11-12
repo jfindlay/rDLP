@@ -13,15 +13,17 @@ Coppersmith multi-poly, and the public contracts that downstream stages consume.
 ## 1. Introduction: Why Polynomial Selection Matters
 
 The General Number Field Sieve factors a large integer N by finding many pairs (a, b) ∈ ℤ² such
-that both the rational norm G(a, b) = a − bm and the algebraic norm F(a, b) = b^d · f(a/b) are
-B-smooth — divisible only by primes up to a bound B. When enough such pairs are collected, linear
-algebra over 𝔽₂ finds candidate dependencies, and a verified square root of one gives a congruence
-of squares mod N, whose gcd with N is a non-trivial factor unless the congruence is trivial.
+that both the rational norm G(a, b) = a − bm and the algebraic value F(a, b) = b^d · f(a/b) are
+B-smooth — divisible only by primes up to a bound B. For f with leading coefficient c and root α,
+F(a, b) = c · N(a − bα); the word "norm" alone names the field norm N. When enough such pairs are
+collected, linear algebra over 𝔽₂ finds candidate dependencies, and a verified square root of one
+gives a congruence of squares mod N, whose gcd with N is a non-trivial factor unless the congruence
+is trivial.
 
 The key insight is that the smoothness probability of F(a, b) depends heavily on the polynomial f.
 A polynomial with small coefficients, many real roots, and many roots modulo small primes produces
-smaller norms on average, which are more likely to be smooth. Polynomial selection is the stage
-that finds such an f before the sieve begins.
+smaller values of F on average, which are more likely to be smooth. Polynomial selection is the
+stage that finds such an f before the sieve begins.
 
 The output of polynomial selection is a **polynomial pair** (f, g): the algebraic-side polynomial
 f ∈ ℤ[x] of degree d ≥ 2, and the rational-side polynomial g(x) = x − m, where m is a shared
@@ -33,7 +35,7 @@ g(m) = 0,  g(x) = x − m
 ```
 
 This shared-root invariant is the load-bearing contract that the sieve consumes. The sieve does not
-care how f was found — only that f(m) ≡ 0 (mod N) and that f has small norms over the sieve region.
+care how f was found — only that f(m) ≡ 0 (mod N) and that F(a, b) is small over the sieve region.
 
 ---
 
@@ -238,14 +240,16 @@ sieve. A higher score means more smooth pairs (a, b) in the sieve region, which 
 sieve pairs needed to collect enough relations for the linear algebra step.
 
 The score is defined as the average over a sample of (a, b) pairs in the sieve region of the
-product of Dickman-ρ values for the algebraic and rational norms:
+product of Dickman-ρ values for the algebraic value F and the rational norm G:
 
 ```text
 E(f, g) ≈ (1/|S|) Σ_{(a,b) ∈ S} ρ(log|F(a,b)| / log B_f) · ρ(log|G(a,b)| / log B_g)
 ```
 
 where:
-- F(a, b) = b^d · f(a/b) is the algebraic norm (homogeneous form of f).
+- F(a, b) = b^d · f(a/b) is the algebraic value (homogeneous form of f); it equals
+  c · N(a − bα) for leading coefficient c and root α. It is evaluated by `alg_norm_f64` in
+  `murphy.rs`, which no test calls directly; `score` is exercised by `tests/murphy_kat.rs`.
 - G(a, b) = a − bm is the rational norm.
 - B_f, B_g are the algebraic and rational factor-base bounds.
 - ρ is the Dickman rho function.
@@ -296,9 +300,9 @@ Key known values (verified by KATs):
 
 ### The skew parameter
 
-The optimal skew s balances algebraic and rational norm sizes. The score function applies the
-skew by sampling (a, b·s) instead of (a, b), which rescales the algebraic norm relative to the
-rational norm. The skew stored in `pair.skew` is used if present; otherwise it defaults to 1.0.
+The optimal skew s balances the sizes of the algebraic value F and the rational norm G. The score
+function applies the skew by sampling (a, b·s) instead of (a, b), which rescales F relative to G.
+The skew stored in `pair.skew` is used if present; otherwise it defaults to 1.0.
 
 ### Science↔engineering disconnect at toy scale (principle-4 annotation)
 
@@ -585,8 +589,8 @@ and all downstream stages. It is frozen at G.B.1 and consumed by:
 - **G.B.3 (root sieve):** reads `pair.f`, `pair.g`, `pair.m`, `pair.n`; produces new `PolyPair`.
 - **G.B.4 (Coppersmith):** same as root sieve.
 - **G.C (sieving):** reads `pair.f`, `pair.m`, `pair.n`, `pair.degree`; writes
-  `pair.factor_base_bounds`. The sieve evaluates the algebraic norm F(a, b) = b^d · f(a/b) for
-  each sieve pair (a, b) using the original non-monic f.
+  `pair.factor_base_bounds`. The sieve evaluates the algebraic value F(a, b) = b^d · f(a/b) =
+  c · N(a − bα) for each sieve pair (a, b) using the original non-monic f.
 - **D.A (NFS-DL poly selection):** adapts `PolyPair` for the discrete logarithm setting. The
   polynomial-pair structure is identical; the difference is in the linear algebra step.
 
@@ -682,11 +686,11 @@ good Murphy-E score — is the input to the sieve.
 
 **G.C (sieving)** consumes `C-PolyPair` directly. For each sieve pair (a, b) in the sieve region,
 the sieve evaluates:
-- The algebraic norm F(a, b) = b^d · f(a/b) using the original non-monic f.
+- The algebraic value F(a, b) = b^d · f(a/b) = c · N(a − bα) using the original non-monic f.
 - The rational norm G(a, b) = a − bm.
 
-Both norms are trial-divided over their respective factor bases. A pair (a, b) is **smooth** if
-both norms factor completely over their factor bases. The factor-base bounds (stored in
+F and G are trial-divided over their respective factor bases. A pair (a, b) is **smooth** if
+both values factor completely over their factor bases. The factor-base bounds (stored in
 `pair.factor_base_bounds`) are set by G.C based on the polynomial's Murphy-E score and the
 target number of relations.
 
@@ -746,16 +750,19 @@ matrix, and the downstream reuse in G.D, G.E, and D.A.
 ### What a relation is
 
 A **relation** in GNFS is a coprime integer pair (a, b) with b ≥ 1 for which both the rational
-norm and the algebraic norm are smooth over their respective factor bases:
+norm and the algebraic value are smooth over their respective factor bases:
 
 ```text
 N_rat(a, b) = a − b·m          (rational side: the value of g(x) = x − m at a/b, cleared)
 N_alg(a, b) = b^d · f(a/b)     (algebraic side: the homogeneous form of f at (a, b))
 ```
 
-The algebraic form is F(a, b) = b^d · f(a/b) = c · N_{K/ℚ}(a − b·α) with c = lc(f), so it equals the
-norm of a − b·α exactly when f is monic. Both norms must be smooth — divisible only by primes up to
-their respective bounds B_rat and B_alg.
+The algebraic value is F(a, b) = b^d · f(a/b) = c · N_{K/ℚ}(a − b·α) with c = lc(f), so it equals
+the norm of a − b·α exactly when f is monic (`N_alg` is the code's name for F). Both values must
+be smooth — divisible only by primes up to their respective bounds B_rat and B_alg.
+`algebraic_norm` in `sieve/norms.rs` computes F; its tests are `algebraic_norm_cubic_hand_computed`
+(monic) and, for a non-monic f, `kat_good_and_exceptional_relations_accepted` in
+`tests/checked_relations_kat.rs`.
 A pair that is smooth on only one side is not a relation; it contributes nothing to the factoring
 computation.
 
@@ -780,7 +787,8 @@ The `verify()` predicate checks all four invariants:
 
 1. gcd(a, b) = 1 (coprimality — non-coprime pairs are degenerate).
 2. The rational exponent vector reconstructs |N_rat(a, b)| (product of p^e matches the norm).
-3. The algebraic exponent vector reconstructs |N_alg(a, b)| (same check on the algebraic side).
+3. The algebraic exponent vector reconstructs |N_alg(a, b)| = |F(a, b)| (same check on the
+   algebraic side).
 4. The sign matches: `rational_sign == (a − b·m < 0)`.
 
 ```rust
@@ -819,8 +827,10 @@ is smooth over this base if all its prime factors are ≤ B_rat.
 ### The algebraic factor base: degree-1 prime ideals
 
 The algebraic factor base is not simply the set of primes p ≤ B_alg. It is the set of
-**degree-1 prime ideals** (p, α − r) in ℤ[α], where α is a root of f and r ∈ [0, p) satisfies
-f(r) ≡ 0 (mod p). Each prime p contributes as many ideals as f has roots mod p (up to deg(f)).
+**degree-1 prime ideals** (p, α − r), where α is a root of f and r ∈ [0, p) satisfies
+f(r) ≡ 0 (mod p). For p ∤ lc(f), α is integral at p, so (p, α − r) is a prime of ℤ[α] localised
+away from lc(f); when f is non-monic ℤ[α] itself is not an order, since α is not an algebraic
+integer. Each prime p contributes as many ideals as f has roots mod p (up to deg(f)).
 
 The `AlgebraicPrime` type represents one such ideal:
 
@@ -838,8 +848,8 @@ pub struct AlgebraicPrime {
 ```
 
 The key sieve condition: the ideal (p, α − r) divides the element a − b·α if and only if
-a ≡ r·b (mod p), and then p divides the algebraic form F(a, b) = c·N_{K/ℚ}(a − b·α). This is the
-algebraic analogue of the rational condition a ≡ b·m (mod p) for the rational side.
+a ≡ r·b (mod p), and then p divides the algebraic value F(a, b) = c·N_{K/ℚ}(a − b·α). This is
+the algebraic analogue of the rational condition a ≡ b·m (mod p) for the rational side.
 
 ### Why degree-1 ideals
 
@@ -921,14 +931,14 @@ columns; the slot exists so the matrix-width calculation is stable across stages
 
 ## 14. The Norm Bridge
 
-### Why norms are signed BigInt but trial_smooth takes Uint<4>
+### Why these values are signed BigInt but trial_smooth takes Uint<4>
 
-The rational norm N_rat(a, b) = a − b·m can be negative (when a < b·m). The algebraic form
-N_alg(a, b) = F(a, b) = b^d · f(a/b) can also be negative depending on f and (a, b). Both are
-computed as signed `BigInt` values.
+The rational norm N_rat(a, b) = a − b·m can be negative (when a < b·m). The algebraic value
+N_alg(a, b) = F(a, b) = b^d · f(a/b) = c · N(a − bα) can also be negative depending on f and
+(a, b). Both are computed as signed `BigInt` values.
 
 The smoothness predicate `trial_smooth` (from `shared-numth`) operates on `Uint<4>` — unsigned
-256-bit integers. The **norm bridge** in `gnfs/src/sieve/norms.rs` converts a signed norm to its
+256-bit integers. The **norm bridge** in `gnfs/src/sieve/norms.rs` converts a signed value to its
 absolute value as `Uint<4>`:
 
 ```rust
@@ -952,7 +962,7 @@ The sign of the rational norm is tracked separately in the `rational_sign: bool`
 relations' rational norms must be a perfect square, which requires the sign product to be +1
 (an even number of negative norms). The sign column encodes this constraint.
 
-The algebraic norm's sign is not stored. It is a function of (a, b) alone (the sign of F(a, b)
+The algebraic value's sign is not stored. It is a function of (a, b) alone (the sign of F(a, b)
 times the sign of c) and could be recomputed, and its product over a dependency, the sign of
 N_{K/ℚ}(γ), is a necessary condition for γ to be a square, since a square has positive norm. The
 matrix does not impose it: no column carries it, and the exact verification of the algebraic root
@@ -960,9 +970,9 @@ catches a violation. The rational sign differs in that x₀ = √P needs P > 0 o
 matrix must guarantee it. The ±z ambiguity of the root (both ±z verify) is unrelated to the sign of
 the norm.
 
-### The algebraic norm as a resultant
+### The algebraic value as a resultant
 
-The algebraic form N_alg(a, b) = F(a, b) = b^d · f(a/b) is computed as the homogeneous form:
+The algebraic value N_alg(a, b) = F(a, b) = b^d · f(a/b) is computed as the homogeneous form:
 
 ```text
 N_alg(a, b) = Σ_{i=0}^{d} f.coeffs[i] · a^i · b^{d−i}
@@ -971,7 +981,9 @@ N_alg(a, b) = Σ_{i=0}^{d} f.coeffs[i] · a^i · b^{d−i}
 With c = lc(f) the identity is F(a, b) = b^d · f(a/b) = c · N_{K/ℚ}(a − b·α), because
 f(x) = c·∏(x − αᵢ) over the roots αᵢ of f. It equals Res(f, a − b·x) exactly, taking the
 resultant with f as the first argument. For monic f the form is the norm of a − b·α; for c ≠ 1 the
-norm itself is F(a, b)/c and may have a denominator, and the sieve smooths F(a, b). The
+norm itself is F(a, b)/c and may have a denominator, and the sieve smooths F(a, b). The function
+computing it is `algebraic_norm` (tests: `algebraic_norm_cubic_hand_computed`,
+`algebraic_norm_with_b_greater_than_1`, `algebraic_norm_matches_eval_when_b_is_one`). The
 implementation computes the homogeneous form directly (avoiding rational arithmetic) rather than
 via the resultant, which would be slower.
 
@@ -991,14 +1003,14 @@ a ≡ b·m (mod p) and mark all a in range with += log₂(p). The rational norm 
 is divisible by p iff a ≡ b·m (mod p).
 
 **Step 3 (algebraic side).** For each ideal (p, r) in the algebraic factor base, find the
-starting a ≡ r·b (mod p) and mark all a in range with += log₂(p). The algebraic norm N_alg(a, b)
-is divisible by the ideal (p, r) iff a ≡ r·b (mod p).
+starting a ≡ r·b (mod p) and mark all a in range with += log₂(p). The algebraic value
+N_alg(a, b) = F(a, b) is divisible by p at the root r iff a ≡ r·b (mod p).
 
 **Step 4 (threshold filter).** Collect candidates where the sieve value exceeds a smoothness
 threshold (default: 0.8 × log₂(B_alg)). The threshold accepts candidates where the algebraic
-norm has accumulated enough log contributions to plausibly be smooth.
+value F(a, b) has accumulated enough log contributions to plausibly be smooth.
 
-**Step 5 (confirm).** For each candidate (a, b): check gcd(a, b) = 1; compute both norms; call
+**Step 5 (confirm).** For each candidate (a, b): check gcd(a, b) = 1; compute N_rat and F; call
 `trial_smooth` on both; if both are fully smooth, construct a `Relation`.
 
 ```rust
@@ -1114,12 +1126,12 @@ contributions from other primes are still needed to filter candidates.
 **At toy scale, the yield advantage of the special-q strategy over the plain line sieve is
 under-exposed.** The yield multiplier is a scale phenomenon:
 
-- At cryptographic scale (B_alg ≈ 10⁶, A ≈ 10⁷), the algebraic norm N_alg(a, b) is large
+- At cryptographic scale (B_alg ≈ 10⁶, A ≈ 10⁷), the algebraic value N_alg(a, b) = F(a, b) is large
   (hundreds of bits) and the probability of smoothness is low. The pre-guaranteed factor q
   significantly reduces the cofactor, making smoothness much more likely. The special-q strategy
   yields 5–10× more relations per sieve area than the plain line sieve.
 
-- At toy scale (B_alg = 30, A = 10, B = 3), the norms are already small (tens of bits) and
+- At toy scale (B_alg = 30, A = 10, B = 3), the values are already small (tens of bits) and
   smooth with high probability. The pre-guaranteed factor q does not significantly improve the
   smoothness probability. The yield advantage is not observable.
 
@@ -2236,8 +2248,9 @@ does so without computing that group, so characters are necessary conditions onl
 reconstruction and verification decide (§44).
 
 Characters at the roots of one prime q are individually finer than a Legendre symbol of the
-homogeneous norm form F(a, b) at q. On a completely split q, (F(a, b)/q) = (c/q)·∏_s ((a − b·s)/q):
-the norm character is the product of q's root characters times a constant, so it never sees
+homogeneous value F(a, b) = c·N(a − bα) at q. On a completely split q,
+(F(a, b)/q) = (c/q)·∏_s ((a − b·s)/q): the norm character is the product of q's root characters
+times a constant, so it never sees
 anything a root character cannot. If every prime has an even exponent in the product of the norms
 of a dependency, its total over the dependency is (c/q)^|S|·(±1/q), where ± is the sign of
 N_{K/ℚ}(γ). That sign is a square-class invariant (a square has positive norm) that no matrix
@@ -3249,8 +3262,8 @@ This chapter closes the GNFS pipeline. The five stages, end to end:
    0 \pmod{N}$ and good Murphy-E score. Output: `PolyPair`.
 
 2. **Sieving (G.C, §12–§21).** For each $(a, b)$ in the sieve region, check whether both the
-   rational norm $a - b \cdot m$ and the algebraic norm $b^d \cdot f(a/b)$ are smooth over
-   their respective factor bases. Output: `Vec<Relation>`.
+   rational norm $a - b \cdot m$ and the algebraic value $F(a, b) = b^d \cdot f(a/b)$ are smooth
+   over their respective factor bases. Output: `Vec<Relation>`.
 
 3. **Filtering (G.D, §22–§30).** Remove duplicate and linearly dependent relations; merge
    weight-2 and weight-3 columns; build the sparse GF(2) matrix with provenance map. Output:
@@ -4449,10 +4462,11 @@ Polynomial selection (G.B, §1–§11) finds a polynomial pair (f, g) such that:
 - The **shared-root invariant** holds: f(m) ≡ 0 (mod N).
 
 The shared-root invariant is the load-bearing mathematical fact that makes the whole pipeline
-work. It means that for any sieve pair (a, b), the rational norm a − bm and the algebraic norm
-b^d · f(a/b) are connected: both are norms of the same ideal (a − bα) in ℤ[α], where α is a
-root of f. This connection is what allows the linear algebra step to produce a congruence of
-squares mod N.
+work. It means that for any sieve pair (a, b), the rational norm a − bm and the algebraic value
+F(a, b) = b^d · f(a/b) = c · N(a − bα) are connected: a − bm and a − bα are the images of the
+same element a − bx, and both factor into prime ideals of their fields (the field norm of
+a − bα is F(a, b)/c). This connection is what allows the linear algebra step to produce a
+congruence of squares mod N.
 
 ### The C-PolyPair contract (frozen G.B.1, commit 2f43f99)
 
@@ -4514,7 +4528,7 @@ pub fn monic_f(&self) -> IntPoly;       // f_monic(x) = a_d^{d−1} · f(x / a_d
 pub fn number_field(&self) -> NumberField; // K = ℚ(α) where α is a root of monic_f
 ```
 
-The sieve uses the original non-monic f for norm computation; the square-root stage uses
+The sieve uses the original non-monic f to evaluate F(a, b); the square-root stage uses
 `number_field()` for algebraic arithmetic. The seam is internal to `PolyPair`.
 
 ---
@@ -4524,14 +4538,14 @@ The sieve uses the original non-monic f for norm computation; the square-root st
 ### What sieving does
 
 Sieving (G.C, §12–§21) collects smooth pairs (a, b) — pairs for which both the rational norm
-a − bm and the algebraic norm b^d · f(a/b) factor completely over their respective factor
-bases. Each smooth pair is a **relation**: a row in the eventual GF(2) matrix.
+a − bm and the algebraic value F(a, b) = b^d · f(a/b) factor completely over their respective
+factor bases. Each smooth pair is a **relation**: a row in the eventual GF(2) matrix.
 
 The sieve uses the log-p mark-then-confirm pattern: for each b in 1..=B, initialise a sieve
 array of size 2A + 1, mark each position with the log of each factor-base prime that divides
-the corresponding norm, and confirm candidates where the accumulated log exceeds a smoothness
-threshold. The threshold filter eliminates most candidates before the expensive trial-division
-confirmation step.
+the corresponding value (N_rat or F), and confirm candidates where the accumulated log exceeds a
+smoothness threshold. The threshold filter eliminates most candidates before the expensive
+trial-division confirmation step.
 
 ### The C-FactorBase contract (frozen G.C.1, commit c1dc0b6)
 
@@ -4549,15 +4563,16 @@ pub struct FactorBase {
 
 The algebraic factor base consists of **degree-1 prime ideals** (p, α − r) where r is a root
 of f mod p. The sieve condition for the algebraic side is: the ideal (p, r) divides the element
-a − b·α if and only if a ≡ r·b (mod p), and then p divides the algebraic form N_alg(a, b). This
-is the algebraic analogue of the rational condition a ≡ b·m (mod p).
+a − b·α if and only if a ≡ r·b (mod p), and then p divides the algebraic value
+N_alg(a, b) = F(a, b). This is the algebraic analogue of the rational condition a ≡ b·m (mod p).
 
 The `obstruction_count` field is initialised to 1 (the sign/−1 column). G.E adds quadratic-
 character columns; the slot exists so the matrix-width calculation is stable across stages.
 
 **Why degree-1 ideals.** For a coprime pair (a, b) and a prime p ∤ c·disc(F), the only prime
 ideal over p that can divide (a − b·α) is the degree-one ideal (p, α − r) with r ≡ a·b⁻¹ (mod p).
-It divides the principal ideal (a − b·α) in ℤ[α] exactly when a ≡ r·b (mod p), and then p divides
+Since p ∤ c, α is integral at p and the ideal divides the principal ideal (a − b·α) of ℤ[α]
+localised away from c exactly when a ≡ r·b (mod p), and then p divides
 N_alg(a, b) = b^d · f(a/b) = c·N_{K/ℚ}(a − b·α). The sieve condition is the efficient way to
 enumerate which (a, b) pairs have the ideal (p, r) dividing (a − b·α).
 
@@ -5728,11 +5743,11 @@ $g(x) = x - m$.
 
 In NFS-DL, the same two-polynomial structure is used, but the interpretation is different: both
 the rational side and the algebraic side contribute to the discrete-log linear system. The
-rational norm $a - bm$ and the algebraic form $b^d \cdot f(a/b)$ are both smooth, and both
-contribute exponent columns to the DL matrix. The "two number fields" of NFS-DL are the rational
-field $\mathbb{Q}$ (via the rational norm) and the algebraic field $K = \mathbb{Q}(\alpha)$
-(via the algebraic norm) — the same two fields as in factoring, but now both contribute to a
-single linear system over $\mathbb{F}_\ell$ rather than to a congruence of squares.
+rational norm $a - bm$ and the algebraic value $F(a, b) = b^d \cdot f(a/b)$ are both smooth, and
+both contribute exponent columns to the DL matrix. The "two number fields" of NFS-DL are the
+rational field $\mathbb{Q}$ (via the rational norm) and the algebraic field $K = \mathbb{Q}(\alpha)$
+(via $F(a, b) = c \cdot N(a - b\alpha)$) — the same two fields as in factoring, but now both
+contribute to a single linear system over $\mathbb{F}_\ell$ rather than to a congruence of squares.
 
 **2. Schirokauer maps replacing quadratic-character columns.**
 

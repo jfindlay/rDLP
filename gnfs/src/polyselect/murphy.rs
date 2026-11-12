@@ -11,7 +11,10 @@
 //! where:
 //!
 //! - `S` is a sample of `(a, b)` pairs in the sieve region.
-//! - `F(a,b) = b^d · f(a/b)` is the algebraic norm (homogeneous form of `f`).
+//! - `F(a,b) = b^d · f(a/b)` is the algebraic value (homogeneous form of `f`); with `c` the
+//!   leading coefficient and `α` a root of `f`, `F(a,b) = c · N(a − b·α)`. Evaluated by
+//!   `alg_norm_f64`, which no test calls directly; `score` is exercised by `tests/murphy_kat.rs`
+//!   (for example `kat1_ordering_better_scores_higher`).
 //! - `G(a,b) = a − b·m` is the rational norm.
 //! - `B_f`, `B_g` are the algebraic and rational factor-base bounds.
 //! - `ρ` is the Dickman rho function (probability that a random integer near `x`
@@ -173,11 +176,15 @@ fn dickman_rho_numerical(u: f64) -> f64 {
     (buf[k_lo] + frac * (buf[k_hi] - buf[k_lo])).max(0.0)
 }
 
-// ─── homogeneous norm evaluation ─────────────────────────────────────────────
+// ─── homogeneous value evaluation ────────────────────────────────────────────
 
-/// Evaluate the homogeneous algebraic norm `F(a, b) = b^d · f(a/b)`.
+/// Evaluate the homogeneous algebraic value `F(a, b) = b^d · f(a/b)`, which equals
+/// `c · N(a − b·α)` for leading coefficient `c` and root `α` (not the field norm itself unless
+/// `f` is monic).
 ///
-/// Computed directly as `Σ_k c_k · a^k · b^{d-k}` to avoid division.
+/// Computed directly as `Σ_k c_k · a^k · b^{d-k}` to avoid division. It has no direct test; it
+/// is exercised only through [`score`] by `tests/murphy_kat.rs`
+/// (`kat1_ordering_better_scores_higher`).
 ///
 /// :param f: The algebraic polynomial (degree `d`).
 /// :param a: The `a`-coordinate.
@@ -235,7 +242,7 @@ fn rat_norm_f64(a: f64, b: f64, m: f64) -> f64 {
 /// Murphy-E is a heuristic score predicting the density of smooth relations
 /// produced by the NFS sieve. It is defined as the average over a sample of
 /// `(a, b)` pairs in the sieve region of the product of Dickman-ρ values for
-/// the algebraic and rational norms:
+/// the algebraic value `F` and the rational norm `G`:
 ///
 /// ```text
 /// E(f, g) ≈ (1/|S|) Σ_{(a,b) ∈ S} ρ(log|F(a,b)| / log B_f) · ρ(log|G(a,b)| / log B_g)
@@ -250,7 +257,7 @@ fn rat_norm_f64(a: f64, b: f64, m: f64) -> f64 {
 /// **Skew:** The optimal skew `s` balances algebraic and rational norm sizes.
 /// This implementation uses the skew stored in `pair.skew` if present, or
 /// defaults to `s = 1.0`. The skew is applied by sampling `(a, b·s)` instead
-/// of `(a, b)`, which rescales the algebraic norm relative to the rational norm.
+/// of `(a, b)`, which rescales the algebraic value `F` relative to the rational norm `G`.
 /// Since `score` takes `&PolyPair` (not `&mut`), the computed skew is internal
 /// and not written back to the pair.
 ///
@@ -285,7 +292,7 @@ pub fn score(pair: &PolyPair) -> f64 {
             let b_raw = 1.0 + (j - 1) as f64 * b_step;
             let b = b_raw * skew; // apply skew to b
 
-            // Algebraic norm: F(a, b) = b^d * f(a/b).
+            // Algebraic value: F(a, b) = b^d * f(a/b) = c * N(a - b*alpha).
             // We evaluate using the homogeneous form to avoid division.
             let f_norm = alg_norm_f64(&pair.f, a, b).abs();
             // Rational norm: G(a, b) = a - b_raw * m (skew does not affect rational side).

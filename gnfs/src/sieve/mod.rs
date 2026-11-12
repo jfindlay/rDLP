@@ -3,7 +3,7 @@
 //! This module is the entry point for the ``gnfs::sieve`` sub-crate. It provides:
 //!
 //! - [`factor_base`] — two-sided factor base construction (rational + algebraic).
-//! - [`norms`] — rational and algebraic norm computation, and the norm bridge to ``Uint<4>``.
+//! - [`norms`] — rational norm and algebraic value computation, and the bridge to ``Uint<4>``.
 //! - [`ExponentVector`] — sparse exponent vector over a factor base (rational or algebraic side).
 //! - [`Relation`] — a coprime pair ``(a, b)`` with both norms smooth over the factor bases.
 //! - [`RelationError`] — error type for relation verification.
@@ -14,8 +14,12 @@
 //! # Background
 //!
 //! A **relation** in GNFS is a coprime pair ``(a, b)`` for which both the rational norm
-//! ``N_rat(a, b) = a − b·m`` and the algebraic norm ``N_alg(a, b) = b^d · f(a/b)`` are smooth
-//! over their respective factor bases. Each relation yields one row of the relation matrix that
+//! ``N_rat(a, b) = a − b·m`` and the algebraic value ``N_alg(a, b) = F(a, b) = b^d · f(a/b)``
+//! are smooth over their respective factor bases. For ``f`` with leading coefficient ``c`` and
+//! root ``α``, ``F(a, b) = c · N_{K/ℚ}(a − b·α)``; "norm" alone names ``N``. The value is
+//! computed by [`norms::algebraic_norm`] (tested by ``algebraic_norm_cubic_hand_computed`` in
+//! ``norms.rs`` and, for a non-monic ``f``, ``kat_good_and_exceptional_relations_accepted`` in
+//! ``tests/checked_relations_kat.rs``). Each relation yields one row of the relation matrix that
 //! the filtering step and linear algebra step consume.
 //!
 //! # Cross-track design
@@ -208,13 +212,14 @@ impl std::error::Error for RelationError {}
 
 // ─── Relation ─────────────────────────────────────────────────────────────────
 
-/// A relation: a coprime pair (a, b) with both norms smooth over the factor bases.
+/// A relation: a coprime pair (a, b) whose rational norm and algebraic value F(a, b) are both
+/// smooth over the factor bases.
 ///
 /// # Invariants (checked by ``verify``)
 ///
 /// 1. gcd(a, b) = 1 (coprimality).
 /// 2. The rational exponent vector reconstructs |N_rat(a, b)| over the rational FB.
-/// 3. The algebraic exponent vector reconstructs |N_alg(a, b)| over the algebraic FB.
+/// 3. The algebraic exponent vector reconstructs |N_alg(a, b)| = |F(a, b)| over the algebraic FB.
 /// 4. Both witnesses are fully smooth (cofactor = 1).
 ///
 /// # Sign handling
@@ -223,7 +228,7 @@ impl std::error::Error for RelationError {}
 /// "−1 column" for the linear algebra step: the product of all selected relations' rational
 /// norms must be a perfect square, which requires the sign product to be +1.
 ///
-/// The algebraic norm's sign is not stored separately and is not a matrix column. A field
+/// The algebraic value's sign is not stored separately and is not a matrix column. A field
 /// need not have a real embedding (totally imaginary fields have none), so the algebraic
 /// square root is reconstructed and verified exactly, with no sign convention taken from ℝ.
 /// (The quadratic-character columns in the linear algebra step are necessary filters on
@@ -232,12 +237,12 @@ impl std::error::Error for RelationError {}
 ///
 /// # Algebraic parity
 ///
-/// The algebraic exponents record the valuation of the homogeneous norm at each degree-1
-/// ideal ``(p, r)`` with ``a ≡ b·r (mod p)``. Their parity is a square constraint only at
-/// primes ``p`` that divide neither the leading coefficient nor the discriminant of the
-/// monic form; [`checked::RelationChecker`] classifies the other primes as exceptional. The
-/// primitive affine collector never returns a pair with a projective factor (``p`` dividing
-/// both the leading coefficient and ``b``).
+/// The algebraic exponents record the valuation of the homogeneous value ``F(a, b) = c ·
+/// N(a − b·α)`` at each degree-1 ideal ``(p, r)`` with ``a ≡ b·r (mod p)``. Their parity is a
+/// square constraint only at primes ``p`` that divide neither the leading coefficient nor the
+/// discriminant of the monic form; [`checked::RelationChecker`] classifies the other primes as
+/// exceptional. The primitive affine collector never returns a pair with a projective factor
+/// (``p`` dividing both the leading coefficient and ``b``).
 ///
 /// # Cross-track adaptation (NFS-DL)
 ///
@@ -430,7 +435,8 @@ fn gcd_bigint(mut a: BigInt, mut b: BigInt) -> BigInt {
 /// Find the root r ∈ [0, p) such that r * b_mod ≡ a_mod (mod p).
 ///
 /// Returns ``None`` if no such root exists in the factor base (which would indicate the prime
-/// is not actually a factor of the algebraic norm, contradicting the smoothness witness).
+/// is not actually a factor of the algebraic value ``F(a, b)``, contradicting the smoothness
+/// witness).
 ///
 /// For small p (≤ B_alg, typically ≤ 10^6), linear search is fast.
 fn find_root_for_ideal(a_mod: &BigInt, b_mod: &BigInt, p: u64) -> Option<u64> {
