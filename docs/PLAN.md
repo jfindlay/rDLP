@@ -362,6 +362,15 @@ Gate evidence:
     driver before commit: identical); no untracked files; rustc/cargo 1.95.0. Non-test `.rs` diff
     verified comment-only.
   - `cargo coverage`: deferred to the ◆ boundary (row 8).
+- Row 4 (rustdoc/comment edits in `.rs` plus one new unit test), worker-run, driver-validated:
+  - `cargo check --workspace` (workspace root): `reused`, exit 0, completed 2026-11-11 20:52:15
+    −05:00, log `/tmp/opencode/s4-check.log`.
+  - `cargo test --workspace` (workspace root): `reused`, exit 0, completed 20:56:48 −05:00, log
+    `/tmp/opencode/s4-test.log`, 2035 passed, 0 failed (new test listed `ok`).
+  - Input identity: base `4356059` + unstaged diff sha256 `679d3a78…4e403` (recomputed by the
+    driver before commit: identical); no untracked files; rustc/cargo 1.95.0. Non-test `.rs` diff
+    verified comment-only.
+  - `cargo coverage`: deferred to the ◆ boundary (row 8).
 
 Pending checks: `cargo coverage` (row 8 boundary, then final delivery). `cargo dep-policy` and
 `cargo audit` fresh for 2026-11-11 only; rerun if the chain crosses a day or touches dependency
@@ -372,7 +381,7 @@ inputs.
 | 1 | Re-derive the GNFS L[1/3, (64/9)^{1/3}] complexity from one smoothness estimate | done | a0b12ad | C-GnfsComplexity (frozen by the inflection fork, `design-confident`). §9.7 restatements widened per the contract; allowed extras: none. Out-of-scope stale text reported to row 8 (see digest). |
 | 2 | State the non-monic homogeneous value as c·N(a − bα) and localise the index | done | 6e67f92 | Propagated C-NonMonicNorm (no new freeze). Extras: none. |
 | 3 | Separate bad primes from index divisors and name `number_field()`'s consumers | done | 9bfbd4e | C-BadPrime (tests `kat_is_bad_prime_non_monic_flags_a_prime_dividing_only_the_leading_coefficient`, `kat_bad_prime_that_is_maximal_has_ramified_factorisation` in `shared/numfield/tests/dedekind_kat.rs`). Extras: none. |
-| 4 | Pin the trivial-congruence policy and say linear algebra yields candidates | pending | | |
+| 4 | Pin the trivial-congruence policy and say linear algebra yields candidates | done | 161c7b3 | C-TrivialCongruence (test `trivial_congruence_with_a_shared_factor_reports_no_divisor`, unit test in `gnfs/src/sqrt/assembly.rs`; no new public API). Extras: none. |
 | 5 | Make the testing documentation describe the tests that exist | pending | | |
 | 6 | Label the GLV, negation-map and Koblitz ratios as expected, not measured | pending | | |
 | 7 | Rework the quantum-resource exposition from primary sources | pending | | |
@@ -437,6 +446,19 @@ seam" (~:19–25) and `PolyPair` doc (~:118–120) do not name `number_field()`'
 `sieve/mod.rs` ~:243 bad-prime comment unread; `dedekind.rs` module header and
 `DedekindReport::is_bad_prime` "p | disc(f)" is correct there (monic-only) — keep.
 Texture: worker reflowed one over-width PEDAGOGY line and did not re-measure.
+
+### 4 — 2026-11-11
+Discovery/flex: the doc claim held: `factor_from_congruence` returns `Trivial` on
+`(x − y) % n == 0 || (x + y) % n == 0` before any gcd; no code path reports a divisor there. The old
+rustdoc claim "both gcds are trivial" was false for x = y = 5, N = 35 (gcd(x + y, N) = 5) and is
+dropped. An existing test already covered (5, 5) but not the gcd; the new unit test asserts both
+(private seam, as the plan's discovery clause anticipated, no public API).
+Affected: C-TrivialCongruence (frozen).
+Deferred: yes — row 8 should sweep: `docs/ROADMAP.md:253-255` (rolling doc; not edited by the chain)
+still describes the old README/`assembly.rs` wording; `gnfs/docs/PEDAGOGY.md` ~:1892 ("compute the
+congruence of squares") and ~:2028 ("candidate congruence of squares") unchecked in context; other
+README lines over 100 characters (~:118, 120–122, 333) untouched (may be byte-count false positives).
+Texture: calendar day rolled to 2026-11-12 during row 4; freshness checks rerun before row 5.
 
 ## Discoveries & risks
 
