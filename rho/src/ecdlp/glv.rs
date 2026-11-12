@@ -6,8 +6,10 @@
 //! `{P, φ(P), φ²(P), −P, −φ(P), −φ²(P)}` — a set of size 6 (for generic P).
 //!
 //! Collapsing this 6-orbit to a single canonical representative reduces the
-//! effective group size by a factor of 6, which is expected (heuristic, not measured) to drop
-//! the rho steps by √6 vs the plain walk and √3 vs the negation-map-only walk.
+//! effective group size by a factor of 6, which is expected (heuristic), not measured, to drop
+//! the rho steps by √6 vs the plain walk and √3 vs the negation-map-only walk.  The unit test
+//! `glv_fewer_steps_than_negmap` asserts only a 2× no-regression bound against the
+//! negation-map walk, not either ratio.
 //!
 //! # Canonical representative
 //!

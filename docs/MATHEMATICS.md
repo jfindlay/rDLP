@@ -1021,7 +1021,10 @@ size and improve the expected collision time.
 **The negation map.** On an elliptic curve, $P$ and $-P$ share the same $x$-coordinate (negation
 flips only the $y$-coordinate). By collapsing $\{P, -P\}$ to a single canonical representative
 (the one with the smaller $y$-coordinate), the effective group size is halved, reducing the
-expected walk length by $\sqrt{2}$.
+expected walk length by $\sqrt{2}$. This ratio is expected (heuristic), not measured: no
+measurement in this repository supports it. The negation-map solver is correct (every success is
+verified), but its step count has been observed to be far above the plain walk's rather than below
+it, and that anomaly is open; `docs/BENCHMARKS.md` records the observation.
 
 **The GLV endomorphism.** For a curve with an order-3 endomorphism $\phi$ (e.g. $y^2 = x^3 + 7$
 over a field with a cube root of unity), the orbit of any generic point $P$ under $\langle \phi,
@@ -1031,7 +1034,10 @@ $$\{P,\; \phi(P),\; \phi^2(P),\; -P,\; -\phi(P),\; -\phi^2(P)\}.$$
 
 Collapsing this orbit to a single canonical representative reduces the effective group size by 6,
 reducing the expected walk length by $\sqrt{6}$ compared to the plain walk, or $\sqrt{3}$ compared
-to the negation-map-only walk.
+to the negation-map-only walk. Both ratios are expected (heuristic), not measured. The only
+comparison in the test suite is `glv_fewer_steps_than_negmap` (`rho/src/ecdlp/mod.rs`), which
+asserts only a no-regression bound: over 20 seeds on a 1093-element group, the GLV walk's total
+steps are at most twice the negation-map walk's. It does not assert either ratio.
 
 **Scalar bookkeeping.** The orbit-collapsing maps require adjusting the scalars $(a, b)$ to
 maintain the invariant $W = aG + bQ$. For the negation map: $-W = (n-a)G + (n-b)Q$. For the GLV

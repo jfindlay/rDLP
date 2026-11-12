@@ -331,11 +331,11 @@ rho/
 | Distinguished points (vOW)          | Predicate: low θ bits of x-coord = 0                  |
 | Parallel collision search           | N walkers + 1 coordinator; expected speedup N (unmeasured) |
 | DP hash table + match-on-insert     | keyed by full x; a y-parity bit separates P from −P   |
-| Negation map (±P equivalence)       | Canonical rep = point with smaller y (≤ p/2); expected ~√2 step saving, not observed on the bench groups (see `docs/BENCHMARKS.md`) |
+| Negation map (±P equivalence)       | Canonical rep = point with smaller y (≤ p/2); ~√2 expected (heuristic), not measured; step-count anomaly open (`docs/BENCHMARKS.md`) |
 | Fruitless-cycle detection + escape  | 16-entry sliding window; BKNS deterministic escape    |
 | Batched field inversion             | Montgomery's trick: B inversions → 1 inv + 3(B−1) mul |
 | Affine coordinates                  | Viable once inversions are amortised via batching     |
-| GLV endomorphism (order-3)          | 6-orbit equivalence on secp-toy; ~√3 expected speedup |
+| GLV endomorphism (order-3)          | 6-orbit equivalence on secp-toy; ~√3 vs negation map expected (heuristic), not measured |
 
 ---
 
