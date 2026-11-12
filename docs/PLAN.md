@@ -389,6 +389,15 @@ Gate evidence:
     driver before commit: identical); no untracked files; rustc/cargo 1.95.0. Non-test `.rs` diff
     verified to be test and comment lines only.
   - `cargo coverage`: deferred to the ◆ boundary (row 8).
+- Row 6 (one module doc comment in `.rs`, Markdown docs), worker-run, driver-validated:
+  - `cargo check --workspace` (workspace root): `reused`, exit 0, completed 2026-11-12 10:53:02
+    −05:00, log `/tmp/opencode/s6-check.log`.
+  - `cargo test --workspace` (workspace root): `reused`, exit 0, completed 11:00:00 −05:00, log
+    `/tmp/opencode/s6-test.log`, 2035 passed, 0 failed; `glv_fewer_steps_than_negmap ... ok`.
+  - Input identity: base `95b2bde` + unstaged diff sha256 `42b3c672…b45eb` (recomputed by the
+    driver before commit: identical); no untracked files; rustc/cargo 1.95.0. `.rs` diff verified
+    comment-only. No benchmark run.
+  - `cargo coverage`: deferred to the ◆ boundary (row 8).
 
 Pending checks: `cargo coverage` (row 8 boundary, then final delivery). `cargo dep-policy` and
 `cargo audit` fresh for 2026-11-11 only; rerun if the chain crosses a day or touches dependency
@@ -401,7 +410,7 @@ inputs.
 | 3 | Separate bad primes from index divisors and name `number_field()`'s consumers | done | 9bfbd4e | C-BadPrime (tests `kat_is_bad_prime_non_monic_flags_a_prime_dividing_only_the_leading_coefficient`, `kat_bad_prime_that_is_maximal_has_ramified_factorisation` in `shared/numfield/tests/dedekind_kat.rs`). Extras: none. |
 | 4 | Pin the trivial-congruence policy and say linear algebra yields candidates | done | 161c7b3 | C-TrivialCongruence (test `trivial_congruence_with_a_shared_factor_reports_no_divisor`, unit test in `gnfs/src/sqrt/assembly.rs`; no new public API). Extras: none. |
 | 5 | Make the testing documentation describe the tests that exist | done | 24b0b88 | C-TestingDocs (strengthened ECM test `stage2_finds_factor_stage1_misses`: N = 1009·3541, B1 = 20, B2 = 200, sigma 7 found by a bounded 200-curve scan). Extras: none. |
-| 6 | Label the GLV, negation-map and Koblitz ratios as expected, not measured | pending | | |
+| 6 | Label the GLV, negation-map and Koblitz ratios as expected, not measured | done | ac3e451 | C-HeuristicRatio. Extras: none. |
 | 7 | Rework the quantum-resource exposition from primary sources | pending | | |
 | 8 | Correct surviving claims the exposition rows contradicted ◆ | pending | | |
 | 9 | Anneal cleanup (skippable) | pending | | |
@@ -496,6 +505,22 @@ permitted files: `docs/NOTES.md:134` ("no proptest/quickcheck", rolling doc), `d
 SURVEY is retirement-scope, report-only), `docs/ROADMAP.md:272` (stale "about 40 tests … (45
 exist)"); `docs/development.md:70–74` over 100 columns (pre-existing).
 Texture: Tests/Tests-added columns removed from ten BENCHMARKS tables; no measurements touched.
+
+### 6 — 2026-11-12
+Discovery/flex: `glv_fewer_steps_than_negmap` (`rho/src/ecdlp/mod.rs`) asserts only
+`glv_steps <= 2 × negmap_steps` on the 1093-element `tiny_glv` group over 20 seeds, not √3 or √6;
+no test asserts the Koblitz √(2m) saving (`koblitz_*` check logarithms; `binary_ecdlp_kat.rs`
+asserts `steps >= 1`). The worker removed an unsourced PEDAGOGY claim ("ratio about 0.62–0.77
+observed when that test was written") and the step-count figures it had copied from a bench
+comment, pointing at BENCHMARKS instead. BENCHMARKS records the step-count anomaly for
+`solve_dp_negmap` only, not for batch; the passages claim no more.
+Affected: C-HeuristicRatio (frozen).
+Deferred: yes — row 8 should sweep unlabelled ratios outside row 6's files:
+`rho/src/ecdlp/cli.rs:96` ("Expected to reduce wall time by ~√2 vs plain DP", unlabelled);
+`cli.rs:45` and `rho/src/binary_ecdlp/koblitz.rs:351` are already labelled. Two README table rows
+(~:338 and the negation-map row) exceed 100 columns (cannot wrap a table row).
+Texture: ratios in MATHEMATICS now sit only in "Orbit-collapsing maps: negation and GLV"; the old
+~:1006–1011 passage states none.
 
 ## Discoveries & risks
 
