@@ -398,6 +398,9 @@ Gate evidence:
     driver before commit: identical); no untracked files; rustc/cargo 1.95.0. `.rs` diff verified
     comment-only. No benchmark run.
   - `cargo coverage`: deferred to the ◆ boundary (row 8).
+- Row 7: `cargo check`/`cargo test`: not run, `non-executable diff` (three Markdown files; no source
+  includes Markdown, confirmed at row 1 and unchanged: no `.rs`/`.toml` in this diff).
+  `cargo coverage`: deferred to the ◆ boundary (row 8).
 
 Pending checks: `cargo coverage` (row 8 boundary, then final delivery). `cargo dep-policy` and
 `cargo audit` fresh for 2026-11-11 only; rerun if the chain crosses a day or touches dependency
@@ -411,7 +414,7 @@ inputs.
 | 4 | Pin the trivial-congruence policy and say linear algebra yields candidates | done | 161c7b3 | C-TrivialCongruence (test `trivial_congruence_with_a_shared_factor_reports_no_divisor`, unit test in `gnfs/src/sqrt/assembly.rs`; no new public API). Extras: none. |
 | 5 | Make the testing documentation describe the tests that exist | done | 24b0b88 | C-TestingDocs (strengthened ECM test `stage2_finds_factor_stage1_misses`: N = 1009·3541, B1 = 20, B2 = 200, sigma 7 found by a bounded 200-curve scan). Extras: none. |
 | 6 | Label the GLV, negation-map and Koblitz ratios as expected, not measured | done | ac3e451 | C-HeuristicRatio. Extras: none. |
-| 7 | Rework the quantum-resource exposition from primary sources | pending | | |
+| 7 | Rework the quantum-resource exposition from primary sources | done | b329f83 | C-QuantumEvidence (versions read: Babbush arXiv:2603.28846v2 full; Cain 2603.28627v1 main text, appendices unread; Schrottenloher 2606.02235v1 partial; Proos–Zalka arXiv quant-ph/0301141v2 full; Roetteler arXiv:1706.06752v3 full). Extras: none. |
 | 8 | Correct surviving claims the exposition rows contradicted ◆ | pending | | |
 | 9 | Anneal cleanup (skippable) | pending | | |
 
@@ -521,6 +524,31 @@ Deferred: yes — row 8 should sweep unlabelled ratios outside row 6's files:
 (~:338 and the negation-map row) exceed 100 columns (cannot wrap a table row).
 Texture: ratios in MATHEMATICS now sit only in "Orbit-collapsing maps: negation and GLV"; the old
 ~:1006–1011 passage states none.
+
+### 7 — 2026-11-12
+Discovery/flex: every source was obtainable, so no abstract-only fallback. Corrections: the old
+§11.4.4 credited PZ03 with an O((log r)²) cost for "the two transforms" that PZ03 does not state
+(it is the chapter's own O(t²) result); PZ03's gate/qubit counts are logical, whole-algorithm,
+prime-field, and exclude exponent registers (the project's 1280/4100 layout counts include them, so
+they are not comparable); "thousands of fault-tolerant qubits" removed as unscoped. Cain v1's
+abstract says "a few days" for 26,000 qubits while its body and conclusion say 10 days; the doc
+follows the body and notes the mismatch; the 9,739-qubit headline pairs with ≈1000 days at a 1 ms
+cycle. Babbush's zero-knowledge proof certifies only the secp256k1 point-addition circuits; full
+counts, generic-n claim, physical qubits and runtimes are composed/uncertified, and the doc says so.
+Schrottenloher's Babbush rows are Babbush's stated figures (circuits not inspectable) and its
+simulation is word-level; presented as a comparison with a stated target. No cross-source ratios.
+Source-version caveats: PZ03 read as arXiv v2 (the QIC typeset version was not read); Roetteler as
+arXiv v3 (not the ASIACRYPT proceedings); Cain appendices unread; Schrottenloher's arithmetic
+sections not checked line by line.
+Affected: C-QuantumEvidence (frozen). No new algorithm requirement.
+Deferred: yes — row 8 should sweep: `docs/SURVEY.md` (~:2139–2153, 2189, 2465 "768 qubits"
+attributed to PZ03, which states ≈1500 (1800) logical at n = 256; ~:2168–2173; ~:2180–2181 "millions
+of physical qubits" for logical-qubit papers; SURVEY is report-only); `shor/docs/PEDAGOGY.md` §6.2
+~:535 attributes "Brent–Kung adder trees" to Roetteler et al., not found in their paper (outside
+the permitted sections of row 7); `docs/MATHEMATICS.md` ~:4003 second PZ03 entry (§10 list) lacks
+the arXiv-version note; Chevignard/Litinski figures are labelled secondhand from Babbush §II.B.
+Texture: bibliographic details of Shor SIAM (26(5), 1484–1509) and Roetteler (pp. 241–270) checked
+against Crossref; §11.7.1 added (tables + evidence-boundary + sources-read note).
 
 ## Discoveries & risks
 
