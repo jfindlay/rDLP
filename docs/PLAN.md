@@ -344,6 +344,15 @@ Gate evidence:
 - Row 1: `cargo check`/`cargo test`: not run, `non-executable diff` (three Markdown files; grep of
   `*.rs`/`*.toml` finds no `include_str!`/doc-include of Markdown). `cargo coverage`: deferred to the
   ◆ boundary (row 8).
+- Row 2 (rustdoc edits in `.rs`: potentially executable input), worker-run, driver-validated:
+  - `cargo check --workspace` (workspace root): `reused`, exit 0, completed 2026-11-11 19:48:08
+    −05:00, log `/tmp/opencode/s2-check.log`.
+  - `cargo test --workspace` (workspace root): `reused`, exit 0, completed 20:03:12 −05:00, log
+    `/tmp/opencode/s2-test.log`, 2032 passed, 0 failed.
+  - Input identity: base `fe7132c` + unstaged diff, `git diff HEAD -- . ':!docs/PLAN.md' |
+    sha256sum` = `f0e0ade8…472ffe2` (recomputed by the driver before commit: identical); no
+    untracked files; rustc/cargo 1.95.0. Diff in `.rs` files verified comment-only.
+  - `cargo coverage`: deferred to the ◆ boundary (row 8).
 
 Pending checks: `cargo coverage` (row 8 boundary, then final delivery). `cargo dep-policy` and
 `cargo audit` fresh for 2026-11-11 only; rerun if the chain crosses a day or touches dependency
@@ -352,7 +361,7 @@ inputs.
 | # | Session | Status | Commit | Froze |
 |---|---------|--------|--------|-------|
 | 1 | Re-derive the GNFS L[1/3, (64/9)^{1/3}] complexity from one smoothness estimate | done | a0b12ad | C-GnfsComplexity (frozen by the inflection fork, `design-confident`). §9.7 restatements widened per the contract; allowed extras: none. Out-of-scope stale text reported to row 8 (see digest). |
-| 2 | State the non-monic homogeneous value as c·N(a − bα) and localise the index | pending | | |
+| 2 | State the non-monic homogeneous value as c·N(a − bα) and localise the index | done | 6e67f92 | Propagated C-NonMonicNorm (no new freeze). Extras: none. |
 | 3 | Separate bad primes from index divisors and name `number_field()`'s consumers | pending | | |
 | 4 | Pin the trivial-congruence policy and say linear algebra yields candidates | pending | | |
 | 5 | Make the testing documentation describe the tests that exist | pending | | |
@@ -382,6 +391,26 @@ touches this file's rustdoc); (d) leaked labels in `gnfs/docs/PEDAGOGY.md` ~:513
 statement is now the large-u form with its range; confirm no consumer relied on the old Corollary;
 (f) [Bai11] page numbers carried from the contract, not re-fetched.
 Texture: references 18, 19, 22, 23 now carry recalled/not-read notes; [Bai11] added as "23a".
+
+### 2 — 2026-11-11
+Discovery/flex: no sieve or Murphy-score argument needs N rather than F (the sieve smooths F; the
+valuation of F equals the ideal exponent only for p ∤ c, which `Relation`'s parity paragraph
+already restricts to). Test gap, not a wording issue: private `alg_norm_f64` (murphy.rs) is
+reached only through `score`, whose test `kat1_ordering_better_scores_higher` checks ordering, not
+the value; the rustdoc says so. One outright wrong sentence fixed (gnfs PEDAGOGY §53: both sides
+"norms of the same ideal (a − bα) in ℤ[α]").
+Affected: none (C-NonMonicNorm propagated).
+Deferred: yes — row 8 should sweep surviving "algebraic norm" used for F outside row 2's files:
+`gnfs/src/sieve/{factor_base.rs:10,66; special_q.rs:34; lattice.rs:47}`, `polyselect/roots.rs:5`,
+`sqrt/assembly.rs:488` (row 4 touches this file), `lib.rs:12`, `dl/ext/relation.rs:18,113,172`
+(NFS-DL, report-only), gnfs tests (`special_q_kat`, `factor_base_kat`, `sqrt_*_kat`,
+`factor_end_to_end_kat`, `checked_relations_kat:733`, `murphy_kat`, `dl_descent_kat`),
+`shared/numfield/docs/PEDAGOGY.md:22,691`, MATHEMATICS :1906 ("homogeneous norm form"), :2514,
+:2534, :2790 (NFS-DL §9, report-only); `sieve/mod.rs:195` is a runtime error string (leave).
+Leaked plan labels in files row 2 edited, pre-existing: `norms.rs` module comment ("C1 resolution
+in ROADMAP", "principle 4"), `line.rs` ("Principle-4 note"), gnfs PEDAGOGY ("G.B.x", "C-PolyPair",
+"principle-4").
+Texture: gnfs PEDAGOGY bad-prime passage (~:892–896) left for row 3.
 
 ## Discoveries & risks
 
