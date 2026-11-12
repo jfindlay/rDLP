@@ -14,14 +14,17 @@
 //! # Non-monic leading coefficient
 //!
 //! The leading digit `a_d` satisfies `1 ≤ a_d < m`, so `f` is generally non-monic.
-//! `PolyPair::monic_f()` and `PolyPair::number_field()` perform the standard NFS
-//! homogenisation when monic form is required.
+//! `PolyPair::monic_f()` performs the standard NFS homogenisation when monic form is required.
+//! `PolyPair::number_field()` builds the number field on that monic form; it is used by the NFS
+//! discrete-logarithm relation code and by tests, not by the factor base or the square-root
+//! stage.
 //!
 //! # Degree heuristic
 //!
-//! The optimal degree balances the smoothness bounds on the algebraic and rational sides.
-//! The classical heuristic is `d ≈ (3 ln N / ln ln N)^{1/3}`, clamped to `[3, 6]` for
-//! toy-scale N. See [`optimal_degree`] for the implementation.
+//! The optimal degree is the one that minimises the total cost of sieving and linear algebra;
+//! the algebraic and rational values have different sizes, and the degree sets the trade-off
+//! between them. The classical asymptotic optimum is `d ≈ (3 ln N / ln ln N)^{1/3}`, clamped to
+//! `[3, 6]` for toy-scale N. See [`optimal_degree`] for the implementation.
 //!
 //! # Science↔engineering note
 //!
@@ -41,9 +44,9 @@ use super::{PolyGenerator, PolyPair};
 ///
 /// Uses the heuristic `d ≈ (3 ln N / ln ln N)^{1/3}`, clamped to `[3, 6]` for toy-scale N.
 ///
-/// The heuristic derives from balancing the smoothness bounds on the algebraic and rational
-/// sides of the NFS sieve. At cryptographic scale (RSA-768+), this returns 5–6; at toy
-/// scale (60–100 bit), it returns 3–4.
+/// The heuristic is the asymptotic degree that minimises the total cost of the NFS, trading the
+/// size of the algebraic value against that of the rational value. At cryptographic scale
+/// (RSA-768+), this returns 5–6; at toy scale (60–100 bit), it returns 3–4.
 ///
 /// The bit length of `n` is used to approximate `ln N ≈ bits · ln 2`.
 ///
@@ -185,7 +188,8 @@ fn base_m_digits(n: &BigInt, m: &BigInt, d: usize) -> Vec<BigInt> {
 
 /// Generate a polynomial pair via base-m expansion.
 ///
-/// Given `n` and degree `d`, computes `m = floor(n^{1/(d+1)})` and writes `n` in base `m`:
+/// Given `n` and degree `d`, takes `m` as the least integer with `m^{d+1} > n`, i.e.
+/// `m = floor(n^{1/(d+1)}) + 1`, and writes `n` in base `m`:
 ///
 /// ```text
 /// n = a_0 + a_1·m + a_2·m² + ... + a_d·m^d

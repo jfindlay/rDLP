@@ -252,8 +252,12 @@ impl PolyPair {
     /// are the roots of `f`.
     ///
     /// This is the seam between polynomial selection (which produces non-monic `f`) and
-    /// number-field arithmetic (which requires monic `f`). Sieving uses the original `f` for
-    /// norm computation; element arithmetic in `K` uses the monic form via this method.
+    /// number-field arithmetic (which requires monic `f`). The field returned is built on the
+    /// order ℤ[a_d·α], not ℤ[α]. Its consumers are the NFS discrete-logarithm relation code,
+    /// which takes the field as a parameter (see `dl::relation`), and tests. The factor base does
+    /// its own root search on the original `f`; the algebraic value `F(a, b)` is computed from
+    /// the original `f`, not from this field; and the square-root stage builds its own monic
+    /// form and never calls this method.
     ///
     /// :returns: The number field `K = ℚ(α)` defined by the monic form of `f`.
     pub fn number_field(&self) -> NumberField {

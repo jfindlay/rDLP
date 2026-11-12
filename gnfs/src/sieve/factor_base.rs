@@ -26,21 +26,26 @@
 //! the line sieve does not populate them, but the slot exists so the linear algebra step
 //! can extend without resharding.
 //!
-//! # Bad primes (principle-4 annotation)
+//! # Bad primes
 //!
-//! Primes ``p | disc(f)`` are **bad primes**: Dedekind's theorem does not apply directly, and
-//! ℤ[α] may not be the full ring of integers at ``p``. At toy scale, bad primes are prominent
-//! (e.g., disc(x³ − x − 1) = −23, so p = 23 is bad). At cryptographic scale, bad primes are
-//! marginal. This implementation includes bad primes in the algebraic factor base with the
-//! ``is_bad_prime`` flag set, using direct root-finding (``f(r) ≡ 0 mod p``) which is correct
-//! for linear factors even at bad primes. The ``is_bad_prime`` flag documents the principle-4
-//! over-exposure.
+//! A prime ``p`` is **bad** when ``p | c·disc(f)``, where ``c`` is the leading coefficient of
+//! ``f``. This is exactly what [`shared_numfield::is_bad_prime`] computes on the (generally
+//! non-monic) ``f`` passed to [`FactorBase::new`]: it tests ``p`` against
+//! ``shared_numfield::discriminant(f)``, which for non-monic ``f`` is ``c·disc(f)``. A prime
+//! dividing only ``c`` is therefore bad. At toy scale bad primes are prominent (e.g.,
+//! disc(x³ − x − 1) = −23, so p = 23 is bad); at cryptographic scale they are marginal.
 //!
-//! The flag is informational. The checked relation path ([`super::checked`]) does not consult
-//! it: it classifies a prime by exact divisibility of ``c·disc(F)``, where ``c`` is the
-//! leading coefficient and ``F`` the monic form. For ``deg f = 2`` the discriminant of ``F``
-//! is that of ``f``, so ``p | c`` can be invisible to a flag derived from the discriminant
-//! alone.
+//! The primes dividing the index [O_K : ℤ[α]] (for integral α) are a subset of the bad primes,
+//! not the other way round: a bad prime may have ℤ[α] maximal (x² − 2 at p = 2, where
+//! disc = 8 but ℤ[√2] is the full ring of integers). So the flag says that Dedekind's theorem
+//! cannot be applied without further checking, not that ℤ[α] fails to be maximal at ``p``.
+//!
+//! This implementation includes bad primes in the algebraic factor base with the
+//! ``is_bad_prime`` flag set, using direct root-finding (``f(r) ≡ 0 mod p``), which is correct
+//! for linear factors even at bad primes. The flag is informational. The checked relation path
+//! ([`super::checked`]) does not consult it: it classifies a prime by exact divisibility of
+//! ``c·disc(F)``, where ``F`` is the monic form of ``f``. Since
+//! ``disc(F) = c^((d−1)(d−2))·disc(f)`` for ``d = deg f``, both tests flag the same primes.
 //!
 //! # Projective limitation
 //!
@@ -58,10 +63,10 @@ use shared_numth::factor_base_up_to;
 /// A degree-1 prime ideal (p, α − r) in the algebraic factor base.
 ///
 /// Represents the prime ideal above ``p`` corresponding to the root ``r`` of ``f mod p``.
-/// For good primes (p ∤ disc(f)), these are exactly the prime ideals above ``p`` with
-/// residue degree 1. For bad primes (p | disc(f)), these are the ideals from linear factors
-/// of ``f mod p``; higher-degree factors may contribute additional ideals not captured here
-/// (see ``is_bad_prime`` flag).
+/// For good primes (p ∤ c·disc(f), ``c`` the leading coefficient), these are exactly the prime
+/// ideals above ``p`` with residue degree 1. For bad primes (p | c·disc(f)), these are the
+/// ideals from linear factors of ``f mod p``; higher-degree factors may contribute additional
+/// ideals not captured here (see ``is_bad_prime`` flag).
 ///
 /// The algebraic norm ``N_alg(a, b)`` is divisible by the ideal ``(p, α − r)`` iff
 /// ``a ≡ r·b (mod p)``. This is the sieve condition for the algebraic side.
@@ -73,10 +78,11 @@ pub struct AlgebraicPrime {
     pub r: u64,
     /// Index of this ideal in the algebraic factor base (for column mapping).
     pub index: usize,
-    /// True if p | disc(f) (bad prime).
+    /// True if p | c·disc(f) (bad prime), ``c`` being the leading coefficient of ``f``.
     ///
-    /// Principle-4 annotation: bad primes are over-exposed at toy scale relative to NFS-scale
-    /// where their contribution is marginal. Root-finding via ``f(r) ≡ 0 mod p`` is correct
+    /// A bad prime need not divide the index of ℤ[α]; the flag does not decide maximality.
+    /// Bad primes are over-represented at toy scale relative to NFS scale, where their
+    /// contribution is marginal. Root-finding via ``f(r) ≡ 0 mod p`` is correct
     /// for linear factors even at bad primes; higher-degree factors of ``f mod p`` may yield
     /// additional prime ideals not representable in two-element form without the full Round 2
     /// algorithm (out of scope).
@@ -128,8 +134,8 @@ impl FactorBase {
     ///
     /// Uses ``factor_base_up_to`` for the rational side. For the algebraic side, finds all
     /// roots of ``f mod p`` for each prime ``p ≤ B_alg`` by trial (checking ``f(r) ≡ 0 mod p``
-    /// for each ``r ∈ 0..p``). Bad primes (p | disc(f)) are included with the ``is_bad_prime``
-    /// flag set.
+    /// for each ``r ∈ 0..p``). Bad primes (p | c·disc(f), ``c`` the leading coefficient) are
+    /// included with the ``is_bad_prime`` flag set.
     ///
     /// The ``obstruction_count`` is initialised to 1 (the sign/−1 column for the linear algebra step).
     ///

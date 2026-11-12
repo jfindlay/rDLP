@@ -174,6 +174,46 @@ fn kat7_is_bad_prime() {
     );
 }
 
+/// For non-monic f, `discriminant` is lc(f)·disc(f), so `is_bad_prime` flags the primes dividing
+/// lc(f)·disc(f), including a prime that divides only the leading coefficient.
+///
+/// f = 3x² + x + 1 has lc = 3 and disc(f) = 1 − 12 = −11. Its monic transform x² + x + 3 has the
+/// same discriminant −11, which 3 does not divide. Directly, Res(f, f') for f' = 6x + 1 is the
+/// determinant of [[3, 1, 1], [6, 1, 0], [0, 6, 1]] = 3 − 6 + 36 = 33; the sign factor for d = 2
+/// is −1, giving −33 = 3·(−11). So 3 (dividing lc only) and 11 (dividing disc) are flagged, and
+/// primes dividing neither are not.
+#[test]
+fn kat_is_bad_prime_non_monic_flags_a_prime_dividing_only_the_leading_coefficient() {
+    let f = poly(&[1, 1, 3]);
+    let monic_transform = poly(&[3, 1, 1]);
+
+    assert_eq!(discriminant(&f), bi(-33), "lc(f)·disc(f) = 3·(−11)");
+    assert_eq!(discriminant(&monic_transform), bi(-11));
+
+    assert!(!is_bad_prime(&monic_transform, &bi(3)), "3 does not divide disc of the monic form");
+    assert!(is_bad_prime(&f, &bi(3)), "3 | lc(f), so 3 | lc(f)·disc(f)");
+    assert!(is_bad_prime(&f, &bi(11)), "11 | disc(f)");
+    for p in [2, 5, 7, 13] {
+        assert!(!is_bad_prime(&f, &bi(p)), "{p} divides neither lc(f) nor disc(f)");
+    }
+}
+
+/// A bad prime need not divide the index: p = 2 is bad for x² − 2 (disc 8) while ℤ[√2] is
+/// 2-maximal. The report's `index` is the maximality result: `divides_index()` is false. The
+/// factorisation shape agrees: f̄ = x² gives the single degree-one prime (2, α) of multiplicity 2,
+/// the ramified prime (√2) of the ring of integers, with nothing nonlinear.
+#[test]
+fn kat_bad_prime_that_is_maximal_has_ramified_factorisation() {
+    let f = poly(&[-2, 0, 1]);
+    assert!(is_bad_prime(&f, &bi(2)));
+
+    let k = NumberField::new(f);
+    let report = dedekind_factor(&k, prime(2), AMPLE).unwrap();
+    assert!(!report.index.divides_index(), "ℤ[√2] is maximal at 2");
+    assert_eq!(roots_and_multiplicities(&report), vec![(bi(0), 2)]);
+    assert_eq!(report.nonlinear_degree, 0);
+}
+
 // ─── Ramified and bad primes ──────────────────────────────────────────────────
 
 /// f = x² − 2, p = 2: f̄ = x² (since −2 ≡ 0), a single root r = 0 of multiplicity 2.

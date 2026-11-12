@@ -101,11 +101,14 @@ roots of f. The coefficient of x^k in f_monic is a_k · a_d^{d−1−k}, which i
 
 The design decision is to store the original non-monic f and expose the monic form on demand:
 
-- **Sieving uses the original f.** Norm computation in G.C uses the original polynomial
-  coefficients; the monic transformation would change the norms.
+- **Sieving uses the original f.** Evaluation of the algebraic value F(a, b) in G.C uses the
+  original polynomial coefficients; the monic transformation would change the values.
 - **The transformation is internal to `number_field()`.** Consumers that need `NumberField`
   element arithmetic call `poly_pair.number_field()`; consumers that need the original f
-  (sieving, scoring) access `poly_pair.f` directly.
+  (sieving, scoring) access `poly_pair.f` directly. `number_field()` serves the NFS
+  discrete-logarithm relation code, which takes the field as a parameter, and tests. The factor
+  base does its own root search on the original f, and the square-root stage forms its own monic
+  form without calling it.
 
 ---
 
@@ -694,10 +697,11 @@ both values factor completely over their factor bases. The factor-base bounds (s
 `pair.factor_base_bounds`) are set by G.C based on the polynomial's Murphy-E score and the
 target number of relations.
 
-The `number_field()` method on `PolyPair` is the seam between polynomial selection and the
-algebraic side of the sieve: it constructs the number field K = ℚ(α) where α is a root of the
-monic form of f, which the sieve uses for ideal-theoretic computations (Dedekind factorisation,
-factor-base construction).
+The `number_field()` method on `PolyPair` is the seam between polynomial selection and
+number-field arithmetic: it constructs the number field K = ℚ(α) from the monic form of f, on the
+order ℤ[a_d·α]. Its consumers are the NFS discrete-logarithm relation code and tests; the sieve's
+factor base does its own root search on the original f, and the square-root stage does not call
+it.
 
 The polynomial pair is also the input to the linear algebra step (G.D): the smooth pairs collected
 by the sieve form a matrix over 𝔽₂ whose rows are relations, and its left kernel gives candidate
@@ -842,7 +846,7 @@ pub struct AlgebraicPrime {
     pub r: u64,
     /// Index of this ideal in the algebraic factor base (for column mapping).
     pub index: usize,
-    /// True if p | disc(f) (bad prime).
+    /// True if p | c·disc(f) (bad prime), c the leading coefficient of f.
     pub is_bad_prime: bool,
 }
 ```
@@ -892,22 +896,29 @@ let fb = FactorBase::new(&poly.f, b_rat, b_alg);
 `FactorBase::new` uses `factor_base_up_to` (from `shared-numth`) for the rational side, and
 brute-force root-finding (checking f(r) ≡ 0 mod p for each r ∈ 0..p) for the algebraic side.
 
-### Bad primes and the principle-4 annotation
+### Bad primes
 
-A prime p is **bad** if p | disc(f). At bad primes, Dedekind's theorem does not apply directly:
-ℤ[α] may not be the full ring of integers at p, and the ideal factorisation above p may be more
-complex than the root structure of f mod p suggests.
+A prime p is **bad** if p | c·disc(f), where c is the leading coefficient of f. This is exactly
+what `shared_numfield::is_bad_prime` computes on the non-monic f that `FactorBase::new` passes
+it: the quantity it tests against is Res(f, f') up to sign, which is c·disc(f) (no division by c
+is performed). A prime dividing only c is therefore bad. At bad primes, Dedekind's theorem does
+not apply directly: the ideal factorisation above p may be more complex than the root structure of
+f mod p suggests.
+
+The primes dividing the index [O_K : ℤ[α]] (for integral α) are a subset of the bad primes, not
+the other way round. A bad prime may have ℤ[α] maximal: for f = x² − 2 and p = 2, disc = 8 so 2 is
+bad, yet ℤ[√2] is the full ring of integers and 2 is a totally ramified prime of it. The flag
+says Dedekind's theorem cannot be used unexamined, not that ℤ[α] is non-maximal at p.
 
 At toy scale, bad primes are prominent. For f(x) = x³ − x − 1, the discriminant is −23, so p = 23
 is a bad prime. The implementation includes bad primes in the algebraic factor base with the
 `is_bad_prime: true` flag, using direct root-finding (correct for linear factors even at bad
-primes). The flag documents the principle-4 over-exposure:
+primes).
 
-**Principle-4 annotation.** At cryptographic scale (RSA-768+), bad primes are marginal: the
-discriminant has few prime factors, and those primes are a negligible fraction of the algebraic
-factor base. At toy scale, bad primes can be a significant fraction of the factor base and are
-unavoidable for hand-picked polynomials. The `is_bad_prime` flag makes this visible without
-changing the algorithm.
+At cryptographic scale (RSA-768+), bad primes are marginal: c·disc(f) has few prime factors, and
+those primes are a negligible fraction of the algebraic factor base. At toy scale, bad primes can
+be a significant fraction of the factor base and are unavoidable for hand-picked polynomials. The
+`is_bad_prime` flag makes this visible without changing the algorithm.
 
 ### Column indexing for G.D and G.E
 
@@ -4041,7 +4052,8 @@ At a prime dividing `c·disc(F)` the recorded exponent is only a norm-valuation 
 ideal valuation, and for non-monic `f` the norm of `a − bα` is `f_hom(a, b)/c`, so for `p | c` even
 the norm-valuation parity of `f_hom` is not necessary. `classify_prime` therefore marks the whole
 prime `Exceptional` when `p | c·disc(F)`, using exact big-integer remainders rather than the
-informational `is_bad_prime` flag, which for `d = 2` cannot see `p | c`. The rule is conservative:
+informational `is_bad_prime` flag. Both flag the same primes, since
+`disc(F) = c^((d−1)(d−2))·disc(f)` and `is_bad_prime` tests `c·disc(f)`. The rule is conservative:
 for `x³ − x − 1` the ideal `(23, 3)` has a simple root but lies over the exceptional prime 23, so
 its constraint is dropped along with `(23, 10)`. Rational primes and the rational sign remain
 constraints for every prime.
@@ -4528,8 +4540,10 @@ pub fn monic_f(&self) -> IntPoly;       // f_monic(x) = a_d^{d−1} · f(x / a_d
 pub fn number_field(&self) -> NumberField; // K = ℚ(α) where α is a root of monic_f
 ```
 
-The sieve uses the original non-monic f to evaluate F(a, b); the square-root stage uses
-`number_field()` for algebraic arithmetic. The seam is internal to `PolyPair`.
+The sieve uses the original non-monic f to evaluate F(a, b). `number_field()` serves the NFS
+discrete-logarithm relation code and tests; the factor base does its own root search and the
+square-root stage builds its own monic form without calling it. The seam is internal to
+`PolyPair`.
 
 ---
 
@@ -4829,8 +4843,9 @@ first time.
 ### The data-flow in one sentence per contract
 
 **C-PolyPair** carries the polynomial pair from selection to sieving: the sieve evaluates
-F(a, b) = b^d · f(a/b) using the original non-monic f, and the square-root stage constructs
-K = ℚ(α) using `number_field()`.
+F(a, b) = b^d · f(a/b) using the original non-monic f. `number_field()` is not on this path: it
+serves the NFS discrete-logarithm relation code and tests, and the square-root stage builds its
+own monic form.
 
 **C-Score** carries the Murphy-E score from scoring to the root sieve and Coppersmith: higher
 score means more smooth relations, so the search maximises score.
@@ -4987,7 +5002,7 @@ real-embedding sign rule no longer exists (exact sign recombination replaces it)
 
 **One discovery: bad primes over-exposed at toy scale.** The `is_bad_prime` flag in
 `AlgebraicPrime` (§13) documents a phenomenon that is *over-exposed* at toy scale: bad primes
-(primes dividing disc(f)) are marginal at cryptographic scale but unavoidable for hand-picked
+(primes dividing c·disc(f)) are marginal at cryptographic scale but unavoidable for hand-picked
 polynomials at toy scale. This is a principle-4 annotation in the opposite direction — the
 phenomenon is more prominent at toy scale than at real scale. The annotation is present in the
 code and in §13 of this document.

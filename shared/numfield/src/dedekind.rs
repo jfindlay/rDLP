@@ -189,10 +189,13 @@ impl IndexTest {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/// Compute the discriminant of a monic polynomial f ∈ ℤ[x].
+/// Compute (−1)^(d(d−1)/2) · Res(f, f') for f ∈ ℤ[x] of degree d, where f' is the formal
+/// derivative.
 ///
-/// For monic f of degree d, disc(f) = (−1)^(d(d−1)/2) · Res(f, f') where f' is the
-/// formal derivative. Since f is monic, lc(f) = 1 and no division by lc(f) is needed.
+/// For monic f this is disc(f). For non-monic f no division by lc(f) is performed, so the value
+/// is lc(f)·disc(f), where disc(f) = (−1)^(d(d−1)/2) · Res(f, f') / lc(f) is the usual
+/// discriminant. It is a multiple of disc(f), and the primes dividing it are those dividing lc(f)
+/// or disc(f).
 ///
 /// Returns 0 for polynomials of degree < 1 (constant or zero).
 pub fn discriminant(f: &IntPoly) -> BigInt {
@@ -210,11 +213,15 @@ pub fn discriminant(f: &IntPoly) -> BigInt {
     if sign_exp % 2 == 0 { res } else { -res }
 }
 
-/// Test whether p divides disc(f), i.e., whether p is a bad prime for f.
+/// Test whether p divides [`discriminant`]`(f)`, i.e., whether p is a bad prime for f.
 ///
-/// Returns true iff p | disc(f). For primes not dividing disc(f), Dedekind's theorem applies
-/// directly. A bad prime may or may not divide the index [ℤ_K : ℤ[α]]; use
-/// [`dedekind_index_test`] (or the `index` of a [`DedekindReport`]) to decide that.
+/// Returns true iff p | [`discriminant`]`(f)`: for monic f, iff p | disc(f); for non-monic f,
+/// iff p | lc(f)·disc(f), so a prime dividing only the leading coefficient is also bad. Every
+/// prime for which the result is false is good, and for monic f Dedekind's theorem applies
+/// directly there. A bad prime may or may not divide the index [ℤ_K : ℤ[α]] (for monic f; the
+/// index is defined only for integral α); use [`dedekind_index_test`] (or the `index` of a
+/// /// [`DedekindReport`]) to decide that. A polynomial of degree < 1 or with a repeated factor has
+/// [`discriminant`] 0, and every prime is then bad.
 pub fn is_bad_prime(f: &IntPoly, p: &BigInt) -> bool {
     let disc = discriminant(f);
     if disc.is_zero() {
