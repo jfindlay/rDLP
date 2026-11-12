@@ -573,6 +573,16 @@ The ceiling is annotated consistently across all three parts:
 The simulator demonstrates Shor's mathematics correctly at toy scale; it does not claim quantum
 speedup, which requires real quantum hardware out of scope by construction.
 
+**Layout counts versus published estimates.** The 4100 and 1280 above are *logical* qubit counts
+of this project's own layouts, each keeping both exponent registers; they are not comparable with
+published figures, which differ in scope (logical or physical, one point addition or the full
+algorithm, generic prime field or secp256k1, and the architecture assumed). Proos and Zalka (§6.3
+table of arXiv v2) count about 1500 logical qubits for a 256-bit curve over a prime field, with
+register sharing and with the exponent registers replaced by one recycled control qubit. The 2017
+and 2026 estimates, their physical-qubit and runtime figures, and what evidence each rests on are
+set out in `docs/MATHEMATICS.md` §11.7.1. This tour mentions those results and does not reproduce
+them; nothing in the `ecdlp` module implements any of those constructions.
+
 ---
 
 ## §7. KAT Summary
@@ -622,8 +632,11 @@ not extend them.
 **Primary literature.**
 
 - Shor, P.W. (1994). "Algorithms for quantum computation: discrete logarithms and factoring."
-  *Proceedings of the 35th Annual Symposium on Foundations of Computer Science (FOCS 1994).*
-  The original paper presenting both the factoring and discrete-logarithm algorithms.
+  *Proceedings of the 35th Annual Symposium on Foundations of Computer Science (FOCS 1994),*
+  124–134. The original paper presenting both the factoring and discrete-logarithm algorithms.
+  Journal version, retitled: Shor, P.W. (1997). "Polynomial-time algorithms for prime
+  factorization and discrete logarithms on a quantum computer." *SIAM Journal on Computing*
+  26(5), 1484–1509.
 
 - Proos, J., Zalka, C. (2003). "Shor's discrete logarithm quantum algorithm for elliptic curves."
   *Quantum Information and Computation* 3(4), 317–344.
@@ -634,6 +647,15 @@ not extend them.
   The standard textbook reference for the QFT, phase estimation, and Shor's algorithm.
 
 - Roetteler, M., Naehrig, M., Svore, K.M., Lauter, K. (2017). "Quantum resource estimates for
-  computing elliptic curve discrete logarithms." *ASIACRYPT 2017.*
-  The production-scale ECDLP circuit design (the qubit-optimised construction that the `ecdlp`
-  module deliberately does not implement, see §6.2).
+  computing elliptic curve discrete logarithms." *Advances in Cryptology — ASIACRYPT 2017*,
+  241–270 (arXiv:1706.06752). Logical-qubit and Toffoli-gate estimates from a simulated
+  reversible point-addition circuit over prime fields; a construction the `ecdlp` module
+  deliberately does not implement (see §6.2).
+
+- Later resource estimates for the 256-bit ECDLP, which this tour mentions but does not
+  reproduce (sources, versions read, and scopes are in `docs/MATHEMATICS.md` §11.7.1 and its
+  bibliography entries 52–55): Babbush, R., Zalcman, A., Gidney, C., et al. (2026), arXiv:2603.28846
+  (secp256k1; circuits withheld, zero-knowledge proof offered as evidence); Cain, M., Xu, Q.,
+  King, R., et al. (2026), arXiv:2603.28627 (physical-qubit and runtime estimates for a
+  neutral-atom architecture); Schrottenloher, A. (2026), arXiv:2606.02235 (published point-addition
+  circuits, compared against Babbush et al.).

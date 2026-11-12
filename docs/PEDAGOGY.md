@@ -79,8 +79,8 @@ sections.**
 | Smart–Satoh–Araki | ECDLP (anomalous curve) | $L_p[0] = O(\log p)$ (polynomial time) | $p$-adic formal group logarithm | Sharpest escape among the algebraic attacks; precondition $\#E(\mathbb{F}_p) = p$ |
 | Index calculus | ECDLP ($E/\mathbb{F}_{p^n}$, $n > 1$) | $L_{p^n}[1/2,\, c]$ (subexponential) | Factor-base decomposability | Asymptotic win requires extension-field setting; toy fixture is $n = 1$ |
 | Pohlig–Hellman | ECDLP (composite order) | $L_{p_{\max}}[1,\, 1/2]$ (largest prime factor) | CRT group-order homomorphism | Reduces to prime-order subgroup DLPs; speedup requires $p_{\max} \ll n$ |
-| Shor (factoring) | Integer factoring | $O((\log N)^3) = L_N[0,\, 3]$ | Quantum period-finding | Polynomial in $\log N$; dissolves the $L$-notation framework entirely |
-| Shor (ECDLP) | ECDLP | $O((\log r)^3) = L_r[0,\, 3]$ (gate count, from the literature [PZ03]) | Quantum period-finding (2-register HSP) | Same polynomial collapse; this project's layout gives 2·256 + 3·256 = 1280 qubits for a 256-bit curve (arithmetic on the layout, not a published estimate; see the ECDLP qubit-layout discussion in docs/MATHEMATICS.md §11.4.4) |
+| Shor (factoring) | Integer factoring | $O((\log N)^3) = L_N[0,\, 3]$ | Quantum period-finding | Polynomial in $\log N$ (asymptotic logical gate count, §11.3.4); dissolves the $L$-notation framework entirely |
+| Shor (ECDLP) | ECDLP | $O((\log r)^3) = L_r[0,\, 3]$ (asymptotic logical gate count for the whole algorithm, from the literature [PZ03] §6.3) | Quantum period-finding (2-register HSP) | Same polynomial collapse; this project's layout gives 2·256 + 3·256 = 1280 logical qubits for a 256-bit curve (arithmetic on the layout, not a published estimate; published estimates, with their scopes, are in docs/MATHEMATICS.md §11.7.1; see also the layout discussion in §11.4.4) |
 
 **The quantitative spine of the library.** Reading the table top-to-bottom is the story of the
 project: from the generic $\sqrt{n}$ baseline (Pollard rho, $\alpha = 1$) through the subexponential

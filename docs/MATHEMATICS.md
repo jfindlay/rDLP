@@ -1459,7 +1459,9 @@ the reader knows the mathematics (this chapter) and focuses on the realisation i
 
 14. **Shor, P. W. (1994).** "Algorithms for quantum computation: discrete logarithms and
     factoring." *Proceedings of the 35th Annual Symposium on Foundations of Computer Science*,
-    124–134.
+    124–134. Journal version: Shor, P. W. (1997). "Polynomial-time algorithms for prime
+    factorization and discrete logarithms on a quantum computer." *SIAM Journal on Computing*,
+    26(5), 1484–1509.
 
 15. **Bos, J. W., Kleinjung, T., Niederhagen, R., and Schwabe, P. (2012).** "ECC2K-130 on Cell
     CPUs." *Progress in Cryptology — AFRICACRYPT 2010*, LNCS 6055, 225–242.
@@ -4386,6 +4388,13 @@ QFT (Step 4) requires $O(n^2)$ gates. The continued-fraction computation (Step 5
 and costs $O(n^2)$. The expected number of repetitions before a successful factorisation is
 $O(\log \log N) = O(\log n)$. The total expected gate count is $O(n^3)$. $\square$
 
+**Scope of these counts.** The $O(\cdot)$ statements above are asymptotic gate counts for the
+logical circuit, with every gate assumed to cost one unit and no error-correction overhead; they
+say nothing about the constants at a concrete $n$, and "time" means sequential gate count, not
+wall-clock time on any architecture. Published constants for concrete sizes — logical qubits and
+Toffoli gates for a 2048-bit modulus included — are collected, with their sources and scopes,
+in §11.7.1.
+
 **The L-notation collapse.** GNFS factors $N$ in time $L_N[1/3, (64/9)^{1/3}]$. Shor factors
 $N$ in time $O((\log N)^3) = L_N[0, 3]$. The exponent drops from $1/3$ to $0$: from
 subexponential to polynomial. This is not an incremental improvement — it is the dissolution of
@@ -4395,15 +4404,15 @@ it eliminates the search entirely.
 **Scale note.** The tests factor $N \in \{15, 21, 35, 91\}$ using 8–14 qubits on a classical
 state-vector simulator. The driver's qubit ceiling, `MAX_QUBITS` $= 25$, admits $N \leq 4096$ and
 reports a larger $N$ as unsupported; only the four fixtures are run end to end. The simulator holds
-$2^n$ complex
-amplitudes; at $n = 25$ qubits, this is $2^{25} \approx 33\,\mathrm{M}$ entries ($\approx 512\,
-\mathrm{MiB}$), the practical ceiling on a laptop. To factor RSA-2048 ($N$ a 2048-bit integer),
-this project's layout ($2 \cdot n_{\mathrm{bits}}(N)$ qubits) would need about 4100 qubits — an
-arithmetic consequence of the layout, not a published estimate — requiring a $2^{4100}$-entry
-amplitude array, far beyond any classical computer. The simulator demonstrates Shor's
-mathematics correctly at toy scale; it does not claim quantum speedup, which requires real quantum
-hardware out of scope by construction. See `shor/docs/PEDAGOGY.md` §6.3 and the Shor factoring
-section of `docs/BENCHMARKS.md` for the full resource-scale annotation.
+$2^n$ complex amplitudes; at $n = 25$ qubits, this is $2^{25} \approx 33\,\mathrm{M}$ entries
+($\approx 512\,\mathrm{MiB}$), the practical ceiling on a laptop. To factor RSA-2048 ($N$ a
+2048-bit integer), this project's layout ($2 \cdot n_{\mathrm{bits}}(N)$ qubits) would need about
+4100 qubits — an arithmetic consequence of the layout, not a published estimate (§11.7.1 lists a
+published logical-qubit figure for a 2048-bit modulus, with its source and scope) — requiring a
+$2^{4100}$-entry amplitude array, far beyond any classical computer. The simulator demonstrates
+Shor's mathematics correctly at toy scale; it does not claim quantum speedup, which requires real
+quantum hardware out of scope by construction. See `shor/docs/PEDAGOGY.md` §6.3 and the Shor
+factoring section of `docs/BENCHMARKS.md` for the full resource-scale annotation.
 
 ---
 
@@ -4558,28 +4567,48 @@ logarithm exists, and no classical search over $k$ remains in the solver.
 
 #### §11.4.4 Complexity
 
-**Claim from the literature (not proved or measured here).** Proos and Zalka [PZ03] show that
-Shor's two-register algorithm solves the ECDLP on an elliptic curve of prime order $r$ with
-$O((\log r)^3)$ elementary quantum gates, in the sense that the circuit has $O(\log r)$ qubits,
-the controlled point additions of Step 2 dominate the gate count (using reversible
-elliptic-curve arithmetic), and the two transforms of Step 3 each cost $O((\log r)^2)$ gates.
-Turning that gate count into an *expected running time* also needs a lower bound on the
-probability that one measurement yields a usable candidate, which depends on the register size
-and on the classical post-processing. This project does not derive such a bound: the toy
-implementation uses the single-rounding rule of §11.4.3 at $M = 16$, $r = 13$, and its
-per-measurement success probability is only the estimate recorded there. Nothing in this section
-establishes the extraction rule for large $r$.
+**Claims from the literature (not proved or measured here).** Proos and Zalka [PZ03] (read as
+arXiv:quant-ph/0301141v2) implement Shor's algorithm for the ECDLP on a curve over a prime field
+$\mathrm{GF}(p)$ — they treat no other fields (§1) — where $n \approx \log_2 q$ is the bit length
+of the prime group order $q$ (this chapter's $r$). The counts below are *logical* (no
+error-correction overhead; §6.3 notes that error correction would multiply the costs of the
+elliptic-curve and the factoring algorithm alike) and are for the *whole algorithm*, not a single
+point addition:
+
+- *Gates.* $O(n^3)$ (§6.3). More precisely, §6.1 counts about $360\,n^2$ additions of $n$-bit
+  registers without register sharing (about $205\,n^2 + 615\,n^{3/2}$ with it), each addition
+  costing $O(n)$, and the extended Euclidean algorithm that computes the inverses inside the
+  group law accounts for the bulk of that count (§5.4, §6.1). The table of §6.3 states times in
+  units of a "1-qubit addition", about 9 gates of which 3 are Toffoli gates (§6.3); for
+  $n = 256$ it lists $6.0 \cdot 10^9$ such units.
+- *Qubits.* $O(n)$ (§6.2): $7n + 4\log_2 n + \epsilon$, or $5n + 8\sqrt{n} + 4\log_2 n + \epsilon$
+  with register sharing; the §6.3 table takes $\epsilon = 10$ and, for $n = 256$, lists about 1500
+  qubits (about 1800 without register sharing). These counts hold only the accumulator register,
+  the maximum being reached during the second Euclidean-algorithm call of each division (§6.2),
+  because the two exponent registers are replaced by a single recycled control qubit, using the
+  semiclassical Fourier transform (§4.1).
+
+Turning a gate count into an *expected running time* also needs a lower bound on the probability
+that one measurement yields a usable candidate, which depends on the register size and on the
+classical post-processing. [PZ03] gives its own success-probability analysis (its Appendix A.2);
+this project does not rederive it: the toy implementation uses the single-rounding rule of
+§11.4.3 at $M = 16$, $r = 13$, and its per-measurement success probability is only the estimate
+recorded there. Nothing in this section establishes the extraction rule for large $r$. The cost
+of the two Fourier transforms is not a [PZ03] result; it is the $O(t^2)$ count of §11.2. Later
+published estimates for 256-bit curves — Toffoli counts, logical qubits, physical qubits,
+runtimes — differ from [PZ03] in scope and are tabulated in §11.7.1.
 
 **Scale note.** The implementation solves the ECDLP on a toy curve with $r = 13$ using 17 qubits
 (`qubit_budget_within_ceiling`). The layout it uses, $2t + 3 \cdot \lceil \log_2 p \rceil$
 qubits (two exponent registers, plus $x$, $y$, and scratch registers), would be $2 \cdot 256 +
 3 \cdot 256 = 1280$ qubits for a 256-bit curve such as secp256k1. That figure is arithmetic on
-this project's layout, not a published resource estimate, and this project does not reproduce
-the resource counts published for optimised circuits (such as [PZ03]). A classical
-state-vector simulator would need a $2^{n}$-entry amplitude array for $n$ qubits, which is
-beyond any classical computer long before that size. The simulator demonstrates the mathematics
-at toy scale; a quantum speedup requires quantum hardware. See `shor/docs/PEDAGOGY.md` §6.3 and
-the Shor ECDLP section of `docs/BENCHMARKS.md`.
+this project's layout, not a published resource estimate. It keeps both exponent registers, so
+it is not comparable with the accumulator-only counts above or in §11.7.1, and this project
+does not reproduce any of the published circuits. A classical state-vector simulator would need
+a $2^{n}$-entry amplitude array for $n$ qubits, which is beyond any classical computer long
+before that size. The simulator demonstrates the mathematics at toy scale; a quantum speedup
+requires quantum hardware. See `shor/docs/PEDAGOGY.md` §6.3 and the Shor ECDLP section of
+`docs/BENCHMARKS.md`.
 
 ---
 
@@ -4788,9 +4817,129 @@ mathematics at toy scale (up to 17 qubits for ECDLP with $r = 13$; factoring $N 
 complex amplitudes, and at $n = 25$ this is the practical memory limit on a laptop. The ceiling is
 not a mathematical one: the simulator computes the exact state at any size (the ECDLP extraction
 rule is analysed here only at $r = 13$, §11.4.3). The quantum speedup (the polynomial
-vs subexponential separation) is not observable at toy scale; it requires real quantum hardware
-with thousands of fault-tolerant qubits. The migration is *surveyed, not built* — the
+vs subexponential separation) is not observable at toy scale; it requires a fault-tolerant
+quantum computer of the sizes in the published estimates of §11.7.1, which differ by orders of
+magnitude between logical and physical counting. The migration is *surveyed, not built* — the
 pedagogical terminus of this project, not a new construction track.
+
+#### §11.7.1 Published quantum resource estimates: sources and scope
+
+Every number in this subsection is quoted from a source read for it, with the version and the
+section or table named. A resource figure is meaningless without its scope, so each row states:
+
+- **Logical or physical.** *Logical* counts are for an idealised fault-tolerant machine and
+  ignore error-correction overhead; *physical* counts include a specific error-correcting code,
+  hardware connectivity, physical error rate, and cycle time.
+- **Per point addition or full algorithm.** A windowed elliptic-curve point addition is the
+  repeated unit; the full algorithm repeats it $2n/w - 4$ times for a window of $w$ bits (four
+  steps are saved by a direct lookup and by classical post-processing) and adds a few qubits.
+- **Gate metric.** "Toffoli" below counts non-Clifford gates (CCX, CCZ, and — in [Sch26] —
+  And gates), not total gates and not Toffoli depth unless said.
+- **Field.** secp256k1 has the pseudo-Mersenne prime $q = 2^{256} - 4294968273$ ([Sch26] §2);
+  circuits specialised to it are cheaper than circuits valid for any prime ([Sch26] Table 1).
+
+**Logical estimates, full algorithm, 256-bit prime-field curve** (the last row is factoring,
+for orientation):
+
+| Source and location | Curve | Logical qubits | Toffoli gates | What was done |
+|---|---|---|---|---|
+| [PZ03], arXiv v2, §6.3 table | generic $\mathrm{GF}(p)$, $n = 256$ | ≈1500 (≈1800 without register sharing) | not given as a Toffoli count; $6.0\cdot 10^{9}$ "1-qubit additions" | hand-analysed circuit |
+| [RNSL17], arXiv v3, Table 2 | NIST P-256 | 2330 | $1.26\cdot 10^{11}$ (Toffoli depth $1.16\cdot 10^{11}$) | Toffoli network for controlled point addition simulated classically; full cost taken as $2n$ sequential point additions (Results; "Number of Toffoli gates and depth") |
+| [BZG+26], v2, §II.B | secp256k1 | ≤1200 | ≤$9\cdot 10^{7}$ | low-qubit variant; circuits withheld |
+| [BZG+26], v2, §II.B | secp256k1 | ≤1450 | ≤$7\cdot 10^{7}$ | low-gate variant; circuits withheld |
+| [Sch26], v1, Table 2, rows labelled as [BZG+26] | secp256k1 | 1191; 1441 | $2^{26.27}$; $2^{25.94}$ | Schrottenloher's reading of the stated [BZG+26] figures |
+| [Sch26], v1, Table 2, own circuits | secp256k1 | 1208; 1462 | $2^{26.11}$; $2^{25.78}$ | published circuits, simulated |
+| [Sch26], v1, Table 2, own circuits | any prime | 1208; 1462 | $2^{26.66}$; $2^{26.33}$ | published circuits, simulated |
+| [RNSL17], arXiv v3, Table 2, RSA column | 2048-bit modulus | 4098 | $5.20\cdot 10^{12}$ | factoring; interpolated by [RNSL17] from a 2n+2-qubit factoring circuit of Häner, Roetteler and Svore, not read here |
+
+Reading the rows together requires care. [PZ03] and [RNSL17] are generic-prime constructions
+without the windowed lookups of [BZG+26] and [Sch26]; [RNSL17] is for the NIST prime of P-256,
+not for secp256k1; [PZ03]'s count excludes the exponent registers ([PZ03] §4.1), and
+[RNSL17] likewise adds no qubits for them (its Results). This project therefore tabulates the
+figures side by side and forms no ratios between them. The first two rows predate the windowed
+constructions and use $2n$ sequential point additions; the [BZG+26] and [Sch26] rows follow the
+windowed accounting below.
+
+**Per point addition and the full-algorithm formula.** [BZG+26] Appendix A (eqs. A1–A3) and
+[Sch26] eq. (1) compose the same way: with window $w = 16$, the full algorithm for $n = 256$
+performs $2n/w - 4 = 28$ windowed point additions, each costing the point-addition Toffoli
+count plus $3 \cdot 2^{w}$ for the three table lookups, so that
+
+$$\text{Toffoli}_{\text{full}} = 28\,(Q_A + 3\cdot 2^{16}), \qquad
+\text{qubits}_{\text{full}} = \text{qubits}_{\text{point addition}} + 16,$$
+
+the 16 extra qubits holding one $w$-bit recycled phase-estimation register. The point-addition
+counts they start from are:
+
+| Source and location | Curve | Qubits (point addition) | Toffoli (point addition) | Failure bound |
+|---|---|---|---|---|
+| [BZG+26], v2, App. A, statements 1–2 | secp256k1 | ≤1175; ≤1425 | ≤$2.7\cdot 10^{6}$; ≤$2.1\cdot 10^{6}$ | correct on all 9,024 derived test inputs (approximate-correctness test) |
+| [Sch26], v1, Table 1, rows labelled as [BZG+26] | secp256k1 | 1175; 1425 | $2^{21.36}$; $2^{21.00}$ | — |
+| [Sch26], v1, Table 1, own circuits | secp256k1 | 1192; 1446 | $2^{21.19}$; $2^{20.83}$ | ≤$2^{-13.3}$ on 10,000 random inputs |
+| [Sch26], v1, Table 1, own circuits | any prime | 1192; 1446 | $2^{21.78}$; $2^{21.42}$ | ≤$2^{-13.3}$ on 10,000 random inputs |
+
+In each pair the first value is the space-optimised variant and the second the gate-optimised one.
+The factors in the full-algorithm formula are the authors' own composition rule, applied by
+[Sch26] to the numbers it reads from [BZG+26]; they are not separately certified.
+
+**Physical estimates.** These depend on hardware assumptions and are never interchangeable with
+the logical counts above.
+
+| Source and location | Assumptions | Physical qubits | Runtime |
+|---|---|---|---|
+| [BZG+26], v2, §II.B | superconducting, surface code with "yoke" storage, planar degree-4 connectivity, physical error rate $10^{-3}$, reaction-limited execution at 10 µs control reaction time with 50% overhead per Toffoli | fewer than 500,000 | 18 or 23 minutes for the 70-million or 90-million-Toffoli circuit; about 9 or 12 minutes from a "primed" state |
+| [BZG+26], v2, §II.B | the same, but a "bicycle" qLDPC architecture needing non-local degree-7 connectivity | "closer to one hundred thousand" (a qualitative remark) | not stated |
+| [CXK+26], v1, Fig. 3c and text | neutral atoms, reconfigurable arrays, high-rate qLDPC memory, 1 ms stabiliser-measurement cycle; inputs are the two [BZG+26] compilations | 9,739 (space-efficient); 11,961 (balanced) | ≈1000 days; ≈260 days |
+| [CXK+26], v1, Fig. 3c and text | as above plus parallel lattice-surgery operations, parallelism $P = 20$ or $P = 130$; labelled preliminary | ≈19,000; ≈26,000 | ≈52 days; ≈10 days |
+
+In [CXK+26] Fig. 3c the first two columns are the 1200-logical-qubit compilation (which the text
+states can run at a physical error rate of 0.070% with the smaller memory code those columns
+use) and the last two the 1450-logical-qubit compilation, as the figure's column headings
+assign them. The "10,000 qubits" of its title is the 9,739-qubit entry and is paired with a
+runtime of about 1000 days at the assumed 1 ms cycle; [CXK+26] describes its own analysis as
+theoretical and says substantial engineering challenges remain. Its v1 abstract states a runtime
+of "a few days" for the 26,000-qubit system, whereas its main text and conclusion give 10 days;
+this section uses the main text.
+
+**The evidence boundary of [BZG+26].** The authors withhold the circuits, as a deliberate
+disclosure choice (§II.A). What they publish instead is a zero-knowledge proof (Groth16 over an
+SP1 virtual machine; Appendix A) of a narrow statement: they hold a circuit, committed by its
+SHA-256 hash, that has at most the stated qubit and non-Clifford counts per point addition and
+computes secp256k1 point addition correctly on 9,024 pseudo-random inputs derived from the
+circuit's own hash. Approximate correctness suffices for Shor's algorithm (Appendix A.5), and
+the Toffoli figure is the average number actually executed over the 9,024 test cases, because
+some gates are conditioned on classical bits (Appendix A.3). The proof therefore certifies the
+point-addition rows of the second table, for secp256k1 only. It does not certify the
+full-algorithm counts (obtained from the composition formula above), the paper's statement for
+general $n$-bit prime fields (about $4.5n$ logical qubits, §II.B and Fig. 2), the physical-qubit
+figures, or the runtimes, which rest on the stated hardware assumptions of §II.B. Its soundness
+itself rests on pairing-friendly elliptic curves, which the paper notes are in principle
+forgeable by the machine it studies (Appendix A.6).
+
+**Relationship of [Sch26] to [BZG+26].** [Sch26] publishes point-addition circuits and checks them
+in a classical simulator (Qarton), but the simulation replaces the exact arithmetic subcircuits
+by their classical functions and does not run at the gate level (§1, "Implementation"); the
+failure bound in the tables is the empirical $2^{-13.3}$ from 10,000 random inputs. It takes
+its high-level structure (windowing, $w = 16$, 28 additions) from [BZG+26] and states that its
+tables compare against [BZG+26]; the [BZG+26] rows in them are figures that paper states, since
+its circuits cannot be inspected. The relationship is therefore a comparison with a stated
+target, not an independent estimate of the same scope: [Sch26] is a logical-level estimate for
+point addition and the composition rule only, with no physical-qubit or runtime analysis, and it
+is the only source here whose circuits a reader can rebuild. Its generic-prime rows are the only
+counts here that are not specific to secp256k1's prime.
+
+**Figures reported from sources not read.** [BZG+26] §II.B also reports, for earlier work, a
+logical-qubit count of 1100 with more than $10^{11}$ Toffoli gates (Chevignard et al.) and about
+$2\cdot 10^{8}$ Toffoli gates with about 9 million physical qubits on a photonic architecture
+(Litinski). Those papers were not read; the figures are the secondhand statements of [BZG+26] and
+are not compared with anything here.
+
+**Versions read.** [PZ03]: arXiv:quant-ph/0301141v2, full text. [RNSL17]: arXiv:1706.06752v3,
+full text. [BZG+26]: arXiv:2603.28846v2, full text including Appendix A. [CXK+26]:
+arXiv:2603.28627v1, main text and figures (appendices not read). [Sch26]: arXiv:2606.02235v1,
+introduction, §2, §5, and the tables (the arithmetic-circuit sections were not checked, and no
+number is taken from them). No figure above comes from an abstract alone. Journal and proceedings
+versions of [PZ03] and [RNSL17], and Shor's journal version [Shor97], were not consulted.
 
 **The survey is the contribution.** The post-quantum migration landscape (NIST PQC families, the
 SIDH break, the migration rationale) is surveyed within established literature. No PQC primitive
@@ -4841,7 +4990,9 @@ The chapter-pairing is:
 
 43. **Proos, J., and Zalka, C. (2003).** "Shor's discrete logarithm quantum algorithm for
     elliptic curves." *Quantum Information and Computation*, 3(4), 317–344. [PZ03] The
-    two-register ECDLP construction; the qubit-budget analysis.
+    two-register ECDLP construction; the logical-qubit and gate-count analysis (§6). Read as
+    arXiv:quant-ph/0301141v2 (22 January 2004), whose record describes it as essentially the
+    published version; section numbers cited in this chapter are that version's.
 
 44. **Nielsen, M. A., and Chuang, I. L. (2000).** *Quantum Computation and Quantum Information*.
     Cambridge University Press. [NC00] §5.2 (QFT), §5.3 (order-finding and factoring), §5.4
@@ -4862,7 +5013,10 @@ The chapter-pairing is:
 
 49. **Shor, P. W. (1994).** "Algorithms for quantum computation: discrete logarithms and
     factoring." *Proceedings of the 35th Annual Symposium on Foundations of Computer Science*,
-    124–134. [Shor94] The original paper. (Also cited as ref. 14 in the main references section.)
+    124–134. [Shor94] The original paper. Journal version, retitled: Shor, P. W. (1997).
+    "Polynomial-time algorithms for prime factorization and discrete logarithms on a quantum
+    computer." *SIAM Journal on Computing*, 26(5), 1484–1509. [Shor97] (Also cited as ref. 14 in
+    the main references section.)
 
 50. **Jao, D., and De Feo, L. (2011).** "Towards quantum-resistant cryptosystems from
     supersingular elliptic curve isogenies." *Post-Quantum Cryptography — PQCrypto 2011*,
@@ -4870,6 +5024,32 @@ The chapter-pairing is:
 
 51. **Bernstein, D. J., and Lange, T. (2017).** "Post-quantum cryptography." *Nature*, 549,
     188–194. A survey of the post-quantum landscape accessible to a broad scientific audience.
+
+52. **Roetteler, M., Naehrig, M., Svore, K. M., and Lauter, K. (2017).** "Quantum resource
+    estimates for computing elliptic curve discrete logarithms." *Advances in Cryptology —
+    ASIACRYPT 2017*, LNCS, 241–270. [RNSL17] Logical-qubit and Toffoli-gate estimates from a
+    simulated Toffoli network for controlled point addition on prime-field curves. Read as
+    arXiv:1706.06752v3 (31 October 2017), full text; the proceedings version was not consulted.
+
+53. **Babbush, R., Zalcman, A., Gidney, C., Broughton, M., Khattar, T., Neven, H.,
+    Bergamaschi, T., Drake, J., and Boneh, D. (2026).** "Securing elliptic curve cryptocurrencies
+    against quantum vulnerabilities: resource estimates and mitigations." arXiv:2603.28846.
+    [BZG+26] Logical and physical resource estimates for the 256-bit ECDLP on secp256k1, with
+    the circuits withheld and a zero-knowledge proof (its Appendix A) offered as evidence. Read
+    as v2 (arXiv date 15 April 2026; the paper's own date line is 17 April 2026), full text.
+
+54. **Cain, M., Xu, Q., King, R., Picard, L. R. B., Levine, H., Endres, M., Preskill, J.,
+    Huang, H.-Y., and Bluvstein, D. (2026).** "Shor's algorithm is possible with as few as 10,000
+    reconfigurable atomic qubits." arXiv:2603.28627. [CXK+26] A neutral-atom architecture
+    analysis that takes its elliptic-curve circuits from [BZG+26]. Read as v1 (30 March 2026),
+    main text and figures; the appendices were not read.
+
+55. **Schrottenloher, A. (2026).** "Optimized point addition circuits for elliptic curve
+    discrete logarithms." arXiv:2606.02235. [Sch26] Published logical point-addition circuits
+    for secp256k1 and for a generic prime field, compared against the figures stated in
+    [BZG+26]. Read as v1 (1 June 2026): introduction, high-level structure, and the tables;
+    the arithmetic-circuit sections were not checked line by line, and no number is taken
+    from them.
 
 ---
 
