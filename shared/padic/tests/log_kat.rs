@@ -51,7 +51,7 @@
 //! - Homomorphism KAT: `log(8) + log(15) ≡ log(120) mod 7^4`.
 //! - Convergence guard KAT: `log(2)` (z=2, z−1=1, v_7(1)=0) returns `ConvergenceViolation`.
 //! - log(1) = 0 (the identity element).
-//! - Optional PARI cross-check (`#[ignore]`).
+//! - A test (`#[ignore]`) asserting a value recorded from PARI/GP; it does not call `gp`.
 
 use num_bigint::BigInt;
 use shared_padic::log::{PadicLogError, padic_log};
@@ -186,25 +186,23 @@ fn kat_log_1_plus_p2() {
     assert_eq!(*result.residue(), bi(49), "log(1 + 7²) = 49 mod 7^4");
 }
 
-// ─── optional PARI cross-check ────────────────────────────────────────────────
+// ─── value recorded from PARI/GP ──────────────────────────────────────────────
 
-/// PARI/GP cross-check for `log(8) mod 7^4`.
+/// Asserts a value recorded from PARI/GP for `log(8) mod 7^4`.
 ///
-/// Run manually with PARI installed:
+/// The test does not call `gp`; the value was obtained once with:
 /// ```text
 /// gp> Qp = padic(7, 4); log(1 + Qp(7))
 /// ```
 /// Expected: the 7-adic expansion with leading coefficient 1 at precision 4,
 /// corresponding to the residue 497 mod 2401.
 ///
-/// This test is gated with `#[ignore]` because PARI is not installed in the standard
-/// CI environment. Run with `cargo test -- --ignored` when PARI is available.
+/// It is `#[ignore]`d and needs no external tool when run with `cargo test -- --ignored`.
 #[test]
-#[ignore = "PARI not installed; run manually when available"]
+#[ignore = "asserts a value recorded from PARI/GP; does not call gp"]
 fn kat_log_pari_cross_check() {
-    // PARI/GP: log(1 + O(7^4) + 7) should give a 7-adic number with residue 497 mod 2401.
-    // Verify by running: echo "log(1 + O(7^4) + 7)" | gp -q
-    // and checking the output matches 497 + O(7^4).
+    // PARI/GP: log(1 + O(7^4) + 7) gives a 7-adic number with residue 497 mod 2401.
+    // The recorded value can be re-derived with: echo "log(1 + O(7^4) + 7)" | gp -q
     let z = z7(8, 4);
     let result = padic_log(&z).expect("log(8) should succeed");
     assert_eq!(

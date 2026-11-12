@@ -23,13 +23,14 @@
 //! ``tests/checked_relations_kat.rs``). Each relation yields one row of the relation matrix that
 //! the filtering step and linear algebra step consume.
 //!
-//! # Cross-track design
+//! # Shared by factoring and discrete logarithms
 //!
 //! The ``Relation`` type stores full integer exponents (``u32``), not pre-reduced GF(2) parities.
 //! The linear algebra step reduces to parities via ``rational_row_gf2`` / ``algebraic_row_gf2``;
 //! the NFS-DL relation collection reads the integer exponents directly for GF(ℓ) linear algebra.
-//! This over-specification for NFS-DL is the load-bearing cross-track design: re-narrowing the
-//! relation type after either consumer uses it would be a destructive reshard.
+//! This over-specification for NFS-DL is load-bearing for both the factoring and the
+//! discrete-logarithm code: re-narrowing the relation type after either consumer uses it would be
+//! a breaking change to a stable interface.
 
 pub mod checked;
 pub mod factor_base;
@@ -245,10 +246,11 @@ impl std::error::Error for RelationError {}
 /// exceptional. The primitive affine collector never returns a pair with a projective factor
 /// (``p`` dividing both the leading coefficient and ``b``).
 ///
-/// # Cross-track adaptation (NFS-DL)
+/// # Reuse by NFS-DL
 ///
 /// NFS-DL uses the same relation structure but interprets exponents mod ℓ instead of mod 2.
-/// The integer exponents stored here support both interpretations without resharding. NFS-DL
+/// The integer exponents stored here support both interpretations without changing the relation
+/// format. NFS-DL
 /// relation collection may add Schirokauer-map columns; the ``ExponentVector`` structure
 /// accommodates additional entries.
 #[derive(Debug, Clone, PartialEq, Eq)]

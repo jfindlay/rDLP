@@ -1565,14 +1565,19 @@ balance gives $L_N[1/2, \sqrt{2}]$ when each candidate costs $L_N[1/2, o(1)]$ to
 squares in expected time $L_N[1/2, \sqrt{2} + o(1)]$, counting the smoothness test of one candidate
 as $L_N[1/2, o(1)]$ (for example by ECM).*
 
-*Proof sketch.* Set $B = L_N[1/2, c]$. The smoothness probability for a random integer near $N$
+The cost model assumes a smoothness-testing step costing $L_N[1/2, o(1)]$ per candidate. That
+assumption is a modelling choice of this exposition, not Dixon's original analysis (recalled, not
+verified): ECM dates from 1987, after the 1981 paper.
+
+*Proof sketch (derived here, not attributed to a source; the model of testing at cost
+$L_N[1/2, o(1)]$ is likewise derived here).* Set $B = L_N[1/2, c]$. The smoothness probability for a random integer near $N$
 is $\rho(\log N / \log B) = 1/L_N[1/2, 1/(2c) + o(1)]$. To collect $B$ smooth values (enough for
 a linear dependency), one needs $B \cdot L_N[1/2, 1/(2c)] = L_N[1/2, c + 1/(2c)]$ trials.
 Minimising over $c$ gives $c = 1/\sqrt{2}$ and $L_N[1/2, \sqrt{2}]$ trials. The linear algebra
 costs $O(B^2) = L_N[1/2, 2c] = L_N[1/2, \sqrt{2}]$ at this $c$, the same order as the trials, so
 the total is $L_N[1/2, \sqrt{2}]$. Testing each candidate by trial division instead multiplies the
-trial cost by $B$, giving $L_N[1/2, 2c + 1/(2c)]$, least at $c = 1/2$ with value $L_N[1/2, 2]$.
-$\square$
+trial cost by $B$, giving $L_N[1/2, 2c + 1/(2c)]$, least at $c = 1/2$ with value $L_N[1/2, 2]$
+(this trial-division variant is derived here, not attributed to a source). $\square$
 
 The $L_N[1/2, \cdot]$ exponent is the signature of the *quadratic sieve* family of algorithms.
 GNFS escapes to $L_N[1/3, \cdot]$ by replacing random integers near $N$ with *norms of algebraic

@@ -1268,7 +1268,7 @@ The exponent type is `u32`, not `u8` or `bool`. This accommodates:
 
 The `u32` type is the smallest that accommodates both without overflow risk. This is the
 over-specification for NFS-DL: storing integer exponents rather than pre-reduced GF(2) parities
-means NFS-DL can read the exponents directly without resharding the relation format.
+means NFS-DL can read the exponents directly without changing the relation format.
 
 ### The GF(2) row methods
 
@@ -1303,7 +1303,8 @@ algebra fills them in when it constructs the full matrix.
 ### Why integer exponents, not GF(2) parities
 
 The design decision to store full integer exponents (not pre-reduced GF(2) parities) is the
-load-bearing cross-track call in the `Relation` interface. Three consumers need different views:
+load-bearing choice in the `Relation` interface, because both factoring and discrete-logarithm code
+read it. Three consumers need different views:
 
 - **Filtering:** reads the exponent vectors to detect duplicate or linearly dependent
   relations. Integer exponents are needed to identify exact duplicates.
@@ -1313,8 +1314,8 @@ load-bearing cross-track call in the `Relation` interface. Three consumers need 
   the target group order. Pre-reducing to GF(2) would destroy the information NFS-DL needs.
 
 Re-narrowing the `Relation` interface after linear algebra or NFS-DL consumes it would be a
-destructive reshard. The
-over-specification (integer exponents) is the correct design for a cross-track contract.
+breaking change to a stable interface. The over-specification (integer exponents) is the correct
+design for an interface shared by the factoring and discrete-logarithm code.
 
 ---
 
@@ -1357,9 +1358,9 @@ but interprets exponents mod ℓ (the target group order) instead of mod 2. The 
 stored in `ExponentVector` support this interpretation directly.
 
 NFS-DL may add **Schirokauer map** columns to the algebraic exponent vector. The sparse
-`(index, exponent)` representation accommodates additional entries without resharding the
-`Relation` type. This is the cross-track over-specification: the `Relation` type is designed so
-NFS-DL can read it without modification.
+`(index, exponent)` representation accommodates additional entries without changing the
+`Relation` type. This is the over-specification shared by factoring and discrete logarithms: the
+`Relation` type is designed so NFS-DL can read it without modification.
 
 ---
 
@@ -1421,7 +1422,8 @@ number-field arithmetic from `shared-numfield` and the algebraic structure of K 
 
 **NFS-DL** adapts the same relation structure for discrete logarithm computation. The
 integer exponents in `ExponentVector` are read directly (not reduced mod 2) and used in GF(ℓ)
-linear algebra. The `Relation` type is designed to support this adaptation without resharding.
+linear algebra. The `Relation` type is designed to support this adaptation without changing its
+format.
 
 ---
 
@@ -2004,7 +2006,7 @@ mathematical fact each one verifies. All tests are in `gnfs/tests/merge_kat.rs`.
 |------|---------------------------|
 | `kat_a_two_way_merge_correctness` | Weight-2 column eliminated; merged row has correct cols and provenance (both symmetric differences; disjoint here) |
 | `kat_b_determinism` | Full pipeline (build → singletons → prune → merge) is deterministic for a fixed corpus |
-| `kat_c_cado_nfs_oracle` | (Ignored) CADO-NFS oracle for filtered matrix dimensions — gated when CADO absent |
+| `kat_c_cado_nfs_oracle` | (Ignored placeholder; body is `unimplemented!()`, so it panics if run.) Invokes no external tool and checks nothing; a real version would compare filtered matrix dimensions with CADO-NFS's |
 | `kat_d_end_to_end_provenance` | For each final row, XOR of provenance relations' GF(2) column sets equals the row's cols |
 | `kat_prune_cliques_respects_excess_floor` | After pruning, `excess() == EXCESS_FLOOR` exactly when initial excess > floor |
 | `kat_exhaustive_small_matrices_lift_exactly` | For every 4×4 and 5×3 matrix, the lifted reduced kernel equals the brute-force kernel of the starting matrix |
@@ -2371,6 +2373,8 @@ pub fn apply_transpose(&self, v: &BlockVec) -> BlockVec {
 ```
 
 ### The `BLOCK_WIDTH` scale knob
+
+The constant's doc comment says, in substance (a paraphrase, not a verbatim quotation):
 
 ```rust
 /// Block width: 64 vectors packed into machine words.
@@ -2855,7 +2859,7 @@ with ℓ elements, where ℓ is a prime). The generalisation touches three point
 
 **`BlockVec` generalisation.** The GF(2)-specific packing (64 scalars per `u64`) is the scale
 knob. For F_ℓ, the natural generalisation is `data: Vec<[Scalar; BLOCK_WIDTH]>` where `Scalar`
-is the field element type. The `BlockVec` docstring annotates this:
+is the field element type. The `BlockVec` docstring says, in substance (a paraphrase, not a verbatim quotation):
 
 > For F_ℓ (ℓ > 2), the natural generalisation is `data: Vec<[Scalar; BLOCK_WIDTH]>` where
 > `Scalar` is the field element type. The GF(2) specialisation packs 64 scalars into one
@@ -2864,7 +2868,7 @@ is the field element type. The `BlockVec` docstring annotates this:
 
 **`MatrixOperator` generalisation.** The operator interface is already abstract: `apply` and
 `apply_transpose` take and return `BlockVec`. For F_ℓ, the same interface shape applies with
-scalar multiplication replacing the GF(2) XOR. The `MatrixOperator` docstring annotates:
+scalar multiplication replacing the GF(2) XOR. The `MatrixOperator` docstring says, in substance (a paraphrase, not a verbatim quotation):
 
 > For F_ℓ, the operator needs the same shape but with scalar multiplication. The natural
 > generalisation is a trait `LinearOperator<V>` with `apply(&self, v: &V) -> V` and
@@ -4620,7 +4624,8 @@ pub struct Relation {
 ```
 
 The `ExponentVector` stores sparse (factor-base index, exponent) pairs with `u32` exponents —
-not pre-reduced GF(2) parities. This is the load-bearing cross-track decision: filtering needs
+not pre-reduced GF(2) parities. This is the load-bearing choice shared by factoring and discrete
+logarithms: filtering needs
 integer exponents to detect exact duplicates; linear algebra reduces them mod 2 on demand; NFS-DL
 reads them mod ℓ for GF(ℓ) linear algebra. Pre-reducing to GF(2) would destroy the information
 NFS-DL needs.
@@ -4905,8 +4910,8 @@ consistent across them:
 
 The over-specification rule is: when an interface is consumed by multiple downstream stages with
 different needs, over-specify for the most demanding consumer. The cost of over-specification
-is a slightly larger data structure; the cost of under-specification is a destructive reshard
-of a stable interface.
+is a slightly larger data structure; the cost of under-specification is a breaking change
+to a stable interface.
 
 ---
 
@@ -4969,14 +4974,15 @@ they are not part of this verdict.
 
 ### Commitment: no new engineering optimisations
 
-**Statement.** CADO-NFS / msieve remain dev-only oracles, unchanged. No FFT sieve, no GPU
-acceleration, no large-prime variation, no distributed computation.
+**Statement.** CADO-NFS / msieve are external tools, not dependencies, and no test invokes them.
+No FFT sieve, no GPU acceleration, no large-prime variation, no distributed computation.
 
 **Verification.**
 
-- **CADO-NFS / msieve.** Both remain dev-only oracles, gated behind `#[ignore]` KATs. No
-  production dependency was added. The oracle KATs (`kat_c_cado_nfs_oracle` in `merge_kat.rs`,
-  `kat_c_cado_oracle_n35` in `lanczos_kat.rs`) are ignored in the standard test run.
+- **CADO-NFS / msieve.** Both are external tools; no dependency on either was added and no test
+  invokes them. The placeholder KATs named for them (`kat_c_cado_nfs_oracle` in `merge_kat.rs`,
+  `kat_c_cado_oracle_n35` in `lanczos_kat.rs`) are ignored in the standard test run and do not
+  call them.
 
 - **Sieve optimisations.** The line sieve uses the log-p mark-then-confirm pattern (the
   standard NFS sieve). No FFT-based sieve, no bucket sieve, no large-prime variation. The
@@ -5035,8 +5041,8 @@ phenomenon is silently omitted or misrepresented.
 
 - Algorithmic content complete: **pass** — every stage implemented, no stubs; the
   composition is demonstrated on the tested fixtures only.
-- No new engineering optimisations: **pass** — CADO-NFS / msieve remain
-  dev-only oracles; no FFT sieve, GPU, or distributed computation.
+- No new engineering optimisations: **pass** — CADO-NFS / msieve are external tools, not
+  dependencies, and no test invokes them; no FFT sieve, GPU, or distributed computation.
 - Scale-only at demonstration fidelity: **pass** — all scale-dependent
   phenomena annotated explicitly; one over-exposed phenomenon (bad primes) noted.
 
@@ -5455,7 +5461,8 @@ F_ℓ linear algebra (D.B, frozen D.B.1, extended D.B.2) takes the `DLMatrix` fr
 solves the linear system over the prime field $\mathbb{F}_\ell$ to recover the **virtual-log
 table**: the discrete logarithms $\log_g(p_i) \bmod \ell$ for each factor-base prime $p_i$.
 
-The key difference from NFS-factoring linear algebra is the field. In NFS-factoring (G.E), the
+The key difference from NFS-factoring linear algebra is the field. In NFS-factoring (the
+factoring pipeline's GF(2) linear-algebra stage), the
 linear system is over GF(2): the exponent parities must sum to zero, and the null-space vector
 identifies a candidate dependency (verified square roots then give the congruence of squares).
 In NFS-DL, the linear system is over $\mathbb{F}_\ell$: the
@@ -5786,7 +5793,8 @@ contribute to a single linear system over $\mathbb{F}_\ell$ rather than to a con
 
 **2. Schirokauer maps replacing quadratic-character columns.**
 
-In NFS-factoring (G.E), the obstruction columns are the **sign column** (one column, encoding
+In NFS-factoring (the factoring pipeline's GF(2) linear-algebra stage), the obstruction columns
+are the **sign column** (one column, encoding
 the parity of the rational factor's sign) and the **quadratic-character columns** (several
 columns, encoding Legendre-symbol parities of $a - b\cdot s$ at roots $s$ modulo auxiliary
 primes). The factoring target is that $\gamma = \prod (a - b\cdot\alpha)$ be a *square* in $K$,

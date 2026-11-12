@@ -25,7 +25,7 @@
 //! on the algebraic side (they exclude candidates but do not guarantee that an algebraic
 //! square root exists). The ``obstruction_count`` field reserves column indices for these;
 //! the line sieve does not populate them, but the slot exists so the linear algebra step
-//! can extend without resharding.
+//! can extend without changing the factor-base layout.
 //!
 //! # Bad primes
 //!
@@ -113,7 +113,7 @@ pub struct AlgebraicPrime {
 /// on the algebraic side and do not guarantee that an algebraic square root exists. The
 /// ``obstruction_count`` field reserves column indices for these;
 /// the line sieve does not populate them, but the slot exists so the linear algebra step
-/// can extend without resharding.
+/// can extend without changing the factor-base layout.
 #[derive(Debug, Clone)]
 pub struct FactorBase {
     /// Rational factor base: primes p ≤ B_rat, sorted ascending.

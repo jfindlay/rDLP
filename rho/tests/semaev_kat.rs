@@ -69,7 +69,8 @@
 //! 18. **`S_4` degree growth**: degree ≤ 4 in each variable (expected `2^(m-2) = 4` for `m=4`).
 //! 19. **`S_4` symmetry**: invariant under all permutations of its 4 arguments.
 //! 20. **`S_4` vanishing predicate agreement**: polynomial zero ⟺ group-law existence.
-//! 21. **Optional PARI sidecar** (`#[ignore]`): cross-check `S_4` roots via PARI/GP.
+//! 21. **PARI/GP-derived values** (`#[ignore]`): `S_4` vanishes at points derived with PARI/GP;
+//!     does not call `gp`.
 //!
 //! # Principle-4 boundary
 //!
@@ -1127,12 +1128,12 @@ fn s4_vanishing_predicate_agrees_with_group_law() {
 
 // ─── KAT 21: optional PARI sidecar ──────────────────────────────────────────
 
-/// Cross-check `S_4` roots via PARI/GP.
+/// Checks the vanishing of `S_4` at fixed `x`-coordinates, following the PARI/GP script below.
 ///
-/// This test is gated with `#[ignore]` because PARI is not installed in the standard
-/// CI environment. Run with `cargo test -- --ignored` when PARI is available.
+/// The test does not call `gp`: its body evaluates `semaev_poly` directly and needs no external
+/// tool. It is `#[ignore]`d.
 ///
-/// The PARI/GP script to verify:
+/// The PARI/GP script the expected values follow:
 ///
 /// ```text
 /// gp> p = 47; a = 1; b = 33;
@@ -1150,10 +1151,9 @@ fn s4_vanishing_predicate_agrees_with_group_law() {
 /// gp> \\ and compute resultant in X, then evaluate at remaining coords.
 /// ```
 #[test]
-#[ignore = "PARI not installed; run manually when available"]
+#[ignore = "asserts PARI/GP-derived values; does not call gp"]
 fn s4_pari_cross_check() {
-    // When PARI is available, verify S_4 vanishing via PARI/GP resultant computation.
-    // The test body is a placeholder — the actual cross-check requires a PARI subprocess.
+    // The body evaluates S_4 directly; it does not run a PARI subprocess.
     //
     // Expected: S_4(10, 10, 7, 7) = 0 (G + (-G) + 2G + (-2G) = ∞).
     // Expected: S_4(10, 7, 17, 19) = 0 (G + 2G + 3G + (-6G) = ∞).

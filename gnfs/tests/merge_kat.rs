@@ -252,19 +252,19 @@ fn kat_b_determinism() {
     }
 }
 
-// ─── KAT (c): CADO-NFS oracle (gated) ────────────────────────────────────────
+// ─── KAT (c): CADO-NFS comparison (unimplemented placeholder) ────────────────
 
-/// KAT (c): CADO-NFS oracle — gated when CADO is absent.
+/// KAT (c): placeholder for a comparison against CADO-NFS; it panics if run.
 ///
-/// When CADO-NFS is available, this test would:
+/// The body is `unimplemented!()`: it invokes no external tool and checks nothing. A real test
+/// would:
 /// 1. Run the full GNFS filtering pipeline at matched parameters.
 /// 2. Compare the filtered matrix dimensions (row count, column count, total weight)
 ///    against CADO's output within a tolerance (e.g., ±10% on row count).
 ///
-/// This test is ignored when CADO is not installed. To run manually:
-///   cargo test kat_c_cado_nfs_oracle -- --ignored
+/// It is ignored so that the default test run skips it.
 #[test]
-#[ignore = "CADO-NFS not installed; run manually when available"]
+#[ignore = "unimplemented placeholder: the body is unimplemented!(), so this panics if run"]
 fn kat_c_cado_nfs_oracle() {
     // Placeholder: when CADO-NFS is available, compare filtered matrix dimensions
     // against CADO's output at matched parameters (same polynomial, same factor base

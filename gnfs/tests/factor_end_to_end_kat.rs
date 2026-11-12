@@ -847,13 +847,10 @@ fn kat_pari_confirms_the_nonsquare_kernel_vectors_have_no_algebraic_root() {
 
 /// Factor a published 80–100-bit challenge using the full GNFS pipeline.
 ///
-/// This KAT requires CADO-NFS or msieve as an external oracle to verify the result. It is
-/// ignored by default; the deterministic fixtures above carry reproducibility without the oracle.
-///
-/// To run manually:
-/// ```
-/// cargo test --test factor_end_to_end_kat kat_c_oracle -- --ignored
-/// ```
+/// Unimplemented placeholder: the body is `todo!()`, so it panics if run and invokes no external
+/// tool. A real version would wire the full pipeline, factor the challenge, and verify the factor
+/// exactly (optionally against CADO-NFS or msieve output). It is ignored by default; the
+/// deterministic fixtures above carry the end-to-end checks.
 #[test]
 #[ignore = "unimplemented placeholder: the body is todo!(), so this fails if run; it needs the \
             full pipeline wired and a CADO-NFS or msieve oracle for an 80-100 bit challenge"]

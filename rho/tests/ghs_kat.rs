@@ -22,7 +22,8 @@
 //! - `ghs_descend(params, g, ∞) → D_h = zero divisor`.
 //!
 //! ### Optional PARI sidecar
-//! - `#[ignore]`-gated cross-check of `#Jac(C)(GF(2^2))` via PARI `hyperellcharpoly`.
+//! - `#[ignore]`d placeholder for a cross-check of `#Jac(C)(GF(2^2))` via PARI `hyperellcharpoly`;
+//!   it panics if run and does not call `gp`.
 //!
 //! ## GHS transfer map `E(GF(2^m)) → Jac(C)(GF(2^l))`
 //!
@@ -1813,15 +1814,12 @@ fn ghs_descend_log_preservation_direct_cantor_check() {
 
 // ── Optional PARI sidecar ─────────────────────────────────────────────────────
 
-/// Optional PARI cross-check: verify `#Jac(C)(GF(2^2))` via `hyperellcharpoly`.
+/// Placeholder for a PARI cross-check of `#Jac(C)(GF(2^2))` via `hyperellcharpoly`.
 ///
-/// This test is gated with `#[ignore]` and requires PARI/GP to be installed.
-/// Run manually with:
-/// ```text
-/// cargo test -p rho --test ghs_kat pari_hyperellcharpoly_cross_check -- --ignored
-/// ```
+/// The body is `unimplemented!()`: it panics if run and does not call `gp`. It is `#[ignore]`d so
+/// that the default run skips it.
 ///
-/// Expected PARI session for the GHS toy fixture:
+/// PARI session a real version would follow for the GHS toy fixture:
 /// ```text
 /// ? K = GF(2^2, 'a, a^2+a+1);
 /// ? C = hyperelliptic(Pol([1,1,0,1]*Mod(1,2)), Pol([0,1]*Mod(1,2)));
@@ -1835,9 +1833,9 @@ fn ghs_descend_log_preservation_direct_cantor_check() {
 /// The divisibility check: `#Jac(C)(GF(2^l))` divides `#E(GF(2^m))` (the descent
 /// is a group homomorphism, so the image divides the source order).
 #[test]
-#[ignore = "PARI not installed; run manually when available"]
+#[ignore = "unimplemented placeholder: the body is unimplemented!() and does not call gp"]
 fn pari_hyperellcharpoly_cross_check() {
-    // Placeholder: when PARI is available, verify that the Jacobian group order
+    // Placeholder: a real version would verify that the Jacobian group order
     // of the descended curve C/GF(2^2) matches the PARI computation.
     //
     // The GHS toy fixture:

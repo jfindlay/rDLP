@@ -240,19 +240,20 @@ fn kat_b3_exact_count_is_stable() {
     );
 }
 
-// ─── KAT (c): CADO-NFS oracle (gated with #[ignore]) ─────────────────────────
+// ─── KAT (c): CADO-NFS comparison (stub; compares the sieve with itself) ─────
 
-/// KAT (c): CADO-NFS oracle cross-check.
+/// KAT (c): stub for a relation-count comparison against CADO-NFS.
 ///
-/// This test is gated with ``#[ignore]`` because CADO-NFS is not installed in the standard
-/// dev environment. Run manually with:
+/// The test invokes no external tool. Its body sets the "CADO count" to the line sieve's own
+/// relation count and asserts that count is at least a third of itself, which holds trivially, so
+/// it checks nothing about the sieve. It is `#[ignore]`d; run it with
 ///
 /// ```text
 /// cargo test -- --ignored kat_c_cado_nfs_oracle
 /// ```
 ///
-/// when CADO-NFS is available. The test checks that the relation count from the line sieve
-/// is within a tolerance of the CADO-NFS relation count for the same parameters.
+/// A real comparison would check that the line sieve's relation count is within a tolerance of
+/// the CADO-NFS relation count for the same parameters.
 ///
 /// # CADO-NFS parameters (for reference)
 ///
@@ -281,10 +282,10 @@ fn kat_b3_exact_count_is_stable() {
 /// large-prime relations (cofactor ≤ lpb^2), so its count will typically be higher. The
 /// tolerance is set to allow CADO to find up to 3× more relations than the baseline.
 #[test]
-#[ignore = "CADO-NFS not installed; run manually when available"]
+#[ignore = "stub: compares the sieve's relation count with itself; no CADO-NFS is invoked"]
 fn kat_c_cado_nfs_oracle() {
-    // This test requires CADO-NFS to be installed and accessible as `cado-nfs.py`.
-    // It runs CADO-NFS on the toy polynomial pair and compares the relation count.
+    // A real version would run `cado-nfs.py` on the toy polynomial pair and compare the
+    // relation count; this stub does not.
     //
     // The test is intentionally left as a stub: the actual CADO invocation would require
     // a parameter file and output parsing that depends on the CADO-NFS version and

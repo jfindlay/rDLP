@@ -672,11 +672,11 @@ describe them. Such primes must be handled by Round 2 or reported as unresolved.
 
 ---
 
-## 10. Cross-Track Implications
+## 10. Downstream Use of the Interfaces
 
-### How the contracts are consumed downstream
+### Which components consume each interface
 
-The interfaces of this crate are consumed by several downstream components:
+The interfaces of this crate are consumed by several other components:
 
 | Interface | Consumed by |
 |-----------|-------------|

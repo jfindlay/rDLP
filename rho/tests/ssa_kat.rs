@@ -16,14 +16,15 @@
 //! - A 2-torsion point (`y = 0`) on a test curve errors via `HenselError::NonSimpleRoot`; the
 //!   identity errors as `LiftError::PointAtInfinity`; `LiftError` carries its cause as the `source`.
 //! - Lifts at precision k=1 and k=2 agree with the hand-computed values.
-//! - A PARI/GP cross-check of the lift (`#[ignore]`).
+//! - A test (`#[ignore]`) asserting the lift value recorded from PARI/GP; it does not call `gp`.
 //!
 //! # KAT coverage — SSA reduction
 //!
 //! - `ssa_solve` recovers k=3 (and k=1, k=6) from Q = k·G on the anomalous fixture.
 //! - `solve_brent` (independent rho solver) also recovers k=3 — cross-check.
 //! - `ssa_solve` returns `SsaError::NotAnomalous` on a non-anomalous curve.
-//! - A PARI/GP cross-check of the reduction (`#[ignore]`).
+//! - A test (`#[ignore]`) asserting the reduction's answer recorded from PARI/GP; it does not call
+//!   `gp`.
 //! - `ssa_solve` recovers every `k` in `1..p` on the fixture.
 //! - `Q = ∞` returns `Ok(0)`, on the fixture and on a non-anomalous curve.
 //! - A prime that does not fit 64 bits is `Unsupported` for both `verify_anomalous` and
@@ -380,20 +381,19 @@ fn kat_lift_precision_2() {
     assert!(on_curve, "lifted (3, 2) at k=2 must satisfy the curve equation mod 49");
 }
 
-// ─── optional PARI cross-check ────────────────────────────────────────────────
+// ─── value recorded from PARI/GP ──────────────────────────────────────────────
 
-/// PARI/GP cross-check for the Hensel lift of `y² = 32` over `Z_7` to precision 4.
+/// Asserts a value recorded from PARI/GP for the Hensel lift of `y² = 32` over `Z_7`, precision 4.
 ///
-/// Run manually with PARI installed:
+/// The test does not call `gp`; the value was obtained once with:
 /// ```text
 /// gp> p = 7; k = 4; f = y^2 - 32; y0 = 2; liftall(polrootsmod(f, p^k))
 /// ```
 /// Expected: `y = 940` (the unique root of `y² − 32 = 0` mod `7^4` with `y ≡ 2 mod 7`).
 ///
-/// This test is gated with `#[ignore]` because PARI is not installed in the standard
-/// CI environment. Run with `cargo test -- --ignored` when PARI is available.
+/// It is `#[ignore]`d and needs no external tool when run with `cargo test -- --ignored`.
 #[test]
-#[ignore = "PARI not installed; run manually when available"]
+#[ignore = "asserts a value recorded from PARI/GP; does not call gp"]
 fn kat_lift_pari_cross_check() {
     // PARI/GP: liftall(polrootsmod(y^2 - 32, 7^4)) should include 940.
     let curve = anomalous_toy();
@@ -536,18 +536,17 @@ fn kat_ssa_solve_not_anomalous() {
     );
 }
 
-/// Optional PARI/GP cross-check for the SSA reduction.
+/// Asserts a value recorded from PARI/GP for the SSA reduction.
 ///
-/// Run manually with PARI installed:
+/// The test does not call `gp`; the value was obtained once with:
 /// ```text
 /// gp> E = ellinit([0, 5], 7); G = [3, 2]; Q = [6, 5]; elllog(E, Q, G)
 /// ```
 /// Expected: `3` (the discrete log of Q = 3·G on y² = x³ + 5 over F_7).
 ///
-/// This test is gated with `#[ignore]` because PARI is not installed in the standard
-/// CI environment. Run with `cargo test -- --ignored` when PARI is available.
+/// It is `#[ignore]`d and needs no external tool when run with `cargo test -- --ignored`.
 #[test]
-#[ignore = "PARI not installed; run manually when available"]
+#[ignore = "asserts a value recorded from PARI/GP; does not call gp"]
 fn kat_ssa_pari_cross_check() {
     // PARI/GP: elllog(ellinit([0,5],7), [6,5], [3,2]) should return 3.
     let curve = anomalous_toy();
